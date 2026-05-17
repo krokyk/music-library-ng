@@ -1,0 +1,86 @@
+plugins {
+    id 'java'
+    id 'io.quarkus'
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+dependencies {
+    implementation enforcedPlatform("${quarkusPlatformGroupId}:${quarkusPlatformArtifactId}:${quarkusPlatformVersion}")
+    implementation 'io.quarkus:quarkus-flyway'
+    implementation 'io.quarkus:quarkus-rest-jackson'
+    implementation 'io.quarkiverse.jdbc:quarkus-jdbc-sqlite:3.0.11'
+    implementation 'io.quarkus:quarkus-arc'
+    implementation 'io.quarkus:quarkus-rest'
+    testImplementation 'io.quarkus:quarkus-junit'
+    testImplementation 'io.rest-assured:rest-assured'
+}
+
+group = 'org.kroky'
+version = '1.0.0-SNAPSHOT'
+
+def frontendDir = layout.projectDirectory.dir('frontend')
+def frontendDistDir = frontendDir.dir('dist')
+def generatedFrontendDir = layout.buildDirectory.dir('generated/frontend')
+
+def npmCommand(String command) {
+    if (System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows')) {
+        return ['cmd', '/c', command]
+    }
+    return ['bash', '-lc', "source \"\$HOME/.nvm/nvm.sh\" 2>/dev/null || true; ${command}"]
+}
+
+tasks.register('frontendInstall', Exec) {
+    workingDir frontendDir.asFile
+    commandLine npmCommand('npm install')
+    inputs.file(frontendDir.file('package.json'))
+    inputs.file(frontendDir.file('package-lock.json')).optional()
+    outputs.dir(frontendDir.dir('node_modules'))
+}
+
+tasks.register('frontendBuild', Exec) {
+    dependsOn tasks.named('frontendInstall')
+    workingDir frontendDir.asFile
+    commandLine npmCommand('npm run build')
+    inputs.dir(frontendDir.dir('src'))
+    inputs.file(frontendDir.file('index.html'))
+    inputs.file(frontendDir.file('package.json'))
+    inputs.file(frontendDir.file('tsconfig.json'))
+    inputs.file(frontendDir.file('vite.config.ts'))
+    outputs.dir(frontendDistDir)
+}
+
+tasks.register('copyFrontend', Copy) {
+    dependsOn tasks.named('frontendBuild')
+    from(frontendDistDir)
+    into(generatedFrontendDir.map { it.dir('META-INF/resources') })
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDir generatedFrontendDir
+        }
+    }
+}
+
+tasks.named('processResources') {
+    dependsOn tasks.named('copyFrontend')
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+compileJava {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '-parameters'
+}
+
+compileTestJava {
+    options.encoding = 'UTF-8'
+}
