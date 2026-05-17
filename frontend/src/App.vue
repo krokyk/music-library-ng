@@ -5,7 +5,7 @@
       <v-divider></v-divider>
       <v-list nav>
         <v-list-item prepend-icon="mdi-music-box-multiple" title="Library" to="/"></v-list-item>
-        <v-list-item prepend-icon="mdi-folder-cog" title="Sources" to="/sources"></v-list-item>
+        <v-list-item prepend-icon="mdi-folder-cog" title="Collections" to="/collections"></v-list-item>
       </v-list>
     </v-navigation-drawer>
 

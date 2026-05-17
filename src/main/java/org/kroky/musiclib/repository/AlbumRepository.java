@@ -35,11 +35,11 @@ public class AlbumRepository {
         LOG.debugf("Listing albums artistId=%s status=%s search='%s'", artistId, status, search);
         String sql = """
                 SELECT a.id, a.artist_id, ar.name AS artist_name, a.title, a.release_year, a.status,
-                       a.relative_path, a.source_id, ms.name AS source_name, ms.relative_path AS source_relative_path,
+                       a.relative_path, a.collection_id, ms.name AS collection_name, ms.relative_path AS collection_relative_path,
                        a.created_at, a.updated_at
                 FROM albums a
                 JOIN artists ar ON ar.id = a.artist_id
-                LEFT JOIN music_sources ms ON ms.id = a.source_id
+                LEFT JOIN collections ms ON ms.id = a.collection_id
                 WHERE (? IS NULL OR a.artist_id = ?)
                   AND (? IS NULL OR a.status = ?)
                   AND (? IS NULL OR a.normalized_title LIKE '%' || ? || '%' OR ar.normalized_name LIKE '%' || ? || '%')
@@ -71,11 +71,11 @@ public class AlbumRepository {
         LOG.tracef("Finding album id=%d", id);
         String sql = """
                 SELECT a.id, a.artist_id, ar.name AS artist_name, a.title, a.release_year, a.status,
-                       a.relative_path, a.source_id, ms.name AS source_name, ms.relative_path AS source_relative_path,
+                       a.relative_path, a.collection_id, ms.name AS collection_name, ms.relative_path AS collection_relative_path,
                        a.created_at, a.updated_at
                 FROM albums a
                 JOIN artists ar ON ar.id = a.artist_id
-                LEFT JOIN music_sources ms ON ms.id = a.source_id
+                LEFT JOIN collections ms ON ms.id = a.collection_id
                 WHERE a.id = ?
                 """;
         try (Connection connection = dataSource.getConnection();
@@ -90,28 +90,28 @@ public class AlbumRepository {
     }
 
     public UpsertResult upsertScanned(long artistId, String title, Integer releaseYear, AlbumStatus status,
-            String relativePath, String sourceId) {
-        LOG.debugf("Upserting scanned album artistId=%d title='%s' year=%s sourceId=%s",
-                artistId, title, releaseYear, sourceId);
+            String relativePath, String collectionId) {
+        LOG.debugf("Upserting scanned album artistId=%d title='%s' year=%s collectionId=%s",
+                artistId, title, releaseYear, collectionId);
         Optional<Album> existing = findDuplicate(artistId, title, releaseYear);
         if (existing.isPresent()) {
-            update(existing.get().id(), title, releaseYear, status, relativePath, sourceId);
+            update(existing.get().id(), title, releaseYear, status, relativePath, collectionId);
             return new UpsertResult(existing.get().id(), false);
         }
-        return new UpsertResult(create(artistId, title, releaseYear, status, relativePath, sourceId).id(), true);
+        return new UpsertResult(create(artistId, title, releaseYear, status, relativePath, collectionId).id(), true);
     }
 
     public Album create(long artistId, String title, Integer releaseYear, AlbumStatus status, String relativePath,
-            String sourceId) {
-        LOG.infof("Creating album artistId=%d title='%s' year=%s status=%s sourceId=%s",
-                artistId, title, releaseYear, status, sourceId);
+            String collectionId) {
+        LOG.infof("Creating album artistId=%d title='%s' year=%s status=%s collectionId=%s",
+                artistId, title, releaseYear, status, collectionId);
         String sql = """
-                INSERT INTO albums (artist_id, title, normalized_title, release_year, status, relative_path, source_id)
+                INSERT INTO albums (artist_id, title, normalized_title, release_year, status, relative_path, collection_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            bindAlbum(statement, artistId, title, releaseYear, status, relativePath, sourceId);
+            bindAlbum(statement, artistId, title, releaseYear, status, relativePath, collectionId);
             statement.executeUpdate();
             try (ResultSet keys = statement.getGeneratedKeys()) {
                 if (keys.next()) {
@@ -125,13 +125,13 @@ public class AlbumRepository {
     }
 
     public Optional<Album> update(long id, String title, Integer releaseYear, AlbumStatus status, String relativePath,
-            String sourceId) {
-        LOG.infof("Updating album id=%d title='%s' year=%s status=%s sourceId=%s",
-                id, title, releaseYear, status, sourceId);
+            String collectionId) {
+        LOG.infof("Updating album id=%d title='%s' year=%s status=%s collectionId=%s",
+                id, title, releaseYear, status, collectionId);
         String sql = """
                 UPDATE albums
                 SET title = ?, normalized_title = ?, release_year = ?, status = ?,
-                    relative_path = ?, source_id = ?, updated_at = CURRENT_TIMESTAMP
+                    relative_path = ?, collection_id = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """;
         try (Connection connection = dataSource.getConnection();
@@ -141,7 +141,7 @@ public class AlbumRepository {
             setNullableInt(statement, 3, releaseYear);
             statement.setString(4, status.name());
             statement.setString(5, blankToNull(relativePath));
-            statement.setString(6, blankToNull(sourceId));
+            statement.setString(6, blankToNull(collectionId));
             statement.setLong(7, id);
             statement.executeUpdate();
             return find(id);
@@ -164,11 +164,11 @@ public class AlbumRepository {
     private Optional<Album> findDuplicate(long artistId, String title, Integer releaseYear) {
         String sql = """
                 SELECT a.id, a.artist_id, ar.name AS artist_name, a.title, a.release_year, a.status,
-                       a.relative_path, a.source_id, ms.name AS source_name, ms.relative_path AS source_relative_path,
+                       a.relative_path, a.collection_id, ms.name AS collection_name, ms.relative_path AS collection_relative_path,
                        a.created_at, a.updated_at
                 FROM albums a
                 JOIN artists ar ON ar.id = a.artist_id
-                LEFT JOIN music_sources ms ON ms.id = a.source_id
+                LEFT JOIN collections ms ON ms.id = a.collection_id
                 WHERE a.artist_id = ? AND a.normalized_title = ?
                   AND ((? IS NULL AND a.release_year IS NULL) OR a.release_year = ?)
                 """;
@@ -187,14 +187,14 @@ public class AlbumRepository {
     }
 
     private void bindAlbum(PreparedStatement statement, long artistId, String title, Integer releaseYear,
-            AlbumStatus status, String relativePath, String sourceId) throws Exception {
+            AlbumStatus status, String relativePath, String collectionId) throws Exception {
         statement.setLong(1, artistId);
         statement.setString(2, title);
         statement.setString(3, Names.normalize(title));
         setNullableInt(statement, 4, releaseYear);
         statement.setString(5, status.name());
         statement.setString(6, blankToNull(relativePath));
-        statement.setString(7, blankToNull(sourceId));
+        statement.setString(7, blankToNull(collectionId));
     }
 
     private Album map(ResultSet rs) throws Exception {
@@ -206,22 +206,22 @@ public class AlbumRepository {
                 (Integer) rs.getObject("release_year"),
                 AlbumStatus.valueOf(rs.getString("status")),
                 rs.getString("relative_path"),
-                resolvedPath(rs.getString("source_relative_path"), rs.getString("relative_path")),
-                rs.getString("source_id"),
-                rs.getString("source_name"),
+                resolvedPath(rs.getString("collection_relative_path"), rs.getString("relative_path")),
+                rs.getString("collection_id"),
+                rs.getString("collection_name"),
                 rs.getString("created_at"),
                 rs.getString("updated_at"));
     }
 
-    private String resolvedPath(String sourceRelativePath, String albumRelativePath) {
-        if (sourceRelativePath == null || albumRelativePath == null) {
+    private String resolvedPath(String collectionRelativePath, String albumRelativePath) {
+        if (collectionRelativePath == null || albumRelativePath == null) {
             return null;
         }
         try {
-            return musicRootService.resolveAlbum(sourceRelativePath, albumRelativePath).toString();
+            return musicRootService.resolveAlbum(collectionRelativePath, albumRelativePath).toString();
         } catch (IllegalStateException e) {
-            LOG.debugf("Cannot resolve album path source=%s album=%s: %s",
-                    sourceRelativePath, albumRelativePath, e.getMessage());
+            LOG.debugf("Cannot resolve album path collection=%s album=%s: %s",
+                    collectionRelativePath, albumRelativePath, e.getMessage());
             return null;
         }
     }

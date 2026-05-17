@@ -9,7 +9,7 @@ codebase can be inspected and resumed without rediscovering intent.
 - [x] Keep the app local-first and runnable from multiple PCs through a Google Drive synced SQLite file.
 - [x] Make the HTTP port configurable with default `8795`.
 - [x] Support manual artist/album entry even when nothing exists on disk.
-- [x] Support configurable disk sources, including initially enabled and ignored sources.
+- [x] Support configurable disk collections, including initially enabled and ignored collections.
 - [x] Package the Vue/Vuetify frontend into the Quarkus app for single-command use.
 - [ ] Add a Derby import tool for the legacy `music-library` database.
 
@@ -17,12 +17,12 @@ codebase can be inspected and resumed without rediscovering intent.
 
 - [x] Add `application.properties` defaults.
 - [x] Add config file support through Quarkus config locations.
-- [x] Define source entries with `id`, `name`, `relative-path`, `parser`, and `enabled`.
+- [x] Define collection entries with `id`, `name`, `relative-path`, `parser`, and `enabled`.
 - [x] Add music root detection using only approved `_vyber` candidates and marker playlists.
 - [x] Store only paths relative to the runtime music root in SQLite.
-- [x] Add default sources for the current `_vyber` folders.
+- [x] Add default collections for the current `_vyber` folders.
 - [x] Mark `CLASSICAL` and `CZECH & SLOVAK` as disabled for the initial release.
-- [ ] Add a UI settings page for editing sources.
+- [ ] Add a UI settings page for editing collections.
 - [ ] Add app-level lock file and warning if another machine appears to be using the DB.
 - [ ] Add startup/shutdown backup handling.
 
@@ -30,7 +30,7 @@ codebase can be inspected and resumed without rediscovering intent.
 
 - [x] Add SQLite/Flyway schema.
 - [x] Use numeric IDs instead of artist names as primary keys.
-- [x] Add artists, albums, music sources, scan runs, and scan events.
+- [x] Add artists, albums, collections, scan runs, and scan events.
 - [x] Store relative disk path and status separately.
 - [x] Add indexes for search and uniqueness.
 - [ ] Add schema migrations for provider IDs: MusicBrainz, Discogs, TheAudioDB.
@@ -42,8 +42,8 @@ codebase can be inspected and resumed without rediscovering intent.
 - [x] Add health endpoint.
 - [x] Add artist CRUD endpoints.
 - [x] Add album CRUD endpoints.
-- [x] Add scan sources endpoint.
-- [x] Add scan endpoint for configured sources.
+- [x] Add collections endpoint.
+- [x] Add scan endpoint for configured collections.
 - [x] Parse standard folders: `artist - year - album`.
 - [x] Parse soundtrack/musical folders: `title (artist, year)`.
 - [x] Upsert scanned albums as checked/owned.
@@ -64,7 +64,7 @@ codebase can be inspected and resumed without rediscovering intent.
 - [ ] Add inline checkbox/status editing for albums.
 - [ ] Add inline artist URL/name editing where safe.
 - [x] Add manual artist and album controls.
-- [x] Add scan source view.
+- [x] Add scan collection view.
 - [ ] Add settings page.
 - [ ] Add job progress UI.
 - [x] Wire frontend build output into `src/main/resources/META-INF/resources`.
@@ -74,7 +74,7 @@ codebase can be inspected and resumed without rediscovering intent.
 - [x] Document local prerequisites and install options.
 - [x] Document run commands.
 - [x] Document SQLite-on-Google-Drive usage.
-- [x] Document source configuration.
+- [x] Document collection configuration.
 - [ ] Add screenshots after the real Vue/Vuetify UI is running.
 - [ ] Document legacy Derby import.
 - [ ] Document release packaging.

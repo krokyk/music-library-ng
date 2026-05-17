@@ -7,5 +7,5 @@ public record ParsedAlbum(
         String title,
         Integer releaseYear,
         Path relativePath,
-        String sourceId) {
+        String collectionId) {
 }

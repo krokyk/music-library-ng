@@ -67,15 +67,15 @@ public class MusicRootService {
         return info();
     }
 
-    public Path resolveSource(String sourceRelativePath) {
-        return requireRoot().resolve(sourceRelativePath);
+    public Path resolveCollection(String collectionRelativePath) {
+        return requireRoot().resolve(collectionRelativePath);
     }
 
-    public Path resolveAlbum(String sourceRelativePath, String albumRelativePath) {
+    public Path resolveAlbum(String collectionRelativePath, String albumRelativePath) {
         if (albumRelativePath == null || albumRelativePath.isBlank()) {
             return null;
         }
-        return resolveSource(sourceRelativePath).resolve(albumRelativePath);
+        return resolveCollection(collectionRelativePath).resolve(albumRelativePath);
     }
 
     private List<RootCandidate> candidates() {

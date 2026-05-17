@@ -2,8 +2,8 @@ package org.kroky.musiclib.model;
 
 public record ScanRun(
         long id,
-        String sourceId,
-        String sourceName,
+        String collectionId,
+        String collectionName,
         String startedAt,
         String finishedAt,
         String status,

@@ -1,11 +1,11 @@
 import { defineStore } from 'pinia'
 import { apiGet, apiSend } from '@/api'
-import type { Album, AlbumStatus, Artist, MusicRootInfo, MusicSource, ScanEvent, ScanRun } from '@/types'
+import type { Album, AlbumStatus, Artist, MusicRootInfo, MusicCollection, ScanEvent, ScanRun } from '@/types'
 
 interface State {
   artists: Artist[]
   albums: Album[]
-  sources: MusicSource[]
+  collections: MusicCollection[]
   musicRoot: MusicRootInfo | null
   scanRuns: ScanRun[]
   scanEvents: Record<number, ScanEvent[]>
@@ -17,7 +17,7 @@ export const useLibraryStore = defineStore('library', {
   state: (): State => ({
     artists: [],
     albums: [],
-    sources: [],
+    collections: [],
     musicRoot: null,
     scanRuns: [],
     scanEvents: {},
@@ -29,15 +29,15 @@ export const useLibraryStore = defineStore('library', {
       this.loading = true
       this.error = null
       try {
-        const [artists, albums, sources, musicRoot] = await Promise.all([
+        const [artists, albums, collections, musicRoot] = await Promise.all([
           apiGet<Artist[]>('/api/artists'),
           apiGet<Album[]>('/api/albums'),
-          apiGet<MusicSource[]>('/api/sources'),
+          apiGet<MusicCollection[]>('/api/collections'),
           apiGet<MusicRootInfo>('/api/settings/music-root'),
         ])
         this.artists = artists
         this.albums = albums
-        this.sources = sources
+        this.collections = collections
         this.musicRoot = musicRoot
         this.scanRuns = await apiGet<ScanRun[]>('/api/scan/runs?limit=25')
       } catch (error) {
@@ -50,8 +50,8 @@ export const useLibraryStore = defineStore('library', {
       await apiSend<Artist>('/api/artists', 'POST', { name })
       await this.loadAll()
     },
-    async addAlbum(artistId: number, title: string, releaseYear: number | null, status: AlbumStatus, sourceId?: string | null) {
-      await apiSend<Album>('/api/albums', 'POST', { artistId, title, releaseYear, status, sourceId })
+    async addAlbum(artistId: number, title: string, releaseYear: number | null, status: AlbumStatus, collectionId?: string | null) {
+      await apiSend<Album>('/api/albums', 'POST', { artistId, title, releaseYear, status, collectionId })
       await this.loadAll()
     },
     async updateAlbum(album: Album) {
@@ -61,12 +61,12 @@ export const useLibraryStore = defineStore('library', {
         releaseYear: album.releaseYear,
         status: album.status,
         relativePath: album.relativePath,
-        sourceId: album.sourceId,
+        collectionId: album.collectionId,
       })
       await this.loadAll()
     },
-    async scan(sourceId?: string) {
-      const query = sourceId ? `?sourceId=${encodeURIComponent(sourceId)}` : ''
+    async scan(collectionId?: string) {
+      const query = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : ''
       await apiSend(`/api/scan${query}`, 'POST')
       await this.loadAll()
     },

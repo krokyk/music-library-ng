@@ -18,13 +18,13 @@ export interface Album {
   status: AlbumStatus
   relativePath?: string | null
   resolvedPath?: string | null
-  sourceId?: string | null
-  sourceName?: string | null
+  collectionId?: string | null
+  collectionName?: string | null
   createdAt: string
   updatedAt: string
 }
 
-export interface MusicSource {
+export interface MusicCollection {
   id: string
   name: string
   relativePath: string
@@ -54,8 +54,8 @@ export interface MusicRootInfo {
 
 export interface ScanRun {
   id: number
-  sourceId?: string | null
-  sourceName?: string | null
+  collectionId?: string | null
+  collectionName?: string | null
   startedAt: string
   finishedAt?: string | null
   status: string

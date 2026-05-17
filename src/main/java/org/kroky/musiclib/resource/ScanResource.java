@@ -28,12 +28,12 @@ public class ScanResource {
     ScanRunRepository scanRuns;
 
     @POST
-    public List<ScanSummary> scan(@QueryParam("sourceId") String sourceId) {
-        LOG.warnf("Scan requested sourceId=%s", sourceId);
-        if (sourceId == null || sourceId.isBlank()) {
+    public List<ScanSummary> scan(@QueryParam("collectionId") String collectionId) {
+        LOG.warnf("Scan requested collectionId=%s", collectionId);
+        if (collectionId == null || collectionId.isBlank()) {
             return scanService.scanAllEnabled();
         }
-        return List.of(scanService.scan(sourceId));
+        return List.of(scanService.scan(collectionId));
     }
 
     @GET

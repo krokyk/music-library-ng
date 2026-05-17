@@ -24,8 +24,8 @@ public interface MusicLibraryConfig {
     @WithName("root-detection")
     RootDetection rootDetection();
 
-    @WithName("scan-sources")
-    List<ScanSource> scanSources();
+    @WithName("collections")
+    List<MusicCollectionConfig> collections();
 
     interface Scan {
         @WithName("default-status")
@@ -39,7 +39,7 @@ public interface MusicLibraryConfig {
         List<String> markers();
     }
 
-    interface ScanSource {
+    interface MusicCollectionConfig {
         String id();
 
         String name();

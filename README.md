@@ -14,13 +14,13 @@ SQLite database lives in a Google Drive synced folder.
 - Serves a Vue 3 + Vuetify frontend from the Quarkus app.
 - Stores data in SQLite with Flyway migrations.
 - Default HTTP port is `8795`.
-- Supports configurable scan sources.
-- Supports collection groups based on disk folders, for example Power Metal,
+- Supports configurable scan collections.
+- Supports collections based on disk folders, for example Power Metal,
   Melodeath, Rock, Soundtracks, and Musicals.
 - Scans standard folders named `artist - year - album`.
 - Scans soundtrack/musical folders named `title (artist, year)`.
 - Allows manual artist and checked album entry even if nothing exists on disk.
-- Allows manually added albums to be assigned to a collection group.
+- Allows manually added albums to be assigned to a collection.
 
 ## Tooling
 
@@ -156,11 +156,11 @@ music-library.db.path=e:/Google Drive/Apps/MusicLibrary/music-library.sqlite
 music-library.backup.directory=e:/Google Drive/Apps/MusicLibrary/backups
 music-library.music-root=G:/My Drive/Music/_vyber
 
-music-library.scan-sources[0].id=power-metal
-music-library.scan-sources[0].name=Power Metal
-music-library.scan-sources[0].relative-path=POWER METAL
-music-library.scan-sources[0].parser=ARTIST_YEAR_ALBUM
-music-library.scan-sources[0].enabled=true
+music-library.collections[0].id=power-metal
+music-library.collections[0].name=Power Metal
+music-library.collections[0].relative-path=POWER METAL
+music-library.collections[0].parser=ARTIST_YEAR_ALBUM
+music-library.collections[0].enabled=true
 ```
 
 Run with the external config:
@@ -196,7 +196,7 @@ music-library.root-detection.markers[2]=POWER METAL.m3u8
 ```
 
 If a machine needs a different path, add it manually in the machine-specific
-config. Source and album paths in the DB should remain relative.
+config. Collection and album paths in the DB should remain relative.
 
 ## Logging
 
@@ -247,7 +247,7 @@ java '-Dquarkus.log.category."org.kroky.musiclib".level=TRACE' \
   -jar build/quarkus-app/quarkus-run.jar
 ```
 
-## Scan Source Parsers
+## Scan Collection Parsers
 
 Standard music folders:
 
@@ -273,9 +273,9 @@ Example:
 The Fountain (Clint Mansell, 2006)
 ```
 
-The configured source itself acts as the collection group/genre bucket. For
-example, an album found under the Power Metal source is stored with
-`sourceId=power-metal`.
+The configured collection itself acts as the folder/genre bucket. For example,
+an album found under the Power Metal collection is stored with
+`collectionId=power-metal`.
 
 ## SQLite On Google Drive
 
@@ -293,7 +293,7 @@ Future work in `PLAN.md` includes a lock file and automatic backups.
 
 ```bash
 curl http://localhost:8795/api/health
-curl http://localhost:8795/api/sources
+curl http://localhost:8795/api/collections
 curl http://localhost:8795/api/artists
 curl http://localhost:8795/api/albums
 ```
@@ -311,19 +311,19 @@ Create a checked album:
 ```bash
 curl -X POST http://localhost:8795/api/albums \
   -H 'Content-Type: application/json' \
-  -d '{"artistId":1,"title":"Example Album","releaseYear":2026,"status":"CHECKED","sourceId":"power-metal"}'
+  -d '{"artistId":1,"title":"Example Album","releaseYear":2026,"status":"CHECKED","collectionId":"power-metal"}'
 ```
 
-Scan all enabled sources:
+Scan all enabled collections:
 
 ```bash
 curl -X POST http://localhost:8795/api/scan
 ```
 
-Scan one source:
+Scan one collection:
 
 ```bash
-curl -X POST 'http://localhost:8795/api/scan?sourceId=power-metal'
+curl -X POST 'http://localhost:8795/api/scan?collectionId=power-metal'
 ```
 
 ## Quarkus Project Generation

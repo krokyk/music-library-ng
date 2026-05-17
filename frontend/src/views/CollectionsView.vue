@@ -4,7 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 
 const store = useLibraryStore()
-const { sources, scanRuns, scanEvents, musicRoot, loading, error } = storeToRefs(store)
+const { collections, scanRuns, scanEvents, musicRoot, loading, error } = storeToRefs(store)
 
 onMounted(() => store.loadAll())
 </script>
@@ -14,7 +14,7 @@ onMounted(() => store.loadAll())
     <v-alert v-if="error" type="error" variant="tonal" class="mb-4">{{ error }}</v-alert>
 
     <div class="d-flex align-center justify-space-between mb-4">
-      <h1 class="text-h5">Scan Sources</h1>
+      <h1 class="text-h5">Scan Collections</h1>
       <v-btn color="primary" :loading="loading" prepend-icon="mdi-database-search" @click="store.scan()">Scan enabled</v-btn>
     </div>
 
@@ -80,27 +80,27 @@ onMounted(() => store.loadAll())
         </tr>
       </thead>
       <tbody>
-        <tr v-for="source in sources" :key="source.id">
-          <td>{{ source.name }}</td>
-          <td>{{ source.parser }}</td>
+        <tr v-for="collection in collections" :key="collection.id">
+          <td>{{ collection.name }}</td>
+          <td>{{ collection.parser }}</td>
           <td>
-            <v-chip :color="source.enabled ? 'success' : 'default'" size="small">{{ source.enabled ? 'yes' : 'no' }}</v-chip>
+            <v-chip :color="collection.enabled ? 'success' : 'default'" size="small">{{ collection.enabled ? 'yes' : 'no' }}</v-chip>
           </td>
-          <td>{{ source.relativePath }}</td>
+          <td>{{ collection.relativePath }}</td>
           <td>
-            <v-chip :color="source.exists ? 'success' : 'warning'" size="small" class="mr-2">
-              {{ source.exists ? 'exists' : 'missing' }}
+            <v-chip :color="collection.exists ? 'success' : 'warning'" size="small" class="mr-2">
+              {{ collection.exists ? 'exists' : 'missing' }}
             </v-chip>
-            {{ source.resolvedPath ?? '' }}
+            {{ collection.resolvedPath ?? '' }}
           </td>
-          <td>{{ source.lastScanMessage ?? source.lastScanStatus ?? '' }}</td>
+          <td>{{ collection.lastScanMessage ?? collection.lastScanStatus ?? '' }}</td>
           <td class="text-right">
             <v-btn
               size="small"
               variant="text"
-              :disabled="!source.enabled"
+              :disabled="!collection.enabled"
               prepend-icon="mdi-play"
-              @click="store.scan(source.id)"
+              @click="store.scan(collection.id)"
             >
               Scan
             </v-btn>
@@ -123,7 +123,7 @@ onMounted(() => store.loadAll())
               >
                 {{ run.status }}
               </v-chip>
-              <span class="font-weight-medium">{{ run.sourceName ?? run.sourceId ?? 'All sources' }}</span>
+              <span class="font-weight-medium">{{ run.collectionName ?? run.collectionId ?? 'All collections' }}</span>
               <span class="text-medium-emphasis">
                 {{ run.parsedCount }} parsed,
                 {{ run.createdCount }} created,

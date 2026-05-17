@@ -24,12 +24,12 @@ public class ScanRunRepository {
     @Inject
     DataSource dataSource;
 
-    public long start(String sourceId) {
-        LOG.infof("Starting scan run for source %s", sourceId);
-        String sql = "INSERT INTO scan_runs (source_id, status) VALUES (?, 'RUNNING')";
+    public long start(String collectionId) {
+        LOG.infof("Starting scan run for collection %s", collectionId);
+        String sql = "INSERT INTO scan_runs (collection_id, status) VALUES (?, 'RUNNING')";
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            statement.setString(1, sourceId);
+            statement.setString(1, collectionId);
             statement.executeUpdate();
             try (ResultSet keys = statement.getGeneratedKeys()) {
                 if (keys.next()) {
@@ -45,10 +45,10 @@ public class ScanRunRepository {
     public List<ScanRun> listRecent(int limit) {
         LOG.debugf("Listing recent scan runs limit=%d", limit);
         String sql = """
-                SELECT sr.id, sr.source_id, ms.name AS source_name, sr.started_at, sr.finished_at, sr.status,
+                SELECT sr.id, sr.collection_id, ms.name AS collection_name, sr.started_at, sr.finished_at, sr.status,
                        sr.parsed_count, sr.created_count, sr.updated_count, sr.skipped_count, sr.message
                 FROM scan_runs sr
-                LEFT JOIN music_sources ms ON ms.id = sr.source_id
+                LEFT JOIN collections ms ON ms.id = sr.collection_id
                 ORDER BY sr.started_at DESC, sr.id DESC
                 LIMIT ?
                 """;
@@ -136,8 +136,8 @@ public class ScanRunRepository {
     private ScanRun mapRun(ResultSet rs) throws Exception {
         return new ScanRun(
                 rs.getLong("id"),
-                rs.getString("source_id"),
-                rs.getString("source_name"),
+                rs.getString("collection_id"),
+                rs.getString("collection_name"),
                 rs.getString("started_at"),
                 rs.getString("finished_at"),
                 rs.getString("status"),

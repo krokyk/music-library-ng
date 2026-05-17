@@ -9,8 +9,8 @@ public record Album(
         AlbumStatus status,
         String relativePath,
         String resolvedPath,
-        String sourceId,
-        String sourceName,
+        String collectionId,
+        String collectionName,
         String createdAt,
         String updatedAt) {
 }

@@ -4,7 +4,7 @@ import java.util.List;
 
 public record ScanSummary(
         long runId,
-        String sourceId,
+        String collectionId,
         String status,
         int parsedCount,
         int createdCount,

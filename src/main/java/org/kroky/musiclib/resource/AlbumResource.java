@@ -43,20 +43,20 @@ public class AlbumResource {
 
     @POST
     public Response create(AlbumRequest request) {
-        LOG.infof("Create album request artistId=%d title='%s' year=%s status=%s sourceId=%s",
-                request.artistId(), request.title(), request.releaseYear(), request.statusOrDefault(), request.sourceId());
+        LOG.infof("Create album request artistId=%d title='%s' year=%s status=%s collectionId=%s",
+                request.artistId(), request.title(), request.releaseYear(), request.statusOrDefault(), request.collectionId());
         Album album = albums.create(request.artistId(), request.title(), request.releaseYear(),
-                request.statusOrDefault(), request.relativePath(), request.sourceId());
+                request.statusOrDefault(), request.relativePath(), request.collectionId());
         return Response.created(URI.create("/api/albums/" + album.id())).entity(album).build();
     }
 
     @PUT
     @Path("/{id}")
     public Album update(@PathParam("id") long id, AlbumRequest request) {
-        LOG.infof("Update album request id=%d title='%s' year=%s status=%s sourceId=%s",
-                id, request.title(), request.releaseYear(), request.statusOrDefault(), request.sourceId());
+        LOG.infof("Update album request id=%d title='%s' year=%s status=%s collectionId=%s",
+                id, request.title(), request.releaseYear(), request.statusOrDefault(), request.collectionId());
         return albums.update(id, request.title(), request.releaseYear(), request.statusOrDefault(),
-                request.relativePath(), request.sourceId()).orElseThrow(NotFoundException::new);
+                request.relativePath(), request.collectionId()).orElseThrow(NotFoundException::new);
     }
 
     @DELETE
@@ -68,7 +68,7 @@ public class AlbumResource {
     }
 
     public record AlbumRequest(long artistId, String title, Integer releaseYear, AlbumStatus status, String relativePath,
-            String sourceId) {
+            String collectionId) {
         AlbumStatus statusOrDefault() {
             return status == null ? AlbumStatus.CHECKED : status;
         }

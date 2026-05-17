@@ -16,7 +16,7 @@ CREATE TABLE albums (
     release_year INTEGER,
     status TEXT NOT NULL DEFAULT 'CHECKED',
     relative_path TEXT,
-    source_id TEXT,
+    collection_id TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (artist_id, normalized_title, release_year)
@@ -24,9 +24,9 @@ CREATE TABLE albums (
 
 CREATE INDEX idx_albums_artist_id ON albums(artist_id);
 CREATE INDEX idx_albums_status ON albums(status);
-CREATE INDEX idx_albums_source_id ON albums(source_id);
+CREATE INDEX idx_albums_collection_id ON albums(collection_id);
 
-CREATE TABLE music_sources (
+CREATE TABLE collections (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     relative_path TEXT NOT NULL,
@@ -39,7 +39,7 @@ CREATE TABLE music_sources (
 
 CREATE TABLE scan_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_id TEXT,
+    collection_id TEXT,
     started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     finished_at TEXT,
     status TEXT NOT NULL,

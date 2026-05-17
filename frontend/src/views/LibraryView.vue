@@ -12,8 +12,8 @@ const albumArtistId = ref<number | null>(null)
 const albumTitle = ref('')
 const albumYear = ref<number | null>(null)
 const albumStatus = ref<AlbumStatus>('CHECKED')
-const albumSourceId = ref<string | null>(null)
-const sourceFilter = ref<string | null>(null)
+const albumCollectionId = ref<string | null>(null)
+const collectionFilter = ref<string | null>(null)
 const search = ref('')
 
 const statusItems: AlbumStatus[] = ['CHECKED', 'MISSING', 'WANTED', 'IGNORED']
@@ -21,12 +21,12 @@ const statusItems: AlbumStatus[] = ['CHECKED', 'MISSING', 'WANTED', 'IGNORED']
 const filteredAlbums = computed(() => {
   const needle = search.value.trim().toLowerCase()
   if (!needle) {
-    return sourceFilter.value ? albums.value.filter((album) => album.sourceId === sourceFilter.value) : albums.value
+    return collectionFilter.value ? albums.value.filter((album) => album.collectionId === collectionFilter.value) : albums.value
   }
   return albums.value
-    .filter((album) => !sourceFilter.value || album.sourceId === sourceFilter.value)
+    .filter((album) => !collectionFilter.value || album.collectionId === collectionFilter.value)
     .filter((album) =>
-      `${album.artistName} ${album.title} ${album.releaseYear ?? ''} ${album.status} ${album.sourceName ?? ''}`
+      `${album.artistName} ${album.title} ${album.releaseYear ?? ''} ${album.status} ${album.collectionName ?? ''}`
         .toLowerCase()
         .includes(needle),
     )
@@ -36,10 +36,10 @@ function artistOptions() {
   return artists.value.map((artist) => ({ title: artist.name, value: artist.id }))
 }
 
-function sourceOptions() {
+function collectionOptions() {
   return [
-    { title: 'Manual / ungrouped', value: null },
-    ...store.sources.map((source) => ({ title: source.name, value: source.id })),
+    { title: 'Manual / no collection', value: null },
+    ...store.collections.map((collection) => ({ title: collection.name, value: collection.id })),
   ]
 }
 
@@ -55,7 +55,7 @@ async function addAlbum() {
   if (!albumArtistId.value || !albumTitle.value.trim()) {
     return
   }
-  await store.addAlbum(albumArtistId.value, albumTitle.value.trim(), albumYear.value, albumStatus.value, albumSourceId.value)
+  await store.addAlbum(albumArtistId.value, albumTitle.value.trim(), albumYear.value, albumStatus.value, albumCollectionId.value)
   albumTitle.value = ''
   albumYear.value = null
 }
@@ -110,10 +110,10 @@ onMounted(() => store.loadAll())
             </v-col>
             <v-col cols="12" md="4">
               <v-select
-                v-model="albumSourceId"
-                :items="sourceOptions()"
+                v-model="albumCollectionId"
+                :items="collectionOptions()"
                 density="compact"
-                label="Collection group"
+                label="Collection"
                 hide-details
               ></v-select>
             </v-col>
@@ -133,10 +133,10 @@ onMounted(() => store.loadAll())
           hide-details
         ></v-text-field>
         <v-select
-          v-model="sourceFilter"
-          :items="sourceOptions()"
+          v-model="collectionFilter"
+          :items="collectionOptions()"
           density="compact"
-          label="Group"
+          label="Collection"
           hide-details
           style="max-width: 260px"
         ></v-select>
@@ -150,7 +150,7 @@ onMounted(() => store.loadAll())
             <th>Album</th>
             <th>Year</th>
             <th>Status</th>
-            <th>Source</th>
+            <th>Collection</th>
           </tr>
         </thead>
         <tbody>
@@ -175,7 +175,7 @@ onMounted(() => store.loadAll())
                 @update:model-value="(value) => updateAlbum(album, { status: value })"
               ></v-select>
             </td>
-            <td>{{ album.sourceName ?? album.sourceId ?? 'manual' }}</td>
+            <td>{{ album.collectionName ?? album.collectionId ?? 'manual' }}</td>
           </tr>
         </tbody>
       </v-table>

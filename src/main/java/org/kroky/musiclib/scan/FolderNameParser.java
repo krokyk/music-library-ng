@@ -18,15 +18,15 @@ public class FolderNameParser {
     private static final Pattern TITLE_ARTIST_YEAR =
             Pattern.compile("^(.+?)\\s*\\((.+),\\s*(\\d{4})\\)$");
 
-    public Optional<ParsedAlbum> parse(Path folder, ParserType parserType, String sourceId) {
+    public Optional<ParsedAlbum> parse(Path folder, ParserType parserType, String collectionId) {
         String name = folder.getFileName().toString().trim();
         return switch (parserType) {
-            case ARTIST_YEAR_ALBUM -> parseArtistYearAlbum(name, folder, sourceId);
-            case TITLE_ARTIST_YEAR -> parseTitleArtistYear(name, folder, sourceId);
+            case ARTIST_YEAR_ALBUM -> parseArtistYearAlbum(name, folder, collectionId);
+            case TITLE_ARTIST_YEAR -> parseTitleArtistYear(name, folder, collectionId);
         };
     }
 
-    private Optional<ParsedAlbum> parseArtistYearAlbum(String name, Path folder, String sourceId) {
+    private Optional<ParsedAlbum> parseArtistYearAlbum(String name, Path folder, String collectionId) {
         Matcher matcher = ARTIST_YEAR_ALBUM.matcher(name);
         if (!matcher.matches()) {
             return Optional.empty();
@@ -36,10 +36,10 @@ public class FolderNameParser {
                 clean(matcher.group(3)),
                 Integer.parseInt(matcher.group(2)),
                 folder,
-                sourceId));
+                collectionId));
     }
 
-    private Optional<ParsedAlbum> parseTitleArtistYear(String name, Path folder, String sourceId) {
+    private Optional<ParsedAlbum> parseTitleArtistYear(String name, Path folder, String collectionId) {
         Matcher matcher = TITLE_ARTIST_YEAR.matcher(name);
         if (!matcher.matches()) {
             return Optional.empty();
@@ -49,7 +49,7 @@ public class FolderNameParser {
                 clean(matcher.group(1)),
                 Integer.parseInt(matcher.group(3)),
                 folder,
-                sourceId));
+                collectionId));
     }
 
     private static String clean(String value) {

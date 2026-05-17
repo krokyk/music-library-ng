@@ -10,7 +10,7 @@ import * as directives from 'vuetify/directives'
 
 import App from './App.vue'
 import LibraryView from './views/LibraryView.vue'
-import SourcesView from './views/SourcesView.vue'
+import CollectionsView from './views/CollectionsView.vue'
 
 const vuetify = createVuetify({
   components,
@@ -35,7 +35,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: LibraryView },
-    { path: '/sources', component: SourcesView },
+    { path: '/collections', component: CollectionsView },
   ],
 })
 
