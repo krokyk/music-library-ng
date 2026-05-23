@@ -1,0 +1,214 @@
+html {
+  background: #080808;
+}
+
+body {
+  margin: 0;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+.v-application {
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+}
+
+.music-app {
+  color: #f5f5f5;
+}
+
+.app-bar {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.app-brand {
+  align-items: center;
+  color: rgb(var(--v-theme-primary));
+  display: flex;
+  flex: 0 0 auto;
+  gap: 12px;
+  padding: 0 20px;
+}
+
+.app-brand__title {
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.app-brand__subtitle {
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.app-tabs {
+  min-width: 0;
+}
+
+.app-tabs .v-tab {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  min-width: 0;
+  text-transform: uppercase;
+}
+
+.app-status {
+  margin-right: 18px;
+}
+
+.app-main {
+  background: #080808;
+}
+
+.app-page {
+  margin: 0 auto;
+  max-width: 1680px;
+  padding: 22px;
+}
+
+.page-header {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.page-title {
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.15;
+}
+
+.page-kicker,
+.stat-strip {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.78rem;
+}
+
+.stat-strip {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.panel {
+  background: #141414;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.2);
+}
+
+.panel-title {
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+
+.data-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px;
+}
+
+.data-toolbar__search {
+  flex: 1 1 280px;
+}
+
+.data-toolbar__filter {
+  flex: 0 1 270px;
+}
+
+.table-wrap {
+  overflow: hidden;
+}
+
+.music-table {
+  background: transparent;
+  font-size: 0.82rem;
+}
+
+.music-table .v-table__wrapper > table > thead > tr > th {
+  background: #101010;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.72rem;
+  font-weight: 800;
+  height: 38px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.music-table .v-table__wrapper > table > tbody > tr > td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  height: 42px;
+}
+
+.music-table .v-table__wrapper > table > tbody > tr:hover > td {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.cell-strong {
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 700;
+}
+
+.cell-muted {
+  color: rgba(255, 255, 255, 0.56);
+}
+
+.mono-path {
+  color: rgba(255, 255, 255, 0.64);
+  font-family:
+    "JetBrains Mono",
+    "SFMono-Regular",
+    Consolas,
+    monospace;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 780px) {
+  .app-brand {
+    padding-left: 12px;
+    padding-right: 10px;
+  }
+
+  .app-brand__subtitle,
+  .app-status {
+    display: none;
+  }
+
+  .app-page {
+    padding: 14px;
+  }
+
+  .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

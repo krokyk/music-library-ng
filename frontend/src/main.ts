@@ -1,5 +1,6 @@
 import '@mdi/font/css/materialdesignicons.css'
 import 'vuetify/styles'
+import './styles.css'
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
@@ -15,16 +16,39 @@ import CollectionsView from './views/CollectionsView.vue'
 const vuetify = createVuetify({
   components,
   directives,
+  defaults: {
+    VBtn: {
+      density: 'comfortable',
+      rounded: 'lg',
+    },
+    VChip: {
+      density: 'comfortable',
+      variant: 'flat',
+    },
+    VSelect: {
+      color: 'primary',
+      density: 'compact',
+      variant: 'outlined',
+    },
+    VTextField: {
+      color: 'primary',
+      density: 'compact',
+      variant: 'outlined',
+    },
+  },
   theme: {
-    defaultTheme: 'musicLibraryLight',
+    defaultTheme: 'musicLibraryDark',
     themes: {
-      musicLibraryLight: {
-        dark: false,
+      musicLibraryDark: {
+        dark: true,
         colors: {
-          primary: '#1f6feb',
-          secondary: '#57606a',
-          surface: '#ffffff',
-          background: '#f6f8fa',
+          primary: '#00d5ff',
+          secondary: '#a970ff',
+          surface: '#141414',
+          background: '#080808',
+          error: '#ff5f6d',
+          warning: '#f8c14a',
+          success: '#38d996',
         },
       },
     },

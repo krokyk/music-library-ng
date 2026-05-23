@@ -68,13 +68,25 @@ onMounted(() => store.loadAll())
 </script>
 
 <template>
-  <v-container fluid class="pa-5">
+  <v-container fluid class="app-page library-page">
     <v-alert v-if="error" type="error" variant="tonal" class="mb-4">{{ error }}</v-alert>
 
-    <v-row dense>
+    <div class="page-header">
+      <div>
+        <div class="page-title">Library</div>
+        <div class="stat-strip">
+          <span>{{ artists.length }} artists</span>
+          <span>{{ albums.length }} albums</span>
+          <span>{{ filteredAlbums.length }} visible</span>
+        </div>
+      </div>
+      <v-btn :loading="loading" prepend-icon="mdi-refresh" variant="tonal" @click="store.loadAll()">Refresh</v-btn>
+    </div>
+
+    <v-row dense class="mb-4">
       <v-col cols="12" lg="4">
-        <v-sheet border rounded class="pa-4">
-          <div class="text-subtitle-1 mb-3">Add Artist</div>
+        <v-sheet class="panel pa-4">
+          <div class="panel-title">Add Artist</div>
           <v-text-field
             v-model="artistName"
             density="compact"
@@ -87,8 +99,8 @@ onMounted(() => store.loadAll())
       </v-col>
 
       <v-col cols="12" lg="8">
-        <v-sheet border rounded class="pa-4">
-          <div class="text-subtitle-1 mb-3">Add Checked Album</div>
+        <v-sheet class="panel pa-4">
+          <div class="panel-title">Add Checked Album</div>
           <v-row dense>
             <v-col cols="12" md="4">
               <v-select
@@ -123,10 +135,11 @@ onMounted(() => store.loadAll())
       </v-col>
     </v-row>
 
-    <v-sheet border rounded class="mt-4">
-      <div class="d-flex ga-3 align-center pa-4">
+    <v-sheet class="panel table-wrap">
+      <div class="data-toolbar">
         <v-text-field
           v-model="search"
+          class="data-toolbar__search"
           prepend-inner-icon="mdi-magnify"
           density="compact"
           label="Search library"
@@ -134,16 +147,15 @@ onMounted(() => store.loadAll())
         ></v-text-field>
         <v-select
           v-model="collectionFilter"
+          class="data-toolbar__filter"
           :items="collectionOptions()"
           density="compact"
           label="Collection"
           hide-details
-          style="max-width: 260px"
         ></v-select>
-        <v-btn :loading="loading" prepend-icon="mdi-refresh" @click="store.loadAll()">Refresh</v-btn>
       </div>
 
-      <v-table fixed-header height="calc(100vh - 350px)">
+      <v-table class="music-table" density="compact" fixed-header height="calc(100vh - 355px)">
         <thead>
           <tr>
             <th>Artist</th>
@@ -155,7 +167,7 @@ onMounted(() => store.loadAll())
         </thead>
         <tbody>
           <tr v-for="album in filteredAlbums" :key="album.id">
-            <td>{{ album.artistName }}</td>
+            <td class="cell-strong">{{ album.artistName }}</td>
             <td>{{ album.title }}</td>
             <td style="width: 120px">
               <v-text-field
@@ -175,7 +187,7 @@ onMounted(() => store.loadAll())
                 @update:model-value="(value) => updateAlbum(album, { status: value })"
               ></v-select>
             </td>
-            <td>{{ album.collectionName ?? album.collectionId ?? 'manual' }}</td>
+            <td class="cell-muted">{{ album.collectionName ?? album.collectionId ?? 'manual' }}</td>
           </tr>
         </tbody>
       </v-table>

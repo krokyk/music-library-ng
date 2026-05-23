@@ -1,19 +1,24 @@
 <template>
-  <v-app>
-    <v-navigation-drawer permanent width="260">
-      <v-list-item title="Music Library NG" subtitle="Local collection"></v-list-item>
-      <v-divider></v-divider>
-      <v-list nav>
-        <v-list-item prepend-icon="mdi-music-box-multiple" title="Library" to="/"></v-list-item>
-        <v-list-item prepend-icon="mdi-folder-cog" title="Collections" to="/collections"></v-list-item>
-      </v-list>
-    </v-navigation-drawer>
+  <v-app class="music-app">
+    <v-app-bar class="app-bar" flat height="64">
+      <div class="app-brand">
+        <v-icon icon="mdi-music-circle" size="30"></v-icon>
+        <div>
+          <div class="app-brand__title">Music Library NG</div>
+          <div class="app-brand__subtitle">Local collection</div>
+        </div>
+      </div>
 
-    <v-app-bar flat border>
-      <v-app-bar-title>Music Library NG</v-app-bar-title>
+      <v-tabs class="app-tabs" color="primary" density="comfortable">
+        <v-tab prepend-icon="mdi-music-box-multiple" to="/">Library</v-tab>
+        <v-tab prepend-icon="mdi-folder-cog" to="/collections">Collections</v-tab>
+      </v-tabs>
+
+      <v-spacer></v-spacer>
+      <v-chip class="app-status" size="small" prepend-icon="mdi-database">SQLite</v-chip>
     </v-app-bar>
 
-    <v-main>
+    <v-main class="app-main">
       <router-view />
     </v-main>
   </v-app>
