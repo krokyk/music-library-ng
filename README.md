@@ -111,6 +111,18 @@ Run the packaged app:
 java -jar build/quarkus-app/quarkus-run.jar
 ```
 
+Build and run in one command:
+
+```bash
+./gradlew build && java -jar build/quarkus-app/quarkus-run.jar
+```
+
+Build and run with the default port stated explicitly:
+
+```bash
+./gradlew build && java -Dquarkus.http.port=8795 -jar build/quarkus-app/quarkus-run.jar
+```
+
 ## Configuration
 
 Defaults live in:
