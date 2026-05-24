@@ -1,12 +1,28 @@
-export type AlbumStatus = 'CHECKED' | 'MISSING' | 'WANTED' | 'IGNORED'
-
 export interface Artist {
   id: number
   name: string
   sortName?: string | null
   notes?: string | null
+  albumCount: number
+  checkedAlbumCount: number
+  uncheckedAlbumCount: number
+  localAlbumCount: number
+  providerLinkCount: number
   createdAt: string
   updatedAt: string
+}
+
+export interface AlbumLocalPath {
+  id: number
+  albumId: number
+  collectionId: string
+  collectionName: string
+  relativePath: string
+  resolvedPath?: string | null
+  onDisk: boolean
+  firstSeenAt: string
+  lastSeenAt: string
+  missingSince?: string | null
 }
 
 export interface Album {
@@ -15,11 +31,12 @@ export interface Album {
   artistName: string
   title: string
   releaseYear?: number | null
-  status: AlbumStatus
-  relativePath?: string | null
-  resolvedPath?: string | null
-  collectionId?: string | null
-  collectionName?: string | null
+  releaseDate?: string | null
+  checked: boolean
+  hasLocalPath: boolean
+  onDisk: boolean
+  localPaths: AlbumLocalPath[]
+  notes?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -62,6 +79,7 @@ export interface ScanRun {
   parsedCount: number
   createdCount: number
   updatedCount: number
+  missingCount: number
   skippedCount: number
   message?: string | null
 }
@@ -72,4 +90,45 @@ export interface ScanEvent {
   level: string
   message: string
   createdAt: string
+}
+
+export interface ArtistProviderLink {
+  id: number
+  artistId: number
+  artistName: string
+  providerId: string
+  providerUrl: string
+  enabled: boolean
+  lastCheckedAt?: string | null
+  lastSuccessAt?: string | null
+  lastErrorAt?: string | null
+  lastErrorMessage?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProviderCheckSummary {
+  runId: number
+  processedArtistCount: number
+  skippedArtistCount: number
+  foundAlbumCount: number
+  newAlbumCount: number
+  existingAlbumCount: number
+  errorCount: number
+  messages: string[]
+}
+
+export interface ProviderCheckRun {
+  id: number
+  artistId?: number | null
+  providerLinkId?: number | null
+  startedAt: string
+  finishedAt?: string | null
+  status: string
+  processedArtistCount: number
+  foundAlbumCount: number
+  newAlbumCount: number
+  existingAlbumCount: number
+  errorCount: number
+  message?: string | null
 }

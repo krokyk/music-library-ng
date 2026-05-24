@@ -323,7 +323,7 @@ Create a checked album:
 ```bash
 curl -X POST http://localhost:8795/api/albums \
   -H 'Content-Type: application/json' \
-  -d '{"artistId":1,"title":"Example Album","releaseYear":2026,"status":"CHECKED","collectionId":"power-metal"}'
+  -d '{"artistId":1,"title":"Example Album","releaseYear":2026,"checked":true}'
 ```
 
 Scan all enabled collections:

@@ -1,30 +1,35 @@
 CREATE TABLE artists (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    normalized_name TEXT NOT NULL UNIQUE,
+    normalized_name TEXT NOT NULL,
     sort_name TEXT,
     notes TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (normalized_name)
 );
 
 CREATE TABLE albums (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    artist_id INTEGER NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    artist_id INTEGER NOT NULL,
     title TEXT NOT NULL,
     normalized_title TEXT NOT NULL,
     release_year INTEGER,
-    status TEXT NOT NULL DEFAULT 'CHECKED',
-    relative_path TEXT,
-    collection_id TEXT,
+    release_date TEXT,
+    checked INTEGER NOT NULL DEFAULT 0,
+    notes TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (artist_id, normalized_title, release_year)
+    FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
+    CHECK (checked IN (0, 1))
 );
 
 CREATE INDEX idx_albums_artist_id ON albums(artist_id);
-CREATE INDEX idx_albums_status ON albums(status);
-CREATE INDEX idx_albums_collection_id ON albums(collection_id);
+CREATE INDEX idx_albums_checked ON albums(checked);
+CREATE INDEX idx_albums_year ON albums(release_year);
+
+CREATE UNIQUE INDEX ux_albums_artist_title_year
+    ON albums(artist_id, normalized_title, coalesce(release_year, -1));
 
 CREATE TABLE collections (
     id TEXT PRIMARY KEY,
@@ -34,8 +39,48 @@ CREATE TABLE collections (
     enabled INTEGER NOT NULL DEFAULT 1,
     last_scan_at TEXT,
     last_scan_status TEXT,
-    last_scan_message TEXT
+    last_scan_message TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (enabled IN (0, 1))
 );
+
+CREATE TABLE album_local_paths (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    album_id INTEGER NOT NULL,
+    collection_id TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    missing_since TEXT,
+    FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
+    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE RESTRICT,
+    UNIQUE (collection_id, relative_path)
+);
+
+CREATE INDEX idx_album_local_paths_album ON album_local_paths(album_id);
+CREATE INDEX idx_album_local_paths_collection ON album_local_paths(collection_id);
+CREATE INDEX idx_album_local_paths_missing ON album_local_paths(missing_since);
+
+CREATE TABLE artist_provider_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    artist_id INTEGER NOT NULL,
+    provider_id TEXT NOT NULL,
+    provider_url TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_checked_at TEXT,
+    last_success_at TEXT,
+    last_error_at TEXT,
+    last_error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
+    CHECK (enabled IN (0, 1)),
+    UNIQUE (provider_id, provider_url)
+);
+
+CREATE INDEX idx_artist_provider_links_artist ON artist_provider_links(artist_id);
+CREATE INDEX idx_artist_provider_links_enabled ON artist_provider_links(enabled);
 
 CREATE TABLE scan_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,14 +91,51 @@ CREATE TABLE scan_runs (
     parsed_count INTEGER NOT NULL DEFAULT 0,
     created_count INTEGER NOT NULL DEFAULT 0,
     updated_count INTEGER NOT NULL DEFAULT 0,
+    missing_count INTEGER NOT NULL DEFAULT 0,
     skipped_count INTEGER NOT NULL DEFAULT 0,
-    message TEXT
+    message TEXT,
+    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE SET NULL,
+    CHECK (status IN ('RUNNING', 'DONE', 'FAILED', 'SKIPPED'))
 );
 
 CREATE TABLE scan_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    scan_run_id INTEGER NOT NULL REFERENCES scan_runs(id) ON DELETE CASCADE,
+    scan_run_id INTEGER NOT NULL,
     level TEXT NOT NULL,
     message TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (scan_run_id) REFERENCES scan_runs(id) ON DELETE CASCADE,
+    CHECK (level IN ('INFO', 'WARN', 'ERROR', 'SKIPPED'))
+);
+
+CREATE TABLE provider_check_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    artist_id INTEGER,
+    provider_link_id INTEGER,
+    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at TEXT,
+    status TEXT NOT NULL,
+    processed_artist_count INTEGER NOT NULL DEFAULT 0,
+    found_album_count INTEGER NOT NULL DEFAULT 0,
+    new_album_count INTEGER NOT NULL DEFAULT 0,
+    existing_album_count INTEGER NOT NULL DEFAULT 0,
+    error_count INTEGER NOT NULL DEFAULT 0,
+    message TEXT,
+    FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE SET NULL,
+    FOREIGN KEY (provider_link_id) REFERENCES artist_provider_links(id) ON DELETE SET NULL,
+    CHECK (status IN ('RUNNING', 'DONE', 'FAILED', 'SKIPPED'))
+);
+
+CREATE TABLE provider_check_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    artist_id INTEGER,
+    provider_link_id INTEGER,
+    level TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES provider_check_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE SET NULL,
+    FOREIGN KEY (provider_link_id) REFERENCES artist_provider_links(id) ON DELETE SET NULL,
+    CHECK (level IN ('INFO', 'WARN', 'ERROR'))
 );

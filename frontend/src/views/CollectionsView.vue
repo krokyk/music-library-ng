@@ -133,6 +133,7 @@ onMounted(() => store.loadAll())
                 {{ run.parsedCount }} parsed,
                 {{ run.createdCount }} created,
                 {{ run.updatedCount }} updated,
+                {{ run.missingCount }} missing,
                 {{ run.skippedCount }} skipped
               </span>
               <span class="text-medium-emphasis ml-auto">{{ run.startedAt }}</span>

@@ -1,6 +1,16 @@
 import { defineStore } from 'pinia'
 import { apiGet, apiSend } from '@/api'
-import type { Album, AlbumStatus, Artist, MusicRootInfo, MusicCollection, ScanEvent, ScanRun } from '@/types'
+import type {
+  Album,
+  Artist,
+  ArtistProviderLink,
+  MusicRootInfo,
+  MusicCollection,
+  ProviderCheckRun,
+  ProviderCheckSummary,
+  ScanEvent,
+  ScanRun,
+} from '@/types'
 
 interface State {
   artists: Artist[]
@@ -9,6 +19,8 @@ interface State {
   musicRoot: MusicRootInfo | null
   scanRuns: ScanRun[]
   scanEvents: Record<number, ScanEvent[]>
+  providerLinks: Record<number, ArtistProviderLink[]>
+  providerCheckRuns: ProviderCheckRun[]
   loading: boolean
   error: string | null
 }
@@ -21,6 +33,8 @@ export const useLibraryStore = defineStore('library', {
     musicRoot: null,
     scanRuns: [],
     scanEvents: {},
+    providerLinks: {},
+    providerCheckRuns: [],
     loading: false,
     error: null,
   }),
@@ -40,6 +54,7 @@ export const useLibraryStore = defineStore('library', {
         this.collections = collections
         this.musicRoot = musicRoot
         this.scanRuns = await apiGet<ScanRun[]>('/api/scan/runs?limit=25')
+        this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
       } catch (error) {
         this.error = error instanceof Error ? error.message : String(error)
       } finally {
@@ -50,8 +65,8 @@ export const useLibraryStore = defineStore('library', {
       await apiSend<Artist>('/api/artists', 'POST', { name })
       await this.loadAll()
     },
-    async addAlbum(artistId: number, title: string, releaseYear: number | null, status: AlbumStatus, collectionId?: string | null) {
-      await apiSend<Album>('/api/albums', 'POST', { artistId, title, releaseYear, status, collectionId })
+    async addAlbum(artistId: number, title: string, releaseYear: number | null, checked: boolean) {
+      await apiSend<Album>('/api/albums', 'POST', { artistId, title, releaseYear, checked })
       await this.loadAll()
     },
     async updateAlbum(album: Album) {
@@ -59,9 +74,9 @@ export const useLibraryStore = defineStore('library', {
         artistId: album.artistId,
         title: album.title,
         releaseYear: album.releaseYear,
-        status: album.status,
-        relativePath: album.relativePath,
-        collectionId: album.collectionId,
+        releaseDate: album.releaseDate,
+        checked: album.checked,
+        notes: album.notes,
       })
       await this.loadAll()
     },
@@ -76,6 +91,28 @@ export const useLibraryStore = defineStore('library', {
     async selectMusicRoot(root: string) {
       this.musicRoot = await apiSend<MusicRootInfo>('/api/settings/music-root', 'PUT', { root })
       await this.loadAll()
+    },
+    async loadProviderLinks(artistId: number) {
+      this.providerLinks[artistId] = await apiGet<ArtistProviderLink[]>(`/api/artists/${artistId}/provider-links`)
+    },
+    async addProviderLink(artistId: number, providerId: string, providerUrl: string) {
+      await apiSend<ArtistProviderLink>(`/api/artists/${artistId}/provider-links`, 'POST', {
+        providerId,
+        providerUrl,
+        enabled: true,
+      })
+      await this.loadProviderLinks(artistId)
+      await this.loadAll()
+    },
+    async checkArtistProvider(artistId: number) {
+      const summary = await apiSend<ProviderCheckSummary>(`/api/provider-checks/artist/${artistId}`, 'POST')
+      await this.loadAll()
+      return summary
+    },
+    async checkAllProviders() {
+      const summary = await apiSend<ProviderCheckSummary>('/api/provider-checks/all', 'POST')
+      await this.loadAll()
+      return summary
     },
   },
 })

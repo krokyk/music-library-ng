@@ -9,6 +9,7 @@ public record ScanSummary(
         int parsedCount,
         int createdCount,
         int updatedCount,
+        int missingCount,
         int skippedCount,
         List<String> messages) {
 }

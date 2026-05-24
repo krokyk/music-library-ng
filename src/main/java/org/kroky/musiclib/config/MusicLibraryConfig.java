@@ -19,19 +19,11 @@ public interface MusicLibraryConfig {
     @WithName("music-root")
     Optional<String> musicRoot();
 
-    Scan scan();
-
     @WithName("root-detection")
     RootDetection rootDetection();
 
     @WithName("collections")
     List<MusicCollectionConfig> collections();
-
-    interface Scan {
-        @WithName("default-status")
-        @WithDefault("CHECKED")
-        String defaultStatus();
-    }
 
     interface RootDetection {
         List<String> candidates();

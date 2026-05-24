@@ -5,6 +5,11 @@ public record Artist(
         String name,
         String sortName,
         String notes,
+        int albumCount,
+        int checkedAlbumCount,
+        int uncheckedAlbumCount,
+        int localAlbumCount,
+        int providerLinkCount,
         String createdAt,
         String updatedAt) {
 }

@@ -10,6 +10,7 @@ public record ScanRun(
         int parsedCount,
         int createdCount,
         int updatedCount,
+        int missingCount,
         int skippedCount,
         String message) {
 }

@@ -29,10 +29,20 @@ public class ArtistRepository {
     public List<Artist> list(String search) {
         LOG.debugf("Listing artists search='%s'", search);
         String sql = """
-                SELECT id, name, sort_name, notes, created_at, updated_at
-                FROM artists
-                WHERE ? IS NULL OR normalized_name LIKE '%' || ? || '%'
-                ORDER BY COALESCE(sort_name, name), name
+                SELECT a.id, a.name, a.sort_name, a.notes, a.created_at, a.updated_at,
+                       count(al.id) AS album_count,
+                       coalesce(sum(CASE WHEN al.checked = 1 THEN 1 ELSE 0 END), 0) AS checked_album_count,
+                       coalesce(sum(CASE WHEN al.checked = 0 THEN 1 ELSE 0 END), 0) AS unchecked_album_count,
+                       coalesce(sum(CASE WHEN EXISTS (
+                           SELECT 1 FROM album_local_paths lp
+                           WHERE lp.album_id = al.id AND lp.missing_since IS NULL
+                       ) THEN 1 ELSE 0 END), 0) AS local_album_count,
+                       (SELECT count(*) FROM artist_provider_links apl WHERE apl.artist_id = a.id) AS provider_link_count
+                FROM artists a
+                LEFT JOIN albums al ON al.artist_id = a.id
+                WHERE ? IS NULL OR a.normalized_name LIKE '%' || ? || '%'
+                GROUP BY a.id
+                ORDER BY COALESCE(a.sort_name, a.name), a.name
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -54,9 +64,19 @@ public class ArtistRepository {
     public Optional<Artist> find(long id) {
         LOG.tracef("Finding artist id=%d", id);
         String sql = """
-                SELECT id, name, sort_name, notes, created_at, updated_at
-                FROM artists
-                WHERE id = ?
+                SELECT a.id, a.name, a.sort_name, a.notes, a.created_at, a.updated_at,
+                       count(al.id) AS album_count,
+                       coalesce(sum(CASE WHEN al.checked = 1 THEN 1 ELSE 0 END), 0) AS checked_album_count,
+                       coalesce(sum(CASE WHEN al.checked = 0 THEN 1 ELSE 0 END), 0) AS unchecked_album_count,
+                       coalesce(sum(CASE WHEN EXISTS (
+                           SELECT 1 FROM album_local_paths lp
+                           WHERE lp.album_id = al.id AND lp.missing_since IS NULL
+                       ) THEN 1 ELSE 0 END), 0) AS local_album_count,
+                       (SELECT count(*) FROM artist_provider_links apl WHERE apl.artist_id = a.id) AS provider_link_count
+                FROM artists a
+                LEFT JOIN albums al ON al.artist_id = a.id
+                WHERE a.id = ?
+                GROUP BY a.id
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -137,9 +157,19 @@ public class ArtistRepository {
 
     private Optional<Artist> findByNormalizedName(String normalizedName) {
         String sql = """
-                SELECT id, name, sort_name, notes, created_at, updated_at
-                FROM artists
-                WHERE normalized_name = ?
+                SELECT a.id, a.name, a.sort_name, a.notes, a.created_at, a.updated_at,
+                       count(al.id) AS album_count,
+                       coalesce(sum(CASE WHEN al.checked = 1 THEN 1 ELSE 0 END), 0) AS checked_album_count,
+                       coalesce(sum(CASE WHEN al.checked = 0 THEN 1 ELSE 0 END), 0) AS unchecked_album_count,
+                       coalesce(sum(CASE WHEN EXISTS (
+                           SELECT 1 FROM album_local_paths lp
+                           WHERE lp.album_id = al.id AND lp.missing_since IS NULL
+                       ) THEN 1 ELSE 0 END), 0) AS local_album_count,
+                       (SELECT count(*) FROM artist_provider_links apl WHERE apl.artist_id = a.id) AS provider_link_count
+                FROM artists a
+                LEFT JOIN albums al ON al.artist_id = a.id
+                WHERE a.normalized_name = ?
+                GROUP BY a.id
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -158,6 +188,11 @@ public class ArtistRepository {
                 rs.getString("name"),
                 rs.getString("sort_name"),
                 rs.getString("notes"),
+                rs.getInt("album_count"),
+                rs.getInt("checked_album_count"),
+                rs.getInt("unchecked_album_count"),
+                rs.getInt("local_album_count"),
+                rs.getInt("provider_link_count"),
                 rs.getString("created_at"),
                 rs.getString("updated_at"));
     }

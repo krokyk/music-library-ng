@@ -46,7 +46,7 @@ public class ScanRunRepository {
         LOG.debugf("Listing recent scan runs limit=%d", limit);
         String sql = """
                 SELECT sr.id, sr.collection_id, ms.name AS collection_name, sr.started_at, sr.finished_at, sr.status,
-                       sr.parsed_count, sr.created_count, sr.updated_count, sr.skipped_count, sr.message
+                       sr.parsed_count, sr.created_count, sr.updated_count, sr.missing_count, sr.skipped_count, sr.message
                 FROM scan_runs sr
                 LEFT JOIN collections ms ON ms.id = sr.collection_id
                 ORDER BY sr.started_at DESC, sr.id DESC
@@ -95,13 +95,14 @@ public class ScanRunRepository {
         }
     }
 
-    public void finish(long runId, String status, int parsed, int created, int updated, int skipped, String message) {
-        LOG.infof("Finishing scan run %d status=%s parsed=%d created=%d updated=%d skipped=%d",
-                runId, status, parsed, created, updated, skipped);
+    public void finish(long runId, String status, int parsed, int created, int updated, int missing, int skipped,
+            String message) {
+        LOG.infof("Finishing scan run %d status=%s parsed=%d created=%d updated=%d missing=%d skipped=%d",
+                runId, status, parsed, created, updated, missing, skipped);
         String sql = """
                 UPDATE scan_runs
                 SET status = ?, finished_at = CURRENT_TIMESTAMP, parsed_count = ?, created_count = ?,
-                    updated_count = ?, skipped_count = ?, message = ?
+                    updated_count = ?, missing_count = ?, skipped_count = ?, message = ?
                 WHERE id = ?
                 """;
         try (Connection connection = dataSource.getConnection();
@@ -110,9 +111,10 @@ public class ScanRunRepository {
             statement.setInt(2, parsed);
             statement.setInt(3, created);
             statement.setInt(4, updated);
-            statement.setInt(5, skipped);
-            statement.setString(6, message);
-            statement.setLong(7, runId);
+            statement.setInt(5, missing);
+            statement.setInt(6, skipped);
+            statement.setString(7, message);
+            statement.setLong(8, runId);
             statement.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to finish scan run " + runId, e);
@@ -144,6 +146,7 @@ public class ScanRunRepository {
                 rs.getInt("parsed_count"),
                 rs.getInt("created_count"),
                 rs.getInt("updated_count"),
+                rs.getInt("missing_count"),
                 rs.getInt("skipped_count"),
                 rs.getString("message"));
     }

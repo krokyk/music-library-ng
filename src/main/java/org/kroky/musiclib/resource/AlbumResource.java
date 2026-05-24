@@ -5,7 +5,6 @@ import java.util.List;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.model.Album;
-import org.kroky.musiclib.model.AlbumStatus;
 import org.kroky.musiclib.repository.AlbumRepository;
 
 import jakarta.inject.Inject;
@@ -28,10 +27,11 @@ public class AlbumResource {
     AlbumRepository albums;
 
     @GET
-    public List<Album> list(@QueryParam("artistId") Long artistId, @QueryParam("status") AlbumStatus status,
-            @QueryParam("search") String search) {
-        LOG.infof("Listing albums artistId=%s status=%s search='%s'", artistId, status, search);
-        return albums.list(artistId, status, search);
+    public List<Album> list(@QueryParam("artistId") Long artistId, @QueryParam("checked") Boolean checked,
+            @QueryParam("hasLocalPath") Boolean hasLocalPath, @QueryParam("search") String search) {
+        LOG.infof("Listing albums artistId=%s checked=%s hasLocalPath=%s search='%s'",
+                artistId, checked, hasLocalPath, search);
+        return albums.list(artistId, checked, hasLocalPath, search);
     }
 
     @GET
@@ -43,20 +43,20 @@ public class AlbumResource {
 
     @POST
     public Response create(AlbumRequest request) {
-        LOG.infof("Create album request artistId=%d title='%s' year=%s status=%s collectionId=%s",
-                request.artistId(), request.title(), request.releaseYear(), request.statusOrDefault(), request.collectionId());
+        LOG.infof("Create album request artistId=%d title='%s' year=%s checked=%s",
+                request.artistId(), request.title(), request.releaseYear(), request.checkedOrDefault());
         Album album = albums.create(request.artistId(), request.title(), request.releaseYear(),
-                request.statusOrDefault(), request.relativePath(), request.collectionId());
+                request.releaseDate(), request.checkedOrDefault(), request.notes());
         return Response.created(URI.create("/api/albums/" + album.id())).entity(album).build();
     }
 
     @PUT
     @Path("/{id}")
     public Album update(@PathParam("id") long id, AlbumRequest request) {
-        LOG.infof("Update album request id=%d title='%s' year=%s status=%s collectionId=%s",
-                id, request.title(), request.releaseYear(), request.statusOrDefault(), request.collectionId());
-        return albums.update(id, request.title(), request.releaseYear(), request.statusOrDefault(),
-                request.relativePath(), request.collectionId()).orElseThrow(NotFoundException::new);
+        LOG.infof("Update album request id=%d title='%s' year=%s checked=%s",
+                id, request.title(), request.releaseYear(), request.checkedOrDefault());
+        return albums.update(id, request.title(), request.releaseYear(), request.releaseDate(),
+                request.checkedOrDefault(), request.notes()).orElseThrow(NotFoundException::new);
     }
 
     @DELETE
@@ -67,10 +67,10 @@ public class AlbumResource {
         return Response.noContent().build();
     }
 
-    public record AlbumRequest(long artistId, String title, Integer releaseYear, AlbumStatus status, String relativePath,
-            String collectionId) {
-        AlbumStatus statusOrDefault() {
-            return status == null ? AlbumStatus.CHECKED : status;
+    public record AlbumRequest(long artistId, String title, Integer releaseYear, String releaseDate, Boolean checked,
+            String notes) {
+        boolean checkedOrDefault() {
+            return checked == null || checked;
         }
     }
 }

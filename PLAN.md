@@ -31,9 +31,9 @@ codebase can be inspected and resumed without rediscovering intent.
 - [x] Add SQLite/Flyway schema.
 - [x] Use numeric IDs instead of artist names as primary keys.
 - [x] Add artists, albums, collections, scan runs, and scan events.
-- [x] Store relative disk path and status separately.
+- [x] Store listened state as `checked` and local disk presence as separate path rows.
 - [x] Add indexes for search and uniqueness.
-- [ ] Add schema migrations for provider IDs: MusicBrainz, Discogs, TheAudioDB.
+- [x] Add provider link tables and provider check history.
 - [ ] Add backup/restore metadata tables.
 
 ## Backend
@@ -49,9 +49,9 @@ codebase can be inspected and resumed without rediscovering intent.
 - [x] Upsert scanned albums as checked/owned.
 - [x] Allow manual creation of checked albums.
 - [ ] Add asynchronous scan jobs and progress streaming.
-- [ ] Add MusicBrainz provider abstraction.
+- [x] Add provider abstraction.
 - [ ] Add Cover Art Archive support.
-- [ ] Add optional legacy Metal Archives / Spirit of Metal providers.
+- [x] Add optional legacy Metal Archives / Spirit of Metal providers.
 - [ ] Add directory picker helper per OS, if needed.
 - [x] Add tests around edge-case folder parsing.
 
@@ -60,9 +60,9 @@ codebase can be inspected and resumed without rediscovering intent.
 - [x] Add a temporary browser UI served by Quarkus for early verification.
 - [x] Add `frontend/` Vue 3/Vuetify workspace files.
 - [x] Install Node tooling and run the Vue build.
-- [ ] Build `LibraryView.vue` with editable Vuetify tables.
-- [ ] Add inline checkbox/status editing for albums.
-- [ ] Add inline artist URL/name editing where safe.
+- [x] Build `LibraryView.vue` with editable Vuetify tables.
+- [x] Add inline listened checkbox editing for albums.
+- [x] Add artist/provider-link management view.
 - [x] Add manual artist and album controls.
 - [x] Add scan collection view.
 - [ ] Add settings page.
@@ -92,9 +92,8 @@ codebase can be inspected and resumed without rediscovering intent.
 
 ## Open Questions / Future Enhancements
 
-- [ ] Decide whether `OWNED`, `CHECKED`, or both should exist as album states.
+- [x] Use one boolean album state: `checked` means listened.
 - [ ] Decide how to represent compilations with multiple artists.
 - [ ] Add duplicate-detection workflow for slightly different album names.
-- [ ] Add "ignore album" and "wishlist" flows.
 - [ ] Add export/import to JSON for extra safety.
 - [ ] Add Android-friendly access pattern, likely through browser/PWA first.

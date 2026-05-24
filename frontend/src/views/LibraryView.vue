@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
-import type { Album, AlbumStatus } from '@/types'
+import type { Album } from '@/types'
 
 const store = useLibraryStore()
 const { artists, albums, loading, error } = storeToRefs(store)
@@ -11,36 +11,59 @@ const artistName = ref('')
 const albumArtistId = ref<number | null>(null)
 const albumTitle = ref('')
 const albumYear = ref<number | null>(null)
-const albumStatus = ref<AlbumStatus>('CHECKED')
-const albumCollectionId = ref<string | null>(null)
-const collectionFilter = ref<string | null>(null)
+const albumChecked = ref(true)
+const localFilter = ref<'all' | 'local' | 'not-local'>('all')
+const checkedFilter = ref<'all' | 'checked' | 'unchecked'>('all')
 const search = ref('')
 
-const statusItems: AlbumStatus[] = ['CHECKED', 'MISSING', 'WANTED', 'IGNORED']
+const localFilterItems = [
+  { title: 'All locations', value: 'all' },
+  { title: 'On disk', value: 'local' },
+  { title: 'No local files', value: 'not-local' },
+]
+
+const checkedFilterItems = [
+  { title: 'All listening states', value: 'all' },
+  { title: 'Listened', value: 'checked' },
+  { title: 'Not listened', value: 'unchecked' },
+]
 
 const filteredAlbums = computed(() => {
   const needle = search.value.trim().toLowerCase()
-  if (!needle) {
-    return collectionFilter.value ? albums.value.filter((album) => album.collectionId === collectionFilter.value) : albums.value
-  }
   return albums.value
-    .filter((album) => !collectionFilter.value || album.collectionId === collectionFilter.value)
-    .filter((album) =>
-      `${album.artistName} ${album.title} ${album.releaseYear ?? ''} ${album.status} ${album.collectionName ?? ''}`
+    .filter((album) => {
+      if (checkedFilter.value === 'checked') return album.checked
+      if (checkedFilter.value === 'unchecked') return !album.checked
+      return true
+    })
+    .filter((album) => {
+      if (localFilter.value === 'local') return album.hasLocalPath
+      if (localFilter.value === 'not-local') return !album.hasLocalPath
+      return true
+    })
+    .filter((album) => {
+      if (!needle) return true
+      return `${album.artistName} ${album.title} ${album.releaseYear ?? ''} ${album.localPaths.map((path) => path.collectionName).join(' ')}`
         .toLowerCase()
-        .includes(needle),
-    )
+        .includes(needle)
+    })
 })
 
 function artistOptions() {
   return artists.value.map((artist) => ({ title: artist.name, value: artist.id }))
 }
 
-function collectionOptions() {
-  return [
-    { title: 'Manual / no collection', value: null },
-    ...store.collections.map((collection) => ({ title: collection.name, value: collection.id })),
-  ]
+function localLabel(album: Album) {
+  const activePath = album.localPaths.find((path) => !path.missingSince)
+  return activePath?.collectionName ?? (album.hasLocalPath ? 'local' : 'none')
+}
+
+function localTooltip(album: Album) {
+  const activePaths = album.localPaths.filter((path) => !path.missingSince)
+  if (activePaths.length === 0) {
+    return 'No active local folder'
+  }
+  return activePaths.map((path) => path.resolvedPath ?? path.relativePath).join('\n')
 }
 
 async function addArtist() {
@@ -55,9 +78,10 @@ async function addAlbum() {
   if (!albumArtistId.value || !albumTitle.value.trim()) {
     return
   }
-  await store.addAlbum(albumArtistId.value, albumTitle.value.trim(), albumYear.value, albumStatus.value, albumCollectionId.value)
+  await store.addAlbum(albumArtistId.value, albumTitle.value.trim(), albumYear.value, albumChecked.value)
   albumTitle.value = ''
   albumYear.value = null
+  albumChecked.value = true
 }
 
 async function updateAlbum(album: Album, patch: Partial<Album>) {
@@ -77,6 +101,8 @@ onMounted(() => store.loadAll())
         <div class="stat-strip">
           <span>{{ artists.length }} artists</span>
           <span>{{ albums.length }} albums</span>
+          <span>{{ albums.filter((album) => album.checked).length }} listened</span>
+          <span>{{ albums.filter((album) => !album.checked).length }} unchecked</span>
           <span>{{ filteredAlbums.length }} visible</span>
         </div>
       </div>
@@ -100,8 +126,8 @@ onMounted(() => store.loadAll())
 
       <v-col cols="12" lg="8">
         <v-sheet class="panel pa-4">
-          <div class="panel-title">Add Checked Album</div>
-          <v-row dense>
+          <div class="panel-title">Add Album</div>
+          <v-row dense align="center">
             <v-col cols="12" md="4">
               <v-select
                 v-model="albumArtistId"
@@ -118,16 +144,7 @@ onMounted(() => store.loadAll())
               <v-text-field v-model.number="albumYear" type="number" density="compact" label="Year" hide-details></v-text-field>
             </v-col>
             <v-col cols="6" md="2">
-              <v-select v-model="albumStatus" :items="statusItems" density="compact" label="Status" hide-details></v-select>
-            </v-col>
-            <v-col cols="12" md="4">
-              <v-select
-                v-model="albumCollectionId"
-                :items="collectionOptions()"
-                density="compact"
-                label="Collection"
-                hide-details
-              ></v-select>
+              <v-checkbox v-model="albumChecked" density="compact" label="Listened" hide-details></v-checkbox>
             </v-col>
           </v-row>
           <v-btn color="primary" class="mt-3" prepend-icon="mdi-album" @click="addAlbum">Add album</v-btn>
@@ -146,11 +163,19 @@ onMounted(() => store.loadAll())
           hide-details
         ></v-text-field>
         <v-select
-          v-model="collectionFilter"
+          v-model="checkedFilter"
           class="data-toolbar__filter"
-          :items="collectionOptions()"
+          :items="checkedFilterItems"
           density="compact"
-          label="Collection"
+          label="Listened"
+          hide-details
+        ></v-select>
+        <v-select
+          v-model="localFilter"
+          class="data-toolbar__filter"
+          :items="localFilterItems"
+          density="compact"
+          label="Local"
           hide-details
         ></v-select>
       </div>
@@ -161,8 +186,9 @@ onMounted(() => store.loadAll())
             <th>Artist</th>
             <th>Album</th>
             <th>Year</th>
-            <th>Status</th>
-            <th>Collection</th>
+            <th>Listened</th>
+            <th>Local</th>
+            <th>Path</th>
           </tr>
         </thead>
         <tbody>
@@ -178,16 +204,30 @@ onMounted(() => store.loadAll())
                 @update:model-value="(value) => updateAlbum(album, { releaseYear: Number(value) || null })"
               ></v-text-field>
             </td>
-            <td style="width: 170px">
-              <v-select
-                :model-value="album.status"
-                :items="statusItems"
+            <td style="width: 112px">
+              <v-checkbox
+                :model-value="album.checked"
                 density="compact"
                 hide-details
-                @update:model-value="(value) => updateAlbum(album, { status: value })"
-              ></v-select>
+                @update:model-value="(value) => updateAlbum(album, { checked: Boolean(value) })"
+              ></v-checkbox>
             </td>
-            <td class="cell-muted">{{ album.collectionName ?? album.collectionId ?? 'manual' }}</td>
+            <td style="width: 120px">
+              <v-tooltip :text="localTooltip(album)" location="top">
+                <template #activator="{ props }">
+                  <v-chip
+                    v-bind="props"
+                    :color="album.onDisk ? 'success' : album.hasLocalPath ? 'warning' : 'default'"
+                    :prepend-icon="album.onDisk ? 'mdi-harddisk' : album.hasLocalPath ? 'mdi-folder-alert' : 'mdi-minus'"
+                    size="small"
+                    variant="tonal"
+                  >
+                    {{ album.onDisk ? 'on disk' : album.hasLocalPath ? 'missing' : 'none' }}
+                  </v-chip>
+                </template>
+              </v-tooltip>
+            </td>
+            <td class="cell-muted">{{ localLabel(album) }}</td>
           </tr>
         </tbody>
       </v-table>
