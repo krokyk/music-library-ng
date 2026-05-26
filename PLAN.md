@@ -1,99 +1,52 @@
-# Music Library NG Plan
+# Music Library NG Roadmap
 
-This file is the project checklist. Keep it current as work progresses so the
-codebase can be inspected and resumed without rediscovering intent.
+This roadmap tracks product capabilities and useful next steps.
 
-## Product Direction
+## Core Capabilities
 
-- [x] Choose architecture: Quarkus backend, SQLite database, Vue 3/Vuetify frontend.
-- [x] Keep the app local-first and runnable from multiple PCs through a Google Drive synced SQLite file.
-- [x] Make the HTTP port configurable with default `8795`.
-- [x] Support manual artist/album entry even when nothing exists on disk.
-- [x] Support configurable disk collections, including initially enabled and ignored collections.
-- [x] Package the Vue/Vuetify frontend into the Quarkus app for single-command use.
-- [ ] Add a Derby import tool for the legacy `music-library` database.
+- Local-first Quarkus backend, SQLite database, and Vue 3/Vuetify frontend.
+- Single packaged app served on port `8795`.
+- Shared app configuration across computers.
+- Per-machine music root supplied by `music-library.music-root` or auto-detected from approved `_vyber` locations.
+- Configured disk collections with parser, enabled state, and relative path.
+- Artist tracking independent of local disk presence.
+- Album listening state stored as one boolean flag: `checked`.
+- Local disk presence stored through album path rows.
+- Collection membership for artists, including manually added artists without local albums.
+- Local scan for `artist - year - album` folders.
+- Local scan for `title (artist, year)` soundtrack/musical folders.
+- Provider links and provider check history.
+- Provider checks that add newly discovered albums as unchecked.
+- Three-pane Collections workspace.
+- Global Library and Artists views.
+- Read-only Settings view for effective runtime configuration.
 
-## Configuration
+## Next Improvements
 
-- [x] Add `application.properties` defaults.
-- [x] Add config file support through Quarkus config locations.
-- [x] Define collection entries with `id`, `name`, `relative-path`, `parser`, and `enabled`.
-- [x] Add music root detection using only approved `_vyber` candidates and marker playlists.
-- [x] Store only paths relative to the runtime music root in SQLite.
-- [x] Add default collections for the current `_vyber` folders.
-- [x] Mark `CLASSICAL` and `CZECH & SLOVAK` as disabled for the initial release.
-- [ ] Add a UI settings page for editing collections.
-- [ ] Add app-level lock file and warning if another machine appears to be using the DB.
-- [ ] Add startup/shutdown backup handling.
-
-## Database
-
-- [x] Add SQLite/Flyway schema.
-- [x] Use numeric IDs instead of artist names as primary keys.
-- [x] Add artists, albums, collections, scan runs, and scan events.
-- [x] Store listened state as `checked` and local disk presence as separate path rows.
-- [x] Add indexes for search and uniqueness.
-- [x] Add provider link tables and provider check history.
-- [ ] Add backup/restore metadata tables.
-
-## Backend
-
-- [x] Scaffold Quarkus project with Gradle wrapper.
-- [x] Add health endpoint.
-- [x] Add artist CRUD endpoints.
-- [x] Add album CRUD endpoints.
-- [x] Add collections endpoint.
-- [x] Add scan endpoint for configured collections.
-- [x] Parse standard folders: `artist - year - album`.
-- [x] Parse soundtrack/musical folders: `title (artist, year)`.
-- [x] Upsert scanned albums as checked/owned.
-- [x] Allow manual creation of checked albums.
-- [ ] Add asynchronous scan jobs and progress streaming.
-- [x] Add provider abstraction.
-- [ ] Add Cover Art Archive support.
-- [x] Add optional legacy Metal Archives / Spirit of Metal providers.
-- [ ] Add directory picker helper per OS, if needed.
-- [x] Add tests around edge-case folder parsing.
-
-## Frontend
-
-- [x] Add a temporary browser UI served by Quarkus for early verification.
-- [x] Add `frontend/` Vue 3/Vuetify workspace files.
-- [x] Install Node tooling and run the Vue build.
-- [x] Build `LibraryView.vue` with editable Vuetify tables.
-- [x] Add inline listened checkbox editing for albums.
-- [x] Add artist/provider-link management view.
-- [x] Add manual artist and album controls.
-- [x] Add scan collection view.
-- [ ] Add settings page.
-- [ ] Add job progress UI.
-- [x] Wire frontend build output into `src/main/resources/META-INF/resources`.
-
-## Documentation
-
-- [x] Document local prerequisites and install options.
-- [x] Document run commands.
-- [x] Document SQLite-on-Google-Drive usage.
-- [x] Document collection configuration.
-- [ ] Add screenshots after the real Vue/Vuetify UI is running.
-- [ ] Document legacy Derby import.
-- [ ] Document release packaging.
+- Add app-level lock file and warning if another machine appears to be using the database.
+- Add startup/shutdown backup handling.
+- Add backup/restore metadata tables.
+- Add asynchronous scan jobs and progress streaming.
+- Add Cover Art Archive support.
+- Add directory picker helper per OS, if useful.
+- Add job progress UI.
+- Add screenshots.
+- Document release packaging.
+- Decide how to represent compilations with multiple artists.
+- Add duplicate-detection workflow for slightly different album names.
+- Add export/import to JSON for extra safety.
+- Add Android-friendly browser/PWA access pattern.
 
 ## Verification
 
-- [x] `./gradlew test`
-- [x] `./gradlew build`
-- [x] Start app on port `8795`.
-- [x] Verify `/api/health`.
-- [x] Verify manual artist/album creation.
-- [x] Verify scan parser with sample directories.
-- [x] Verify SQLite file creation in configured path.
-- [x] Verify Vue frontend build after Node is installed.
-
-## Open Questions / Future Enhancements
-
-- [x] Use one boolean album state: `checked` means listened.
-- [ ] Decide how to represent compilations with multiple artists.
-- [ ] Add duplicate-detection workflow for slightly different album names.
-- [ ] Add export/import to JSON for extra safety.
-- [ ] Add Android-friendly access pattern, likely through browser/PWA first.
+- `./gradlew test`
+- `./gradlew build`
+- Start the packaged app on port `8795`.
+- Verify `/api/health`.
+- Verify startup fails fast without a valid music root.
+- Verify a fresh SQLite database is created from `V1__init.sql`.
+- Verify manual artist creation with collection membership.
+- Verify manual album creation and checked toggling.
+- Verify scan parser behavior with sample directories.
+- Verify provider link creation and provider check run history.
+- Verify the Vue frontend build.

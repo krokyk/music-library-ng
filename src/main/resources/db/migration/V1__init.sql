@@ -45,6 +45,17 @@ CREATE TABLE collections (
     CHECK (enabled IN (0, 1))
 );
 
+CREATE TABLE artist_collections (
+    artist_id INTEGER NOT NULL,
+    collection_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (artist_id, collection_id),
+    FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
+    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_artist_collections_collection ON artist_collections(collection_id);
+
 CREATE TABLE album_local_paths (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     album_id INTEGER NOT NULL,

@@ -10,9 +10,10 @@
       </div>
 
       <v-tabs class="app-tabs" color="primary" density="comfortable">
-        <v-tab prepend-icon="mdi-music-box-multiple" to="/">Library</v-tab>
+        <v-tab prepend-icon="mdi-folder-music" to="/">Collections</v-tab>
         <v-tab prepend-icon="mdi-account-music" to="/artists">Artists</v-tab>
-        <v-tab prepend-icon="mdi-folder-cog" to="/collections">Collections</v-tab>
+        <v-tab prepend-icon="mdi-music-box-multiple" to="/library">Library</v-tab>
+        <v-tab prepend-icon="mdi-cog" to="/settings">Settings</v-tab>
       </v-tabs>
 
       <v-spacer></v-spacer>

@@ -3,6 +3,7 @@ export interface Artist {
   name: string
   sortName?: string | null
   notes?: string | null
+  collectionIds: string[]
   albumCount: number
   checkedAlbumCount: number
   uncheckedAlbumCount: number

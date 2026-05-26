@@ -27,11 +27,12 @@ public class AlbumResource {
     AlbumRepository albums;
 
     @GET
-    public List<Album> list(@QueryParam("artistId") Long artistId, @QueryParam("checked") Boolean checked,
-            @QueryParam("hasLocalPath") Boolean hasLocalPath, @QueryParam("search") String search) {
-        LOG.infof("Listing albums artistId=%s checked=%s hasLocalPath=%s search='%s'",
-                artistId, checked, hasLocalPath, search);
-        return albums.list(artistId, checked, hasLocalPath, search);
+    public List<Album> list(@QueryParam("artistId") Long artistId, @QueryParam("collectionId") String collectionId,
+            @QueryParam("checked") Boolean checked, @QueryParam("hasLocalPath") Boolean hasLocalPath,
+            @QueryParam("search") String search) {
+        LOG.infof("Listing albums artistId=%s collectionId=%s checked=%s hasLocalPath=%s search='%s'",
+                artistId, collectionId, checked, hasLocalPath, search);
+        return albums.list(artistId, collectionId, checked, hasLocalPath, search);
     }
 
     @GET

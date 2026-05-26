@@ -1,13 +1,12 @@
 # Music Library NG
 
-Music Library NG is a local-first music collection app. It replaces the old
-Swing/Derby app with a Quarkus backend, SQLite storage, and a Vue 3 + Vuetify
-frontend.
+Music Library NG is a local-first music collection app with a Quarkus backend,
+SQLite storage, and a Vue 3 + Vuetify frontend.
 
 The app is designed for a single user who runs it on one PC at a time while the
-SQLite database lives in a Google Drive synced folder.
+music root may differ between computers.
 
-## Current Features
+## Features
 
 - Runs on Quarkus with Java 21.
 - Uses Gradle only; Maven is not used.
@@ -17,10 +16,13 @@ SQLite database lives in a Google Drive synced folder.
 - Supports configurable scan collections.
 - Supports collections based on disk folders, for example Power Metal,
   Melodeath, Rock, Soundtracks, and Musicals.
+- Uses a three-pane Collections workspace: collections, artists, and albums.
 - Scans standard folders named `artist - year - album`.
 - Scans soundtrack/musical folders named `title (artist, year)`.
-- Allows manual artist and checked album entry even if nothing exists on disk.
-- Allows manually added albums to be assigned to a collection.
+- Tracks one album listening flag: `checked=true` means listened.
+- Tracks disk presence separately from the listened flag.
+- Allows artists to be assigned to collections even before any local album folder exists.
+- Refreshes artist discographies from provider links and adds new albums as unchecked.
 
 ## Tooling
 
@@ -65,8 +67,10 @@ wrapper.
 Backend dev mode:
 
 ```bash
-./gradlew quarkusDev
+./gradlew quarkusDev -Dmusic-library.music-root="E:/Google Drive/Music/_vyber"
 ```
+
+The JVM property is optional only when auto-detection finds a valid music root.
 
 Open:
 
@@ -108,24 +112,20 @@ The Gradle build runs:
 Run the packaged app:
 
 ```bash
-java -jar build/quarkus-app/quarkus-run.jar
+java -Dmusic-library.music-root="E:/Google Drive/Music/_vyber" \
+  -jar build/quarkus-app/quarkus-run.jar
 ```
 
 Build and run in one command:
 
 ```bash
-./gradlew build && java -jar build/quarkus-app/quarkus-run.jar
-```
-
-Build and run with the default port stated explicitly:
-
-```bash
-./gradlew build && java -Dquarkus.http.port=8795 -jar build/quarkus-app/quarkus-run.jar
+./gradlew build && java -Dmusic-library.music-root="E:/Google Drive/Music/_vyber" \
+  -jar build/quarkus-app/quarkus-run.jar
 ```
 
 ## Configuration
 
-Defaults live in:
+Shared defaults live in:
 
 ```text
 src/main/resources/application.properties
@@ -134,52 +134,24 @@ src/main/resources/application.properties
 The default port is:
 
 ```properties
-quarkus.http.port=${MUSIC_LIBRARY_PORT:8795}
+quarkus.http.port=8795
 ```
 
-Override with an environment variable:
+Keep it unchanged for normal runs so all machines use the same shared app
+settings.
 
-```bash
-MUSIC_LIBRARY_PORT=8888 java -jar build/quarkus-app/quarkus-run.jar
-```
-
-Or with a JVM property:
-
-```bash
-java -Dquarkus.http.port=8888 -jar build/quarkus-app/quarkus-run.jar
-```
-
-The default SQLite path is:
+The default SQLite path is shared and should stay the same across machines:
 
 ```properties
-music-library.db.path=data/music-library.sqlite
+music-library.db.path=data/music-library-ng.sqlite
 ```
 
-For Google Drive, create a personal config file outside the repo, for example:
-
-```text
-e:/Google Drive/Apps/MusicLibrary/music-library.properties
-```
-
-Example:
-
-```properties
-music-library.db.path=e:/Google Drive/Apps/MusicLibrary/music-library.sqlite
-music-library.backup.directory=e:/Google Drive/Apps/MusicLibrary/backups
-music-library.music-root=G:/My Drive/Music/_vyber
-
-music-library.collections[0].id=power-metal
-music-library.collections[0].name=Power Metal
-music-library.collections[0].relative-path=POWER METAL
-music-library.collections[0].parser=ARTIST_YEAR_ALBUM
-music-library.collections[0].enabled=true
-```
-
-Run with the external config:
+Use the same app configuration on every computer. Collections, parsers, DB path,
+backups, logging, and UI behavior are shared. The only value expected to differ
+between computers is the physical music root, supplied with:
 
 ```bash
-java -Dquarkus.config.locations=file:/e/Google\ Drive/Apps/MusicLibrary/music-library.properties \
-  -jar build/quarkus-app/quarkus-run.jar
+-Dmusic-library.music-root="E:/Google Drive/Music/_vyber"
 ```
 
 The app accepts Windows-style paths such as `e:/Google Drive/...` and resolves
@@ -187,16 +159,14 @@ them to WSL mounts like `/e/...` or `/mnt/e/...` when running under WSL.
 
 ### Music Root Detection
 
-The shared SQLite database stores only paths relative to the runtime music root.
-The root itself is machine-specific.
+The database stores only paths relative to the runtime music root. The root
+itself is machine-specific.
 
 Built-in root candidates are intentionally limited to:
 
 ```properties
-music-library.root-detection.candidates[0]=/e/Google Drive/Music/_vyber
-music-library.root-detection.candidates[1]=E:/Google Drive/Music/_vyber
-music-library.root-detection.candidates[2]=/g/My Drive/Music/_vyber
-music-library.root-detection.candidates[3]=G:/My Drive/Music/_vyber
+music-library.root-detection.candidates[0]=E:/Google Drive/Music/_vyber
+music-library.root-detection.candidates[1]=G:/My Drive/Music/_vyber
 ```
 
 A candidate is valid only when all marker playlists exist directly under it:
@@ -207,8 +177,13 @@ music-library.root-detection.markers[1]=MELODEATH.m3u8
 music-library.root-detection.markers[2]=POWER METAL.m3u8
 ```
 
-If a machine needs a different path, add it manually in the machine-specific
-config. Collection and album paths in the DB should remain relative.
+If neither expected location is valid, startup fails fast with an error that
+asks for the JVM property:
+
+```bash
+java -Dmusic-library.music-root="G:/My Drive/Music/_vyber" \
+  -jar build/quarkus-app/quarkus-run.jar
+```
 
 ## Logging
 
@@ -247,6 +222,7 @@ Run with more detailed app logs:
 java '-Dquarkus.log.category."org.kroky.musiclib".level=DEBUG' \
   -Dquarkus.log.console.level=DEBUG \
   -Dquarkus.log.file.level=DEBUG \
+  -Dmusic-library.music-root="E:/Google Drive/Music/_vyber" \
   -jar build/quarkus-app/quarkus-run.jar
 ```
 
@@ -256,6 +232,7 @@ Run with very noisy parser/database flow logs:
 java '-Dquarkus.log.category."org.kroky.musiclib".level=TRACE' \
   -Dquarkus.log.console.level=TRACE \
   -Dquarkus.log.file.level=TRACE \
+  -Dmusic-library.music-root="E:/Google Drive/Music/_vyber" \
   -jar build/quarkus-app/quarkus-run.jar
 ```
 
@@ -289,17 +266,17 @@ The configured collection itself acts as the folder/genre bucket. For example,
 an album found under the Power Metal collection is stored with
 `collectionId=power-metal`.
 
-## SQLite On Google Drive
+## SQLite Usage
 
 This is safe for the intended workflow:
 
 1. Run the app on one PC.
 2. Close the app.
-3. Let Google Drive finish syncing.
+3. Let file syncing finish if the app directory or database is synced.
 4. Open the app on another PC.
 
-Do not run the app on two machines against the same synced DB at the same time.
-Future work in `PLAN.md` includes a lock file and automatic backups.
+Do not run the app on two machines against the same SQLite database at the same
+time.
 
 ## Useful API Checks
 
@@ -307,15 +284,17 @@ Future work in `PLAN.md` includes a lock file and automatic backups.
 curl http://localhost:8795/api/health
 curl http://localhost:8795/api/collections
 curl http://localhost:8795/api/artists
+curl 'http://localhost:8795/api/artists?collectionId=melodeath'
 curl http://localhost:8795/api/albums
+curl 'http://localhost:8795/api/albums?collectionId=melodeath&artistId=1'
 ```
 
-Create an artist:
+Create an artist and assign it to a collection:
 
 ```bash
 curl -X POST http://localhost:8795/api/artists \
   -H 'Content-Type: application/json' \
-  -d '{"name":"Example Artist"}'
+  -d '{"name":"Example Artist","collectionIds":["melodeath"]}'
 ```
 
 Create a checked album:
@@ -337,23 +316,3 @@ Scan one collection:
 ```bash
 curl -X POST 'http://localhost:8795/api/scan?collectionId=power-metal'
 ```
-
-## Quarkus Project Generation
-
-Quarkus has a generator similar in spirit to Spring Initializr.
-
-With the Quarkus CLI:
-
-```bash
-quarkus create app org.kroky:music-library-ng \
-  --gradle \
-  --java=21 \
-  --extension=rest-jackson,jdbc-sqlite,flyway
-```
-
-This repo was generated from the Quarkus Gradle skeleton and then customized.
-
-## Development Checklist
-
-See [PLAN.md](PLAN.md). It is the working checklist for features, verification,
-and future work.

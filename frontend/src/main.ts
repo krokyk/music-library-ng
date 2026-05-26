@@ -13,6 +13,7 @@ import App from './App.vue'
 import LibraryView from './views/LibraryView.vue'
 import CollectionsView from './views/CollectionsView.vue'
 import ArtistsView from './views/ArtistsView.vue'
+import SettingsView from './views/SettingsView.vue'
 
 const vuetify = createVuetify({
   components,
@@ -59,9 +60,10 @@ const vuetify = createVuetify({
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: LibraryView },
+    { path: '/', component: CollectionsView },
+    { path: '/library', component: LibraryView },
     { path: '/artists', component: ArtistsView },
-    { path: '/collections', component: CollectionsView },
+    { path: '/settings', component: SettingsView },
   ],
 })
 

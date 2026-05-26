@@ -27,9 +27,9 @@ public class ArtistResource {
     ArtistRepository artists;
 
     @GET
-    public List<Artist> list(@QueryParam("search") String search) {
-        LOG.infof("Listing artists search='%s'", search);
-        return artists.list(search);
+    public List<Artist> list(@QueryParam("search") String search, @QueryParam("collectionId") String collectionId) {
+        LOG.infof("Listing artists search='%s' collectionId=%s", search, collectionId);
+        return artists.list(search, collectionId);
     }
 
     @GET
@@ -42,7 +42,7 @@ public class ArtistResource {
     @POST
     public Response create(ArtistRequest request) {
         LOG.infof("Create artist request name='%s'", request.name());
-        Artist artist = artists.create(request.name(), request.sortName(), request.notes());
+        Artist artist = artists.create(request.name(), request.sortName(), request.notes(), request.collectionIds());
         return Response.created(URI.create("/api/artists/" + artist.id())).entity(artist).build();
     }
 
@@ -50,7 +50,15 @@ public class ArtistResource {
     @Path("/{id}")
     public Artist update(@PathParam("id") long id, ArtistRequest request) {
         LOG.infof("Update artist request id=%d name='%s'", id, request.name());
-        return artists.update(id, request.name(), request.sortName(), request.notes()).orElseThrow(NotFoundException::new);
+        return artists.update(id, request.name(), request.sortName(), request.notes(), request.collectionIds())
+                .orElseThrow(NotFoundException::new);
+    }
+
+    @PUT
+    @Path("/{id}/collections")
+    public Artist updateCollections(@PathParam("id") long id, CollectionMembershipRequest request) {
+        LOG.infof("Update artist collections request id=%d collections=%s", id, request.collectionIds());
+        return artists.setCollections(id, request.collectionIds()).orElseThrow(NotFoundException::new);
     }
 
     @DELETE
@@ -61,6 +69,9 @@ public class ArtistResource {
         return Response.noContent().build();
     }
 
-    public record ArtistRequest(String name, String sortName, String notes) {
+    public record ArtistRequest(String name, String sortName, String notes, List<String> collectionIds) {
+    }
+
+    public record CollectionMembershipRequest(List<String> collectionIds) {
     }
 }

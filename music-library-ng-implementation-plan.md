@@ -1,13 +1,11 @@
-# Music Library NG - Clean Rewrite Implementation Plan
+# Music Library NG Implementation Plan
 
-This plan is for a clean rebuild of `music-library-ng`.
+This plan describes the product model, architecture, and implementation rules for Music Library NG.
 
-We are not preserving the current NG database shape, migration history, or compatibility API. The repo can keep Quarkus, Java 21, Gradle, SQLite/Flyway, Vue 3, and Vuetify, but the app model should be rebuilt cleanly around the actual workflow.
-
-The old Swing app in sibling repo `music-library` is only a behavior reference:
+Core behavior:
 
 - `Album.checked` means the album was listened to.
-- A band/artist can exist before any local tracks exist.
+- An artist can exist before any local tracks exist.
 - Provider checks add new albums as unchecked.
 - Local scan detects albums that exist on disk.
 
@@ -77,12 +75,12 @@ Collections pane:
 
 - Left sidebar with selectable collection list.
 - Only one collection can be selected at a time.
-- Initial page load loads only collections; no collection is selected.
+- Page load fetches only collections; no collection is selected.
 - With no collection selected, artists and albums panes are empty.
 - Selecting a collection loads artists for that collection and clears the albums pane.
 - Switching collection clears the selected artist and clears the albums pane before loading artists for the new collection.
 - Include an icon/button for configuration/status near the collection title.
-- Configuration itself should remain file-based, stored outside the application, and passable as an app parameter.
+- Configuration itself remains file-based in Quarkus properties. The app keeps one shared config and varies only `music-library.music-root` per machine.
 - The collections pane should stay narrow and stable; it is navigation, not content.
 
 Artists pane:
@@ -107,7 +105,7 @@ Artists pane:
 Albums pane:
 
 - Right pane is a basic albums table for the selected collection and selected artist.
-- Initial columns:
+- Columns:
   - `Name`
   - `Year`
   - `Checked`
@@ -117,7 +115,7 @@ Albums pane:
   - trash icon;
   - opens confirmation dialog before deleting the album.
 - Keep this table dense, fast, and easy to scan.
-- Disk presence may be shown later if useful, but it should not compete with the core `Checked` workflow.
+- Disk presence may be shown compactly, but it should not compete with the core `Checked` workflow.
 
 Selection behavior:
 
@@ -132,15 +130,15 @@ Other top-level sections:
 - `Library`: global album search/table across all collections and artists.
 - `Settings`: config-file-backed settings view; see configuration section.
 
-## 3. Clean Database
+## 3. Database
 
-Use one clean Flyway migration:
+Use one base Flyway migration:
 
 ```text
 src/main/resources/db/migration/V1__init.sql
 ```
 
-Delete/replace any old migration content. Do not create V2/V3 scripts while building from scratch.
+The canonical schema is in `V1__init.sql`.
 
 Use SQLite foreign keys:
 
@@ -308,7 +306,7 @@ create table provider_check_events (
 
 ## 4. Backend Domain DTOs
 
-Use album terminology in the first clean version.
+Use album terminology in DTOs and APIs.
 
 ### Artist
 
@@ -423,7 +421,7 @@ Use plain Quarkus `.properties` for shared configuration.
 
 Reason:
 
-- Quarkus already supports property files and JVM system property overrides cleanly.
+- Quarkus already supports property files, and the per-machine music root can be supplied as a JVM system property.
 - It avoids adding a custom JSON/YAML configuration layer.
 - The same values can be consumed by Quarkus and app services.
 - One shared config keeps collections, parsers, DB location, backups, logging, and UI behavior identical across computers.
@@ -499,7 +497,7 @@ Do not silently continue without a valid music root.
 ### Artists
 
 ```text
-GET    /api/artists?collectionId=&search=&hasUnchecked=&hasProviderLink=
+GET    /api/artists?collectionId=&search=
 GET    /api/artists/{id}
 POST   /api/artists
 PUT    /api/artists/{id}
@@ -542,7 +540,7 @@ Artist membership rules:
 ### Albums
 
 ```text
-GET    /api/albums?artistId=&checked=&hasLocalPath=&search=
+GET    /api/albums?collectionId=&artistId=&checked=&hasLocalPath=&search=
 GET    /api/albums/{id}
 POST   /api/albums
 PUT    /api/albums/{id}
@@ -566,33 +564,21 @@ Manual album creation defaults `checked` to `true` if omitted, because manual en
 
 Provider-discovered album creation sets `checked = false`.
 
-### Album Paths
-
-```text
-GET    /api/albums/{albumId}/paths
-POST   /api/albums/{albumId}/paths
-DELETE /api/albums/{albumId}/paths/{pathId}
-```
-
-Manual path editing can be basic. Most paths should come from scan.
-
 ### Collections
 
 ```text
 GET /api/collections
-PUT /api/collections/{id}
 ```
 
-Collections may still be seeded from config on startup.
+Collections are seeded from shared config. Editing collection definitions from the UI is intentionally out of scope so the app stays identical across computers.
 
 ### Settings
 
 ```text
-GET /api/settings
 GET /api/settings/music-root
 ```
 
-Settings are backed by the shared Quarkus properties config file plus the per-machine `music-library.music-root` JVM override. Editing settings from the UI can be added later, but the first version may show read-only effective settings plus validation status.
+Settings are backed by the shared Quarkus properties config file plus the per-machine `music-library.music-root` JVM override. The Settings view shows effective read-only configuration and validation status.
 
 ### Scan
 
@@ -604,7 +590,7 @@ GET  /api/scan/runs/{id}
 GET  /api/scan/runs/{id}/events
 ```
 
-Synchronous scan is acceptable for the first clean version. Add background jobs later if needed.
+Synchronous scan is acceptable. Add background jobs when scan duration requires it.
 
 ### Provider Links
 
@@ -632,7 +618,6 @@ POST /api/provider-checks/artist/{artistId}
 POST /api/provider-checks/provider-link/{linkId}
 POST /api/provider-checks/all
 GET  /api/provider-checks/runs?limit=25
-GET  /api/provider-checks/runs/{id}
 GET  /api/provider-checks/runs/{id}/events
 ```
 
@@ -652,7 +637,7 @@ For each parsed local folder:
 3. Upsert artist by normalized name.
 4. Find album by artist + normalized title + year.
 5. If album does not exist, create it with `checked = true`.
-6. If album exists, do not change `checked`.
+6. If album exists and local files are found, set `checked = true`.
 7. Upsert `album_local_paths` by collection + relative path.
 8. Set `last_seen_at = now` and clear `missing_since`.
 9. Ensure the artist is assigned to the scanned collection in `artist_collections`.
@@ -667,9 +652,9 @@ The scan should be idempotent: rescanning the same folders should not create dup
 
 ## 8. Provider Check Behavior
 
-Use old Swing provider logic as reference, but implement cleanly.
+Provider checks fetch discography data from configured provider links and normalize it into remote album records.
 
-Initial provider abstraction:
+Provider abstraction:
 
 ```java
 public interface DiscographyProvider {
@@ -688,16 +673,10 @@ public record RemoteAlbum(
 ) {}
 ```
 
-Initial providers:
+Supported providers:
 
 - `spirit_of_metal`
 - `metal_archives`
-
-Use old parser files for behavior reference:
-
-- `music-library/src/main/java/org/kroky/musiclib/htmlparsers/ParserFactory.java`
-- `music-library/src/main/java/org/kroky/musiclib/htmlparsers/SpiritOfMetalParser.java`
-- `music-library/src/main/java/org/kroky/musiclib/htmlparsers/MetalArchivesParser.java`
 
 For each remote album:
 
@@ -734,7 +713,7 @@ Layout:
 Behavior:
 
 - page load fetches collections only;
-- no collection selected initially;
+- no collection selected on load;
 - selecting a collection fetches artists for that collection;
 - switching collection clears selected artist and albums;
 - selecting an artist fetches albums for that artist;
@@ -753,8 +732,7 @@ Features:
 - Inline year editing if simple.
 - Local presence indicator from `onDisk`.
 - Show collection/path details without overwhelming the table.
-- Add album dialog/form.
-- Delete album action with confirmation.
+- Add album form.
 
 Suggested table columns:
 
@@ -765,7 +743,6 @@ Year
 Listened
 Local
 Collection/Path
-Actions
 ```
 
 Use a checkbox for `Listened`.
@@ -781,7 +758,7 @@ For `Local`, choose a compact UX such as:
 Features:
 
 - Search artists.
-- Add/edit/delete artist.
+- Select an artist to manage provider links.
 - Show album counts.
 - Show unchecked album count.
 - Show local album count.
@@ -802,7 +779,7 @@ Actions
 
 Artist detail modal:
 
-- opens from pencil hover action in Collections artists table or Artists view;
+- opens from pencil hover action in the Collections artists table;
 - contains editable artist details only;
 - includes provider link editing;
 - includes collection membership editing;
@@ -812,53 +789,50 @@ Artist detail modal:
 
 Features:
 
-- Shows effective shared config file location if available.
 - Shows configured music root from the JVM override.
 - Shows root validation state.
 - Shows configured collections.
 - Settings are backed by the shared Quarkus properties file; `music-library.music-root` is per-machine runtime input.
-- First version may be read-only if writing the config file safely is not yet implemented.
+- Settings are read-only; per-machine values are supplied when the app starts.
 
 ### Provider Check UI
 
 Features:
 
-- Check one artist/provider link.
+- Check one artist.
 - Check all enabled provider links.
-- Show recent provider check runs/events.
+- Show recent provider check runs.
 - Show how many new unchecked albums were added.
 
-## 10. Implementation Order
+## 10. Implementation Checklist
 
-1. Replace `V1__init.sql` with the clean schema, including `artist_collections`.
-2. Remove old `AlbumStatus` model and all status UI.
-3. Implement startup config validation for required `music-library.music-root`.
-4. Implement clean domain records and repositories.
-5. Implement collections API and collection-scoped artist membership.
-6. Implement artists API with collection membership and provider links.
-7. Implement albums API with `checked`, `hasLocalPath`, and `onDisk`.
-8. Implement local scan with `album_local_paths` and `artist_collections`.
-9. Build Collections view as the three-pane default screen.
-10. Add artist detail modal with editable artist details, provider links, and collection membership only.
-11. Add album hover delete with confirmation.
-12. Build global Library view with listened checkbox and local indicator.
-13. Build global Artists view with counts and provider-link editing.
-14. Implement provider abstraction and first HTML providers.
-15. Implement provider check API and run history.
-16. Add provider check UI.
-17. Add focused backend tests.
-18. Run full app smoke test from empty DB.
+1. Maintain `V1__init.sql` as the base schema, including `artist_collections`.
+2. Keep album listening state as the single `checked` flag.
+3. Validate `music-library.music-root` before database migration.
+4. Keep domain records and repositories aligned with the database schema.
+5. Provide collection-scoped artist membership APIs.
+6. Provide artist APIs with collection membership and provider links.
+7. Provide album APIs with `checked`, `hasLocalPath`, and `onDisk`.
+8. Keep local scan idempotent through `album_local_paths` and `artist_collections`.
+9. Keep Collections view as the three-pane default screen.
+10. Keep artist detail modal focused on artist details, provider links, and collection membership only.
+11. Keep album delete behind confirmation.
+12. Keep Library view focused on global album search and listened/local state.
+13. Keep Artists view focused on global artist management and provider checks.
+14. Keep provider check API and run history available.
+15. Add focused backend tests for schema, scan, provider, and API behavior.
+16. Run full app smoke tests from an empty DB.
 
 ## 11. Tests
 
 Backend tests:
 
-- Clean schema creates successfully from empty DB.
+- Schema creates successfully from empty DB.
 - Artist can be created without albums.
 - Album can be created checked with no local path.
 - Album checked flag can be toggled.
 - Local scan creates checked albums and local paths.
-- Local rescan preserves checked state.
+- Local scan marks locally present albums checked.
 - Local rescan does not duplicate albums/paths.
 - Missing local folders mark path `missing_since`.
 - Album DTO reports `hasLocalPath` and `onDisk`.
@@ -877,11 +851,10 @@ Frontend smoke checks:
 - Add provider link.
 - Check releases and see new unchecked albums.
 
-## 12. Non-Goals For First Clean Version
+## 12. Non-Goals
 
-Do not implement first:
+Do not implement:
 
-- Multiple DB migration versions.
 - Three album status model.
 - Wishlist/ignored/listen-later.
 - Automatic provider checks on startup.
@@ -892,14 +865,14 @@ Do not implement first:
 
 ## 13. Acceptance Criteria
 
-The clean rewrite is usable when:
+The app is usable when:
 
-- A fresh DB is created from one clean `V1__init.sql`.
+- A fresh DB is created from `V1__init.sql`.
 - Artists can exist without albums.
 - Albums have one editable listened/checked flag.
 - Manual listened albums can exist without local files.
 - Local scan creates/updates local album paths.
-- Local scan does not overwrite listened state for existing albums.
+- Local scan marks locally present albums as checked.
 - The UI clearly distinguishes listened state from local disk presence.
 - Provider links can be configured per artist.
 - Provider checks add new albums as unchecked.

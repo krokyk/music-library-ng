@@ -36,14 +36,22 @@ public class AlbumRepository {
     MusicRootService musicRootService;
 
     public List<Album> list(Long artistId, Boolean checked, Boolean hasLocalPath, String search) {
-        LOG.debugf("Listing albums artistId=%s checked=%s hasLocalPath=%s search='%s'",
-                artistId, checked, hasLocalPath, search);
+        return list(artistId, null, checked, hasLocalPath, search);
+    }
+
+    public List<Album> list(Long artistId, String collectionId, Boolean checked, Boolean hasLocalPath, String search) {
+        LOG.debugf("Listing albums artistId=%s collectionId=%s checked=%s hasLocalPath=%s search='%s'",
+                artistId, collectionId, checked, hasLocalPath, search);
         String sql = """
                 SELECT a.id, a.artist_id, ar.name AS artist_name, a.title, a.release_year, a.release_date,
                        a.checked, a.notes, a.created_at, a.updated_at
                 FROM albums a
                 JOIN artists ar ON ar.id = a.artist_id
                 WHERE (? IS NULL OR a.artist_id = ?)
+                  AND (? IS NULL OR EXISTS (
+                      SELECT 1 FROM artist_collections ac
+                      WHERE ac.artist_id = a.artist_id AND ac.collection_id = ?
+                  ))
                   AND (? IS NULL OR a.checked = ?)
                   AND (
                     ? IS NULL
@@ -62,16 +70,19 @@ public class AlbumRepository {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             String normalizedSearch = search == null || search.isBlank() ? null : Names.normalize(search);
+            String normalizedCollectionId = blankToNull(collectionId);
             setNullableLong(statement, 1, artistId);
             setNullableLong(statement, 2, artistId);
-            setNullableBooleanInt(statement, 3, checked);
-            setNullableBooleanInt(statement, 4, checked);
-            setNullableBooleanInt(statement, 5, hasLocalPath);
-            setNullableBooleanInt(statement, 6, hasLocalPath);
+            statement.setString(3, normalizedCollectionId);
+            statement.setString(4, normalizedCollectionId);
+            setNullableBooleanInt(statement, 5, checked);
+            setNullableBooleanInt(statement, 6, checked);
             setNullableBooleanInt(statement, 7, hasLocalPath);
-            statement.setString(8, normalizedSearch);
-            statement.setString(9, normalizedSearch);
+            setNullableBooleanInt(statement, 8, hasLocalPath);
+            setNullableBooleanInt(statement, 9, hasLocalPath);
             statement.setString(10, normalizedSearch);
+            statement.setString(11, normalizedSearch);
+            statement.setString(12, normalizedSearch);
             try (ResultSet rs = statement.executeQuery()) {
                 List<Album> albums = new ArrayList<>();
                 while (rs.next()) {
@@ -195,6 +206,9 @@ public class AlbumRepository {
             String collectionId) {
         Optional<Album> existing = findDuplicate(artistId, title, releaseYear);
         if (existing.isPresent()) {
+            if (!existing.get().checked()) {
+                markChecked(existing.get().id());
+            }
             upsertLocalPath(existing.get().id(), collectionId, relativePath);
             return new UpsertResult(existing.get().id(), false);
         }
@@ -220,6 +234,21 @@ public class AlbumRepository {
             statement.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to upsert album local path", e);
+        }
+    }
+
+    private void markChecked(long albumId) {
+        String sql = """
+                UPDATE albums
+                SET checked = 1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND checked = 0
+                """;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, albumId);
+            statement.executeUpdate();
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to mark scanned album checked " + albumId, e);
         }
     }
 

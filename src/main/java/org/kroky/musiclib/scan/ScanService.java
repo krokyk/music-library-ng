@@ -140,6 +140,7 @@ public class ScanService {
 
     private UpsertResult upsert(ParsedAlbum parsedAlbum) {
         UpsertResult artist = artistRepository.upsertByName(parsedAlbum.artistName());
+        artistRepository.assignToCollection(artist.id(), parsedAlbum.collectionId());
         return albumRepository.upsertScanned(
                 artist.id(),
                 parsedAlbum.title(),

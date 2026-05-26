@@ -1,18 +1,23 @@
 package org.kroky.musiclib.scan;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
+import org.flywaydb.core.Flyway;
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.config.MusicLibraryConfig;
 import org.kroky.musiclib.model.MusicRootInfo;
 import org.kroky.musiclib.model.RootCandidate;
 
+import io.quarkus.runtime.Startup;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
+@Startup
 @ApplicationScoped
 public class MusicRootService {
 
@@ -24,47 +29,43 @@ public class MusicRootService {
     @Inject
     PathResolver pathResolver;
 
-    private volatile Path userSelectedRoot;
+    @Inject
+    Flyway flyway;
+
+    private volatile Path cachedRoot;
+
+    @PostConstruct
+    void validateAtStartup() {
+        Path root = requireRoot();
+        LOG.infof("Using music root: %s", root);
+        flyway.migrate();
+    }
 
     public MusicRootInfo info() {
-        Optional<Path> selected = selectedRoot();
+        Path selected = requireRoot();
         return new MusicRootInfo(
-                selected.map(Path::toString).orElse(null),
-                config.musicRoot().isEmpty() && userSelectedRoot == null && selected.isPresent(),
-                selected.map(this::hasAllMarkers).orElse(false),
+                selected.toString(),
+                config.musicRoot().isEmpty(),
+                isValidRoot(selected),
                 config.rootDetection().markers(),
                 candidates());
     }
 
     public Optional<Path> selectedRoot() {
-        if (userSelectedRoot != null) {
-            return Optional.of(userSelectedRoot);
-        }
-        Optional<Path> configured = config.musicRoot()
-                .map(pathResolver::resolve)
-                .filter(this::hasAllMarkers);
-        if (configured.isPresent()) {
-            return configured;
-        }
-        return candidates().stream()
-                .filter(RootCandidate::markersFound)
-                .map(candidate -> Path.of(candidate.resolvedPath()))
-                .findFirst();
+        return Optional.of(requireRoot());
     }
 
     public Path requireRoot() {
-        return selectedRoot().orElseThrow(() -> new IllegalStateException(
-                "Music root was not found. Configure music-library.music-root or add a valid root candidate."));
-    }
-
-    public MusicRootInfo selectRoot(String root) {
-        Path resolved = pathResolver.resolve(root);
-        if (!hasAllMarkers(resolved)) {
-            throw new IllegalArgumentException("Selected root is invalid or missing marker playlists: " + resolved);
+        Path root = cachedRoot;
+        if (root != null) {
+            return root;
         }
-        LOG.infof("Runtime music root selected: %s", resolved);
-        userSelectedRoot = resolved;
-        return info();
+        synchronized (this) {
+            if (cachedRoot == null) {
+                cachedRoot = resolveRoot();
+            }
+            return cachedRoot;
+        }
     }
 
     public Path resolveCollection(String collectionRelativePath) {
@@ -76,6 +77,55 @@ public class MusicRootService {
             return null;
         }
         return resolveCollection(collectionRelativePath).resolve(albumRelativePath);
+    }
+
+    private Path resolveRoot() {
+        Optional<String> configured = config.musicRoot();
+        if (configured.isPresent()) {
+            String rawRoot = configured.get();
+            if (rawRoot == null || rawRoot.isBlank()) {
+                throw new IllegalStateException("""
+                        The supplied music-library.music-root JVM property is blank.
+                        Start the app with a valid per-machine JVM property:
+                          -Dmusic-library.music-root="E:/Google Drive/Music/_vyber"
+                        """);
+            }
+            Path resolved = pathResolver.resolve(rawRoot.trim());
+            if (isValidRoot(resolved)) {
+                return resolved;
+            }
+            throw new IllegalStateException("""
+                    The supplied music-library.music-root JVM property is invalid.
+                    Supplied: %s
+                    Resolved: %s
+                    It must exist, be a non-empty directory, and contain these marker playlists directly in the root: %s
+                    """.formatted(rawRoot, resolved, String.join(", ", config.rootDetection().markers())));
+        }
+
+        return candidates().stream()
+                .filter(RootCandidate::markersFound)
+                .map(candidate -> Path.of(candidate.resolvedPath()))
+                .findFirst()
+                .orElseThrow(this::autodetectionFailure);
+    }
+
+    private IllegalStateException autodetectionFailure() {
+        String checkedPaths = config.rootDetection().candidates().stream()
+                .map(candidate -> {
+                    Path resolved = pathResolver.resolve(candidate);
+                    return "  " + candidate + " -> " + resolved;
+                })
+                .reduce((left, right) -> left + System.lineSeparator() + right)
+                .orElse("  <no candidates configured>");
+        return new IllegalStateException("""
+                Music root was not configured and autodetection failed.
+                Checked:
+                %s
+                The music-library.music-root JVM property MUST be supplied because those expected locations are invalid.
+                A valid root must exist, be a non-empty directory, and contain these marker playlists directly in the root: %s
+                Start the app with:
+                  -Dmusic-library.music-root="E:/Google Drive/Music/_vyber"
+                """.formatted(checkedPaths, String.join(", ", config.rootDetection().markers())));
     }
 
     private List<RootCandidate> candidates() {
@@ -90,7 +140,19 @@ public class MusicRootService {
                 configuredPath,
                 resolved.toString(),
                 Files.isDirectory(resolved),
-                hasAllMarkers(resolved));
+                isValidRoot(resolved));
+    }
+
+    private boolean isValidRoot(Path root) {
+        return Files.isDirectory(root) && isNotEmpty(root) && hasAllMarkers(root);
+    }
+
+    private boolean isNotEmpty(Path root) {
+        try (var stream = Files.list(root)) {
+            return stream.findAny().isPresent();
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     private boolean hasAllMarkers(Path root) {
