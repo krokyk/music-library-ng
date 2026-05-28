@@ -1,5 +1,6 @@
 package org.kroky.musiclib.repository;
 
+import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -10,7 +11,8 @@ import java.util.Optional;
 import javax.sql.DataSource;
 
 import org.jboss.logging.Logger;
-import org.kroky.musiclib.config.MusicLibraryConfig;
+import org.kroky.musiclib.db.Names;
+import org.kroky.musiclib.model.CollectionFolderCandidate;
 import org.kroky.musiclib.model.MusicCollection;
 import org.kroky.musiclib.model.ParserType;
 import org.kroky.musiclib.scan.MusicRootService;
@@ -27,16 +29,12 @@ public class MusicCollectionRepository {
     DataSource dataSource;
 
     @Inject
-    MusicLibraryConfig config;
-
-    @Inject
     MusicRootService musicRootService;
 
     public List<MusicCollection> list() {
         LOG.debug("Listing music collections");
-        syncConfiguredCollections();
         String sql = """
-                SELECT id, name, relative_path, parser, enabled, last_scan_at, last_scan_status, last_scan_message
+                SELECT id, name, relative_path, parser, last_scan_at, last_scan_status, last_scan_message
                 FROM collections
                 ORDER BY name
                 """;
@@ -55,9 +53,8 @@ public class MusicCollectionRepository {
 
     public Optional<MusicCollection> find(String id) {
         LOG.tracef("Finding music collection id=%s", id);
-        syncConfiguredCollections();
         String sql = """
-                SELECT id, name, relative_path, parser, enabled, last_scan_at, last_scan_status, last_scan_message
+                SELECT id, name, relative_path, parser, last_scan_at, last_scan_status, last_scan_message
                 FROM collections
                 WHERE id = ?
                 """;
@@ -90,33 +87,93 @@ public class MusicCollectionRepository {
         }
     }
 
-    private void syncConfiguredCollections() {
-        if (config.collections() == null) {
-            return;
+    public List<CollectionFolderCandidate> listFolderCandidates() {
+        List<String> existingPaths = list().stream()
+                .map(MusicCollection::relativePath)
+                .map(Names::normalize)
+                .toList();
+        return musicRootService.listDirectChildDirectories().stream()
+                .filter(path -> !existingPaths.contains(Names.normalize(path.getFileName().toString())))
+                .map(path -> new CollectionFolderCandidate(
+                        path.getFileName().toString(),
+                        path.getFileName().toString(),
+                        Names.chicagoStyle(path.getFileName().toString())))
+                .toList();
+    }
+
+    public MusicCollection createFromFolder(String relativePath) {
+        String folder = blankToNull(relativePath);
+        if (folder == null || folder.contains("/") || folder.contains("\\") || folder.contains("..")) {
+            throw new IllegalArgumentException("Collection folder must be a direct music-root child");
         }
-        LOG.debugf("Synchronizing %d configured music collections", config.collections().size());
+        if (!Files.isDirectory(musicRootService.resolveCollection(folder))) {
+            throw new IllegalArgumentException("Collection folder does not exist: " + folder);
+        }
+        String id = uniqueId(Names.slug(folder));
+        String name = Names.chicagoStyle(folder);
+        ParserType parser = inferParser(folder);
+        LOG.infof("Creating collection id=%s name='%s' relativePath='%s' parser=%s", id, name, folder, parser);
         String sql = """
-                INSERT INTO collections (id, name, relative_path, parser, enabled)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    name = excluded.name,
-                    relative_path = excluded.relative_path,
-                    parser = excluded.parser,
-                    enabled = excluded.enabled
+                INSERT INTO collections (id, name, relative_path, parser)
+                VALUES (?, ?, ?, ?)
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
-            for (MusicLibraryConfig.MusicCollectionConfig collection : config.collections()) {
-                statement.setString(1, collection.id());
-                statement.setString(2, collection.name());
-                statement.setString(3, collection.relativePath());
-                statement.setString(4, collection.parser());
-                statement.setInt(5, collection.enabled() ? 1 : 0);
-                statement.addBatch();
-            }
-            statement.executeBatch();
+            statement.setString(1, id);
+            statement.setString(2, name);
+            statement.setString(3, folder);
+            statement.setString(4, parser.name());
+            statement.executeUpdate();
+            return find(id).orElseThrow();
         } catch (Exception e) {
-            throw new IllegalStateException("Unable to sync configured collections", e);
+            throw new IllegalStateException("Unable to create collection from folder " + folder, e);
+        }
+    }
+
+    public Optional<MusicCollection> update(String id, String name) {
+        LOG.infof("Updating collection id=%s name='%s'", id, name);
+        String sql = """
+                UPDATE collections
+                SET name = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, name);
+            statement.setString(2, id);
+            int updated = statement.executeUpdate();
+            return updated == 0 ? Optional.empty() : find(id);
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to update collection " + id, e);
+        }
+    }
+
+    public void delete(String id) {
+        LOG.infof("Deleting collection id=%s", id);
+        try (Connection connection = dataSource.getConnection()) {
+            boolean autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try (PreparedStatement deleteLocalPaths = connection.prepareStatement(
+                    "DELETE FROM album_local_paths WHERE collection_id = ?");
+                    PreparedStatement deleteArtistMemberships = connection.prepareStatement(
+                            "DELETE FROM artist_collections WHERE collection_id = ?");
+                    PreparedStatement deleteCollection = connection.prepareStatement(
+                            "DELETE FROM collections WHERE id = ?")) {
+                deleteLocalPaths.setString(1, id);
+                deleteLocalPaths.executeUpdate();
+                deleteArtistMemberships.setString(1, id);
+                deleteArtistMemberships.executeUpdate();
+                deleteCollection.setString(1, id);
+                deleteCollection.executeUpdate();
+                connection.commit();
+            } catch (Exception e) {
+                rollbackQuietly(connection);
+                throw e;
+            } finally {
+                connection.setAutoCommit(autoCommit);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to delete collection " + id, e);
         }
     }
 
@@ -128,7 +185,6 @@ public class MusicCollectionRepository {
                 resolvedCollectionPath(rs.getString("relative_path")),
                 collectionExists(rs.getString("relative_path")),
                 ParserType.valueOf(rs.getString("parser")),
-                rs.getInt("enabled") == 1,
                 rs.getString("last_scan_at"),
                 rs.getString("last_scan_status"),
                 rs.getString("last_scan_message"));
@@ -149,5 +205,36 @@ public class MusicCollectionRepository {
         } catch (IllegalStateException e) {
             return false;
         }
+    }
+
+    private String uniqueId(String baseId) {
+        String root = baseId == null || baseId.isBlank() ? "collection" : baseId;
+        String candidate = root;
+        int suffix = 2;
+        while (find(candidate).isPresent()) {
+            candidate = root + "-" + suffix;
+            suffix++;
+        }
+        return candidate;
+    }
+
+    private static ParserType inferParser(String folder) {
+        String normalized = Names.normalize(folder);
+        if (normalized.contains("soundtrack") || normalized.contains("musical")) {
+            return ParserType.TITLE_ARTIST_YEAR;
+        }
+        return ParserType.ARTIST_YEAR_ALBUM;
+    }
+
+    private static void rollbackQuietly(Connection connection) {
+        try {
+            connection.rollback();
+        } catch (Exception ignored) {
+            // Preserve the original database failure.
+        }
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

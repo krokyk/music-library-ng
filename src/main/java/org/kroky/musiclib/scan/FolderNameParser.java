@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.kroky.musiclib.db.Names;
 import org.kroky.musiclib.model.ParsedAlbum;
 import org.kroky.musiclib.model.ParserType;
 
@@ -32,7 +33,7 @@ public class FolderNameParser {
             return Optional.empty();
         }
         return Optional.of(new ParsedAlbum(
-                clean(matcher.group(1)),
+                Names.chicagoStyle(clean(matcher.group(1))),
                 clean(matcher.group(3)),
                 Integer.parseInt(matcher.group(2)),
                 folder,
@@ -45,7 +46,7 @@ public class FolderNameParser {
             return Optional.empty();
         }
         return Optional.of(new ParsedAlbum(
-                clean(matcher.group(2)),
+                Names.chicagoStyle(clean(matcher.group(2))),
                 clean(matcher.group(1)),
                 Integer.parseInt(matcher.group(3)),
                 folder,

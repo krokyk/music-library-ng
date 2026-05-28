@@ -145,7 +145,7 @@ body,
 }
 
 .table-wrap {
-  overflow: hidden;
+  overflow: auto;
 }
 
 .music-table {
@@ -178,11 +178,10 @@ body,
 }
 
 .three-pane {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(210px, 240px) minmax(280px, 0.9fr) minmax(430px, 1.8fr);
+  display: flex;
   height: calc(100vh - 108px);
   min-height: 560px;
+  overflow: auto;
 }
 
 .pane {
@@ -192,7 +191,42 @@ body,
   display: flex;
   flex-direction: column;
   min-width: 0;
-  overflow: hidden;
+  overflow: auto;
+}
+
+.collections-pane {
+  flex: 0 0 340px;
+  min-width: 320px;
+}
+
+.artists-pane {
+  flex: 1 1 380px;
+  min-width: 280px;
+}
+
+.albums-pane {
+  flex: 2 1 540px;
+  min-width: 380px;
+}
+
+.pane-resizer {
+  align-self: stretch;
+  cursor: col-resize;
+  flex: 0 0 10px;
+  margin: 0;
+  position: relative;
+}
+
+.pane-resizer::before {
+  background: rgba(255, 255, 255, 0.08);
+  content: "";
+  inset: 0 4px;
+  position: absolute;
+  transition: background 120ms ease;
+}
+
+.pane-resizer:hover::before {
+  background: rgba(0, 213, 255, 0.5);
 }
 
 .pane-header {
@@ -231,6 +265,8 @@ body,
 .collection-list {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 8px;
 }
@@ -242,25 +278,45 @@ body,
   border-radius: 6px;
   color: rgba(255, 255, 255, 0.78);
   cursor: pointer;
-  display: flex;
+  display: grid;
+  flex: 0 0 auto;
+  font: inherit;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   height: 34px;
   justify-content: space-between;
   letter-spacing: 0;
   padding: 0 9px;
+  position: relative;
   text-align: left;
   width: 100%;
+}
+
+.nav-row:focus-visible {
+  outline: 2px solid rgba(0, 213, 255, 0.65);
+  outline-offset: 2px;
+}
+
+.nav-row::before {
+  background: rgba(0, 213, 255, 0.36);
+  border-radius: inherit;
+  content: "";
+  inset: 0 auto 0 0;
+  pointer-events: none;
+  position: absolute;
+  width: var(--scan-progress, 0%);
+  z-index: 0;
+}
+
+.nav-row > * {
+  position: relative;
+  z-index: 1;
 }
 
 .nav-row:hover,
 .nav-row.is-selected {
   background: rgba(0, 213, 255, 0.12);
   color: #ffffff;
-}
-
-.nav-row:disabled {
-  color: rgba(255, 255, 255, 0.32);
-  cursor: default;
 }
 
 .nav-row__title {
@@ -270,11 +326,30 @@ body,
   white-space: nowrap;
 }
 
-.nav-row__meta {
-  color: rgba(255, 255, 255, 0.46);
+.nav-row__edit {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(0, 213, 255, 0.52);
+  border-radius: 4px;
+  color: #ffffff;
+  font: inherit;
+  min-width: 0;
+  outline: 0;
+  padding: 3px 6px;
+}
+
+.nav-row__actions {
+  align-items: center;
+  display: flex;
   flex: 0 0 auto;
-  font-size: 0.66rem;
-  text-transform: uppercase;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.nav-row:hover .nav-row__actions,
+.nav-row:focus-within .nav-row__actions,
+.nav-row.is-scanning .nav-row__actions {
+  opacity: 1;
 }
 
 .workspace-table {
@@ -335,6 +410,51 @@ body,
   flex: 1 1 auto;
   font-size: 0.86rem;
   justify-content: center;
+}
+
+.pane-empty--compact {
+  min-height: 220px;
+}
+
+.folder-candidate-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 340px;
+}
+
+.folder-candidate {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.88);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  height: 34px;
+  justify-content: space-between;
+  letter-spacing: 0;
+  padding: 0 4px;
+  text-align: left;
+}
+
+.folder-candidate:hover {
+  background: rgba(0, 213, 255, 0.1);
+}
+
+.folder-candidate__path {
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 0.72rem;
+  margin-left: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-candidate-pager {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.75rem;
 }
 
 .dialog-card {
@@ -408,8 +528,12 @@ body,
   }
 
   .three-pane {
-    grid-template-columns: 1fr;
+    flex-direction: column;
     height: auto;
+  }
+
+  .pane-resizer {
+    display: none;
   }
 
   .pane {

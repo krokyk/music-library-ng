@@ -33,4 +33,13 @@ class FolderNameParserTest {
         assertEquals("The Fountain", parsed.get().title());
         assertEquals(2006, parsed.get().releaseYear());
     }
+
+    @Test
+    void convertsAllCapsScannedArtistsToChicagoStyle() {
+        var parsed = parser.parse(Path.of("AS I LAY DYING - 2007 - An Ocean Between Us"),
+                ParserType.ARTIST_YEAR_ALBUM, "metal");
+
+        assertTrue(parsed.isPresent());
+        assertEquals("As I Lay Dying", parsed.get().artistName());
+    }
 }

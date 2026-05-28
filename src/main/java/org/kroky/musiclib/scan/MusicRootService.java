@@ -3,6 +3,7 @@ package org.kroky.musiclib.scan;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -77,6 +78,17 @@ public class MusicRootService {
             return null;
         }
         return resolveCollection(collectionRelativePath).resolve(albumRelativePath);
+    }
+
+    public List<Path> listDirectChildDirectories() {
+        try (var stream = Files.list(requireRoot())) {
+            return stream
+                    .filter(Files::isDirectory)
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
+                    .toList();
+        } catch (IOException e) {
+            throw new IllegalStateException("Unable to list music root folders", e);
+        }
     }
 
     private Path resolveRoot() {

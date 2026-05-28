@@ -4,9 +4,11 @@ import java.util.List;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.model.ScanEvent;
+import org.kroky.musiclib.model.ScanJobStatus;
 import org.kroky.musiclib.model.ScanRun;
 import org.kroky.musiclib.model.ScanSummary;
 import org.kroky.musiclib.repository.ScanRunRepository;
+import org.kroky.musiclib.scan.ScanJobService;
 import org.kroky.musiclib.scan.ScanService;
 
 import jakarta.inject.Inject;
@@ -27,13 +29,36 @@ public class ScanResource {
     @Inject
     ScanRunRepository scanRuns;
 
+    @Inject
+    ScanJobService scanJobs;
+
     @POST
     public List<ScanSummary> scan(@QueryParam("collectionId") String collectionId) {
-        LOG.warnf("Scan requested collectionId=%s", collectionId);
+        LOG.infof("Scan requested collectionId=%s", collectionId);
         if (collectionId == null || collectionId.isBlank()) {
             return scanService.scanAllEnabled();
         }
         return List.of(scanService.scan(collectionId));
+    }
+
+    @POST
+    @Path("/jobs")
+    public ScanJobStatus startJob(@QueryParam("collectionId") String collectionId) {
+        LOG.infof("Scan job requested collectionId=%s", collectionId);
+        return scanJobs.start(collectionId);
+    }
+
+    @GET
+    @Path("/jobs/current")
+    public ScanJobStatus currentJob() {
+        return scanJobs.current();
+    }
+
+    @POST
+    @Path("/jobs/current/cancel")
+    public ScanJobStatus cancelCurrentJob() {
+        LOG.info("Scan job cancel requested");
+        return scanJobs.cancelCurrent();
     }
 
     @GET

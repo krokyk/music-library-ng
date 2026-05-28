@@ -49,10 +49,15 @@ export interface MusicCollection {
   resolvedPath?: string | null
   exists: boolean
   parser: string
-  enabled: boolean
   lastScanAt?: string | null
   lastScanStatus?: string | null
   lastScanMessage?: string | null
+}
+
+export interface CollectionFolderCandidate {
+  folderName: string
+  relativePath: string
+  collectionName: string
 }
 
 export interface RootCandidate {
@@ -83,6 +88,23 @@ export interface ScanRun {
   missingCount: number
   skippedCount: number
   message?: string | null
+}
+
+export interface ScanJobStatus {
+  id: string
+  status: string
+  requestedCollectionId?: string | null
+  activeCollectionId?: string | null
+  artistTotal: number
+  artistProcessed: number
+  cancelRequested: boolean
+  message?: string | null
+}
+
+export interface UserPreference {
+  key: string
+  value: string
+  updatedAt: string
 }
 
 export interface ScanEvent {

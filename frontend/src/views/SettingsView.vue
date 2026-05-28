@@ -4,7 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 
 const store = useLibraryStore()
-const { collections, scanRuns, scanEvents, musicRoot, loading, error } = storeToRefs(store)
+const { collections, scanRuns, scanEvents, musicRoot, error } = storeToRefs(store)
 
 onMounted(() => store.loadSettings())
 </script>
@@ -18,9 +18,6 @@ onMounted(() => store.loadSettings())
         <div class="page-title">Settings</div>
         <div class="page-kicker">Effective runtime configuration</div>
       </div>
-      <v-btn color="primary" :loading="loading" prepend-icon="mdi-database-search" @click="store.scan()">
-        Scan enabled collections
-      </v-btn>
     </div>
 
     <v-sheet class="panel pa-4 mb-4">
@@ -65,8 +62,6 @@ onMounted(() => store.loadSettings())
         <thead>
           <tr>
             <th>Name</th>
-            <th>Parser</th>
-            <th>Enabled</th>
             <th>Relative Path</th>
             <th>Resolved Path</th>
             <th>Last Scan</th>
@@ -76,12 +71,6 @@ onMounted(() => store.loadSettings())
         <tbody>
           <tr v-for="collection in collections" :key="collection.id">
             <td class="cell-strong">{{ collection.name }}</td>
-            <td class="cell-muted">{{ collection.parser }}</td>
-            <td>
-              <v-chip :color="collection.enabled ? 'success' : 'default'" size="small">
-                {{ collection.enabled ? 'yes' : 'no' }}
-              </v-chip>
-            </td>
             <td class="mono-path">{{ collection.relativePath }}</td>
             <td>
               <v-chip :color="collection.exists ? 'success' : 'warning'" size="small" class="mr-2">
@@ -94,8 +83,7 @@ onMounted(() => store.loadSettings())
               <v-btn
                 size="small"
                 variant="text"
-                :disabled="!collection.enabled"
-                prepend-icon="mdi-play"
+                prepend-icon="mdi-refresh"
                 @click="store.scan(collection.id)"
               >
                 Scan

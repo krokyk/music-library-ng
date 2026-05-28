@@ -7,7 +7,6 @@ public record MusicCollection(
         String resolvedPath,
         boolean exists,
         ParserType parser,
-        boolean enabled,
         String lastScanAt,
         String lastScanStatus,
         String lastScanMessage) {

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
-import type { Album, Artist } from '@/types'
+import type { Album, Artist, CollectionFolderCandidate, MusicCollection } from '@/types'
 
 interface ArtistForm {
   id: number | null
@@ -22,21 +22,33 @@ interface ProviderLinkForm {
 const store = useLibraryStore()
 const {
   collections,
+  collectionCandidates,
   collectionArtists,
   collectionAlbums,
   selectedCollectionId,
   selectedArtistId,
   providerLinks,
-  loading,
+  scanJob,
   error,
 } = storeToRefs(store)
 
 const artistDialog = ref(false)
 const deleteDialog = ref(false)
+const addCollectionDialog = ref(false)
+const deleteCollectionDialog = ref(false)
 const albumToDelete = ref<Album | null>(null)
+const collectionToDelete = ref<MusicCollection | null>(null)
 const providerMessage = ref('')
 const refreshingArtistId = ref<number | null>(null)
 const savingArtist = ref(false)
+const scanPoller = ref<number | null>(null)
+const editingCollectionId = ref<string | null>(null)
+const editingCollectionName = ref('')
+const collectionPage = ref(1)
+const threePaneElement = ref<HTMLElement | null>(null)
+const panePercents = ref([27, 30, 43])
+const paneLayoutSaveTimer = ref<number | null>(null)
+const paneNames = ['collections', 'artists', 'albums'] as const
 
 const artistForm = reactive<ArtistForm>({
   id: null,
@@ -70,6 +82,18 @@ const collectionOptions = computed(() =>
   collections.value.map((collection) => ({ title: collection.name, value: collection.id })),
 )
 
+const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
+const paneLayoutPreferenceKey = 'collections.paneLayout'
+const collectionPageSize = 10
+const collectionPageCount = computed(() => Math.max(1, Math.ceil(collectionCandidates.value.length / collectionPageSize)))
+const collectionPageStart = computed(() => (collectionPage.value - 1) * collectionPageSize)
+const collectionPageEnd = computed(() =>
+  Math.min(collectionPageStart.value + collectionPageSize, collectionCandidates.value.length),
+)
+const pagedCollectionCandidates = computed(() =>
+  collectionCandidates.value.slice(collectionPageStart.value, collectionPageEnd.value),
+)
+
 function artistIssueLabel(artist: Artist) {
   if (artist.uncheckedAlbumCount > 0) {
     return `${artist.uncheckedAlbumCount} unchecked`
@@ -83,6 +107,210 @@ function albumDiskTitle(album: Album) {
     return 'No local folder'
   }
   return activePaths.map((path) => path.resolvedPath ?? path.relativePath).join('\n')
+}
+
+function scanProgress(collection: MusicCollection) {
+  if (!scanIsRunning.value || scanJob.value?.activeCollectionId !== collection.id) {
+    return 0
+  }
+  if (scanJob.value.artistTotal <= 0) {
+    return 0
+  }
+  return Math.min(100, (scanJob.value.artistProcessed / scanJob.value.artistTotal) * 100)
+}
+
+function askDeleteCollection(collection: MusicCollection) {
+  collectionToDelete.value = collection
+  deleteCollectionDialog.value = true
+}
+
+async function deleteCollection() {
+  if (!collectionToDelete.value) {
+    return
+  }
+  await store.deleteCollection(collectionToDelete.value.id)
+  deleteCollectionDialog.value = false
+  collectionToDelete.value = null
+}
+
+async function openAddCollectionDialog() {
+  await store.loadCollectionCandidates()
+  collectionPage.value = 1
+  addCollectionDialog.value = true
+}
+
+async function addCollection(candidate: CollectionFolderCandidate) {
+  await store.createCollection(candidate.relativePath)
+  if (collectionPage.value > collectionPageCount.value) {
+    collectionPage.value = collectionPageCount.value
+  }
+}
+
+function previousCollectionPage() {
+  collectionPage.value = Math.max(1, collectionPage.value - 1)
+}
+
+function nextCollectionPage() {
+  collectionPage.value = Math.min(collectionPageCount.value, collectionPage.value + 1)
+}
+
+function startInlineCollectionEdit(collection: MusicCollection) {
+  editingCollectionId.value = collection.id
+  editingCollectionName.value = collection.name
+}
+
+async function saveInlineCollectionEdit(collection: MusicCollection) {
+  const name = editingCollectionName.value.trim()
+  editingCollectionId.value = null
+  if (!name || name === collection.name) {
+    return
+  }
+  await store.updateCollection(collection.id, { name })
+}
+
+function cancelInlineCollectionEdit() {
+  editingCollectionId.value = null
+  editingCollectionName.value = ''
+}
+
+async function startScan(collectionId: string) {
+  await store.startScanJob(collectionId)
+  startScanPolling()
+}
+
+function startScanPolling() {
+  if (scanPoller.value !== null) {
+    return
+  }
+  scanPoller.value = window.setInterval(async () => {
+    const status = await store.loadScanJob()
+    if (!status || status.status !== 'RUNNING') {
+      stopScanPolling()
+      await store.loadCollections()
+      await store.refreshCollectionArtistsOnly(true)
+    }
+  }, 100)
+}
+
+function paneStyle(index: number) {
+  const resizerWidth = 20
+  const resizerShare = (resizerWidth * panePercents.value[index]) / 100
+  return {
+    flex: `0 0 calc(${panePercents.value[index]}% - ${resizerShare}px)`,
+  }
+}
+
+function startPaneResize(index: number, event: PointerEvent) {
+  event.preventDefault()
+  if (!threePaneElement.value) {
+    return
+  }
+  const startX = event.clientX
+  const startPercents = [...panePercents.value]
+  const paneAreaWidth = Math.max(1, threePaneElement.value.clientWidth - 20)
+  const minimums = [320, 280, 380]
+
+  function move(pointerEvent: PointerEvent) {
+    const deltaPercent = ((pointerEvent.clientX - startX) / paneAreaWidth) * 100
+    const combined = startPercents[index] + startPercents[index + 1]
+    const leftMinimum = (minimums[index] / paneAreaWidth) * 100
+    const rightMinimum = (minimums[index + 1] / paneAreaWidth) * 100
+    const left = Math.min(Math.max(leftMinimum, startPercents[index] + deltaPercent), combined - rightMinimum)
+    const right = combined - left
+
+    panePercents.value = normalizePanePercents(
+      panePercents.value.map((percent, percentIndex) => {
+        if (percentIndex === index) return left
+        if (percentIndex === index + 1) return right
+        return percent
+      }),
+    )
+    schedulePaneLayoutSave()
+  }
+
+  function stop() {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', stop)
+    savePaneLayout()
+  }
+
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', stop)
+}
+
+async function loadPaneLayout() {
+  const preference = await store.loadPreference(paneLayoutPreferenceKey)
+  if (!preference?.value) {
+    return
+  }
+  try {
+    const parsed = JSON.parse(preference.value)
+    if (isPaneLayoutObject(parsed)) {
+      panePercents.value = normalizePanePercents([
+        parsed.collections,
+        parsed.artists,
+        parsed.albums,
+      ])
+    } else if (Array.isArray(parsed) && parsed.length === 3 && parsed.every((value) => typeof value === 'number')) {
+      panePercents.value = normalizePanePercents(parsed)
+    }
+  } catch (error) {
+    // Ignore invalid stored UI state and keep the default layout.
+  }
+}
+
+function schedulePaneLayoutSave() {
+  if (paneLayoutSaveTimer.value !== null) {
+    window.clearTimeout(paneLayoutSaveTimer.value)
+  }
+  paneLayoutSaveTimer.value = window.setTimeout(savePaneLayout, 200)
+}
+
+function savePaneLayout() {
+  if (paneLayoutSaveTimer.value !== null) {
+    window.clearTimeout(paneLayoutSaveTimer.value)
+    paneLayoutSaveTimer.value = null
+  }
+  const rounded = normalizePanePercents(panePercents.value).map((value) => Math.round(value * 100) / 100)
+  panePercents.value = rounded
+  void store.savePreference(paneLayoutPreferenceKey, JSON.stringify(paneLayoutObject(rounded)))
+}
+
+function normalizePanePercents(values: number[]) {
+  const fallback = [27, 30, 43]
+  const cleaned = values.map((value) => (Number.isFinite(value) && value > 0 ? value : 0))
+  const total = cleaned.reduce((sum, value) => sum + value, 0)
+  if (total <= 0) {
+    return fallback
+  }
+  const normalized = cleaned.map((value) => (value / total) * 100)
+  const rounded = normalized.map((value) => Math.round(value * 10000) / 10000)
+  rounded[2] = Math.round((100 - rounded[0] - rounded[1]) * 10000) / 10000
+  return rounded
+}
+
+function paneLayoutObject(values: number[]) {
+  return {
+    [paneNames[0]]: values[0],
+    [paneNames[1]]: values[1],
+    [paneNames[2]]: values[2],
+  }
+}
+
+function isPaneLayoutObject(value: unknown): value is Record<(typeof paneNames)[number], number> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const layout = value as Record<string, unknown>
+  return paneNames.every((name) => typeof layout[name] === 'number')
+}
+
+function stopScanPolling() {
+  if (scanPoller.value === null) {
+    return
+  }
+  window.clearInterval(scanPoller.value)
+  scanPoller.value = null
 }
 
 async function openArtistDialog(artist?: Artist) {
@@ -203,7 +431,21 @@ async function deleteAlbum() {
   albumToDelete.value = null
 }
 
-onMounted(() => store.loadCollections())
+onMounted(async () => {
+  await loadPaneLayout()
+  await store.loadCollections()
+  await store.loadScanJob()
+  if (scanIsRunning.value) {
+    startScanPolling()
+  }
+})
+
+onBeforeUnmount(() => {
+  stopScanPolling()
+  if (paneLayoutSaveTimer.value !== null) {
+    savePaneLayout()
+  }
+})
 </script>
 
 <template>
@@ -211,48 +453,86 @@ onMounted(() => store.loadCollections())
     <v-alert v-if="error" type="error" variant="tonal" class="mb-3">{{ error }}</v-alert>
     <v-alert v-if="providerMessage" type="info" variant="tonal" class="mb-3">{{ providerMessage }}</v-alert>
 
-    <div class="three-pane">
-      <v-sheet class="pane collections-pane">
+    <div ref="threePaneElement" class="three-pane">
+      <v-sheet class="pane collections-pane" :style="paneStyle(0)">
         <div class="pane-header">
           <span>Collections</span>
           <div class="pane-header__actions">
-            <v-tooltip text="Scan selected collection" location="top">
-              <template #activator="{ props }">
-                <v-btn
-                  v-bind="props"
-                  icon="mdi-database-search"
-                  size="small"
-                  variant="text"
-                  :disabled="!selectedCollectionId"
-                  :loading="loading"
-                  @click="store.scan(selectedCollectionId ?? undefined)"
-                ></v-btn>
-              </template>
-            </v-tooltip>
-            <v-tooltip text="Settings" location="top">
-              <template #activator="{ props }">
-                <v-btn v-bind="props" icon="mdi-cog" size="small" variant="text" to="/settings"></v-btn>
-              </template>
-            </v-tooltip>
+            <v-btn prepend-icon="mdi-plus" size="small" variant="flat" color="primary" @click="openAddCollectionDialog">
+              Add
+            </v-btn>
           </div>
         </div>
 
         <div class="collection-list">
-          <button
+          <div
             v-for="collection in collections"
             :key="collection.id"
             class="nav-row"
-            :class="{ 'is-selected': collection.id === selectedCollectionId }"
-            :disabled="!collection.enabled"
+            :class="{
+              'is-selected': collection.id === selectedCollectionId,
+              'is-scanning': scanIsRunning && scanJob?.activeCollectionId === collection.id,
+            }"
+            :style="{ '--scan-progress': `${scanProgress(collection)}%` }"
+            role="button"
+            tabindex="0"
             @click="store.selectCollection(collection.id)"
+            @keydown.enter="store.selectCollection(collection.id)"
           >
-            <span class="nav-row__title">{{ collection.name }}</span>
-            <span v-if="collection.lastScanStatus" class="nav-row__meta">{{ collection.lastScanStatus }}</span>
-          </button>
+            <input
+              v-if="editingCollectionId === collection.id"
+              v-model="editingCollectionName"
+              class="nav-row__edit"
+              @click.stop
+              @keydown.enter.stop="saveInlineCollectionEdit(collection)"
+              @keydown.esc.stop="cancelInlineCollectionEdit"
+              @blur="saveInlineCollectionEdit(collection)"
+            />
+            <span v-else class="nav-row__title">{{ collection.name }}</span>
+            <span class="nav-row__actions">
+              <v-tooltip text="Edit collection" location="top">
+                <template #activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    icon="mdi-pencil"
+                    size="x-small"
+                    variant="text"
+                    @click.stop="startInlineCollectionEdit(collection)"
+                  ></v-btn>
+                </template>
+              </v-tooltip>
+              <v-tooltip text="Scan collection" location="top">
+                <template #activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    icon="mdi-refresh"
+                    size="x-small"
+                    variant="text"
+                    :disabled="scanIsRunning"
+                    @click.stop="startScan(collection.id)"
+                  ></v-btn>
+                </template>
+              </v-tooltip>
+              <v-tooltip text="Delete collection" location="top">
+                <template #activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    icon="mdi-trash-can-outline"
+                    size="x-small"
+                    variant="text"
+                    color="error"
+                    @click.stop="askDeleteCollection(collection)"
+                  ></v-btn>
+                </template>
+              </v-tooltip>
+            </span>
+          </div>
         </div>
       </v-sheet>
 
-      <v-sheet class="pane artists-pane">
+      <div class="pane-resizer" @pointerdown="startPaneResize(0, $event)"></div>
+
+      <v-sheet class="pane artists-pane" :style="paneStyle(1)">
         <div class="pane-header">
           <span>Artists</span>
           <div class="pane-header__actions">
@@ -273,12 +553,6 @@ onMounted(() => store.loadCollections())
 
         <div v-if="!selectedCollection" class="pane-empty">Select a collection.</div>
         <v-table v-else class="music-table workspace-table" density="compact" fixed-header>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th class="text-right"></th>
-            </tr>
-          </thead>
           <tbody>
             <tr
               v-for="artist in collectionArtists"
@@ -332,7 +606,9 @@ onMounted(() => store.loadCollections())
         </v-table>
       </v-sheet>
 
-      <v-sheet class="pane albums-pane">
+      <div class="pane-resizer" @pointerdown="startPaneResize(1, $event)"></div>
+
+      <v-sheet class="pane albums-pane" :style="paneStyle(2)">
         <div class="pane-header">
           <span>Albums</span>
           <span v-if="selectedArtist" class="pane-header__meta">{{ selectedArtist.name }}</span>
@@ -476,6 +752,62 @@ onMounted(() => store.loadCollections())
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="artistDialog = false">Close</v-btn>
           <v-btn color="primary" :loading="savingArtist" @click="saveArtistDetails">Save</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="addCollectionDialog" max-width="420">
+      <v-card class="dialog-card add-collection-dialog">
+        <v-card-title>Add Collection</v-card-title>
+        <v-card-text>
+          <div class="cell-muted mb-3">Add folder to Collections by clicking on it</div>
+          <div class="folder-candidate-list">
+            <button
+              v-for="candidate in pagedCollectionCandidates"
+              :key="candidate.relativePath"
+              class="folder-candidate"
+              type="button"
+              @click="addCollection(candidate)"
+            >
+              <span>{{ candidate.collectionName }}</span>
+              <span class="folder-candidate__path">{{ candidate.folderName }}</span>
+            </button>
+            <div v-if="collectionCandidates.length === 0" class="pane-empty pane-empty--compact">
+              No available folders.
+            </div>
+          </div>
+        </v-card-text>
+        <v-card-actions class="folder-candidate-pager">
+          <v-spacer></v-spacer>
+          <v-btn
+            icon="mdi-chevron-left"
+            size="x-small"
+            variant="text"
+            :disabled="collectionPage === 1"
+            @click="previousCollectionPage"
+          ></v-btn>
+          <span>{{ collectionPageEnd }}/{{ collectionCandidates.length }}</span>
+          <v-btn
+            icon="mdi-chevron-right"
+            size="x-small"
+            variant="text"
+            :disabled="collectionPage === collectionPageCount"
+            @click="nextCollectionPage"
+          ></v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="deleteCollectionDialog" max-width="460">
+      <v-card class="dialog-card">
+        <v-card-title>Delete Collection</v-card-title>
+        <v-card-text>
+          Delete {{ collectionToDelete?.name }}?
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="deleteCollectionDialog = false">Cancel</v-btn>
+          <v-btn color="error" @click="deleteCollection">Delete</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

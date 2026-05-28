@@ -192,7 +192,7 @@ public class AlbumRepository {
     }
 
     public void delete(long id) {
-        LOG.warnf("Deleting album id=%d", id);
+        LOG.infof("Deleting album id=%d", id);
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement("DELETE FROM albums WHERE id = ?")) {
             statement.setLong(1, id);

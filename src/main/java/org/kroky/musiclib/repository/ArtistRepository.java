@@ -74,7 +74,7 @@ public class ArtistRepository {
     }
 
     public UpsertResult upsertByName(String name) {
-        LOG.debugf("Upserting artist by name '%s'", name);
+        LOG.debugf("Finding or creating artist by name '%s'", name);
         String normalizedName = Names.normalize(name);
         Optional<Artist> existing = findByNormalizedName(normalizedName);
         if (existing.isPresent()) {

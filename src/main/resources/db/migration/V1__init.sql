@@ -36,13 +36,12 @@ CREATE TABLE collections (
     name TEXT NOT NULL,
     relative_path TEXT NOT NULL,
     parser TEXT NOT NULL,
-    enabled INTEGER NOT NULL DEFAULT 1,
     last_scan_at TEXT,
     last_scan_status TEXT,
     last_scan_message TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CHECK (enabled IN (0, 1))
+    UNIQUE (relative_path)
 );
 
 CREATE TABLE artist_collections (
@@ -65,13 +64,19 @@ CREATE TABLE album_local_paths (
     last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     missing_since TEXT,
     FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
-    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE RESTRICT,
+    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
     UNIQUE (collection_id, relative_path)
 );
 
 CREATE INDEX idx_album_local_paths_album ON album_local_paths(album_id);
 CREATE INDEX idx_album_local_paths_collection ON album_local_paths(collection_id);
 CREATE INDEX idx_album_local_paths_missing ON album_local_paths(missing_since);
+
+CREATE TABLE user_preferences (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE artist_provider_links (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

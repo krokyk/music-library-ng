@@ -4,12 +4,15 @@ import type {
   Album,
   Artist,
   ArtistProviderLink,
+  CollectionFolderCandidate,
   MusicRootInfo,
   MusicCollection,
+  ScanJobStatus,
   ProviderCheckRun,
   ProviderCheckSummary,
   ScanEvent,
   ScanRun,
+  UserPreference,
 } from '@/types'
 
 interface ArtistPayload {
@@ -31,12 +34,14 @@ interface State {
   artists: Artist[]
   albums: Album[]
   collections: MusicCollection[]
+  collectionCandidates: CollectionFolderCandidate[]
   collectionArtists: Artist[]
   collectionAlbums: Album[]
   selectedCollectionId: string | null
   selectedArtistId: number | null
   musicRoot: MusicRootInfo | null
   scanRuns: ScanRun[]
+  scanJob: ScanJobStatus | null
   scanEvents: Record<number, ScanEvent[]>
   providerLinks: Record<number, ArtistProviderLink[]>
   providerCheckRuns: ProviderCheckRun[]
@@ -60,12 +65,14 @@ export const useLibraryStore = defineStore('library', {
     artists: [],
     albums: [],
     collections: [],
+    collectionCandidates: [],
     collectionArtists: [],
     collectionAlbums: [],
     selectedCollectionId: null,
     selectedArtistId: null,
     musicRoot: null,
     scanRuns: [],
+    scanJob: null,
     scanEvents: {},
     providerLinks: {},
     providerCheckRuns: [],
@@ -106,6 +113,32 @@ export const useLibraryStore = defineStore('library', {
         this.error = error instanceof Error ? error.message : String(error)
       } finally {
         this.loading = false
+      }
+    },
+    async loadCollectionCandidates() {
+      this.collectionCandidates = await apiGet<CollectionFolderCandidate[]>('/api/collections/candidates')
+    },
+    async createCollection(relativePath: string) {
+      const collection = await apiSend<MusicCollection>('/api/collections', 'POST', { relativePath })
+      this.collections = [...this.collections, collection].sort((left, right) => left.name.localeCompare(right.name))
+      this.collectionCandidates = this.collectionCandidates.filter((candidate) => candidate.relativePath !== relativePath)
+      return collection
+    },
+    async updateCollection(collectionId: string, payload: { name: string }) {
+      const collection = await apiSend<MusicCollection>(`/api/collections/${encodeURIComponent(collectionId)}`, 'PUT', {
+        name: payload.name,
+      })
+      this.collections = this.collections.map((item) => (item.id === collection.id ? collection : item))
+      return collection
+    },
+    async deleteCollection(collectionId: string) {
+      await apiSend(`/api/collections/${encodeURIComponent(collectionId)}`, 'DELETE')
+      this.collections = this.collections.filter((collection) => collection.id !== collectionId)
+      if (this.selectedCollectionId === collectionId) {
+        this.selectedCollectionId = null
+        this.selectedArtistId = null
+        this.collectionArtists = []
+        this.collectionAlbums = []
       }
     },
     async loadSettings() {
@@ -173,6 +206,16 @@ export const useLibraryStore = defineStore('library', {
         await this.loadAlbumsForSelectedArtist()
       }
     },
+    async refreshCollectionArtistsOnly(clearArtistSelection = false) {
+      if (!this.selectedCollectionId) {
+        return
+      }
+      if (clearArtistSelection) {
+        this.selectedArtistId = null
+      }
+      this.collectionAlbums = []
+      await this.loadArtistsForSelectedCollection()
+    },
     async addArtist(name: string, collectionIds: string[] = []) {
       await this.saveArtist({ name, sortName: null, notes: null, collectionIds })
       await this.loadArtists()
@@ -226,10 +269,33 @@ export const useLibraryStore = defineStore('library', {
       const query = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : ''
       await apiSend(`/api/scan${query}`, 'POST')
       await this.loadSettings()
-      await this.refreshCollectionContext()
+      await this.refreshCollectionArtistsOnly(true)
+    },
+    async startScanJob(collectionId?: string) {
+      const query = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : ''
+      this.scanJob = await apiSend<ScanJobStatus>(`/api/scan/jobs${query}`, 'POST')
+      return this.scanJob
+    },
+    async loadScanJob() {
+      this.scanJob = await apiGet<ScanJobStatus>('/api/scan/jobs/current')
+      return this.scanJob
+    },
+    async cancelScanJob() {
+      this.scanJob = await apiSend<ScanJobStatus>('/api/scan/jobs/current/cancel', 'POST')
+      return this.scanJob
     },
     async loadScanEvents(runId: number) {
       this.scanEvents[runId] = await apiGet<ScanEvent[]>(`/api/scan/runs/${runId}/events`)
+    },
+    async loadPreference(key: string) {
+      try {
+        return await apiGet<UserPreference>(`/api/preferences/${encodeURIComponent(key)}`)
+      } catch (error) {
+        return null
+      }
+    },
+    async savePreference(key: string, value: string) {
+      return apiSend<UserPreference>(`/api/preferences/${encodeURIComponent(key)}`, 'PUT', { value })
     },
     async loadProviderLinks(artistId: number) {
       this.providerLinks[artistId] = await apiGet<ArtistProviderLink[]>(`/api/artists/${artistId}/provider-links`)

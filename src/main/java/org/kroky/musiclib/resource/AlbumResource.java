@@ -63,7 +63,7 @@ public class AlbumResource {
     @DELETE
     @Path("/{id}")
     public Response delete(@PathParam("id") long id) {
-        LOG.warnf("Delete album request id=%d", id);
+        LOG.infof("Delete album request id=%d", id);
         albums.delete(id);
         return Response.noContent().build();
     }
