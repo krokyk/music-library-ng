@@ -39,7 +39,6 @@ const addCollectionDialog = ref(false)
 const deleteCollectionDialog = ref(false)
 const albumToDelete = ref<Album | null>(null)
 const collectionToDelete = ref<MusicCollection | null>(null)
-const providerMessage = ref('')
 const refreshingArtistId = ref<number | null>(null)
 const savingArtist = ref(false)
 const scanPoller = ref<number | null>(null)
@@ -415,10 +414,8 @@ async function deleteProviderLink(link: ProviderLinkForm) {
 
 async function refreshArtist(artist: Artist) {
   refreshingArtistId.value = artist.id
-  providerMessage.value = ''
   try {
-    const summary = await store.checkArtistProvider(artist.id)
-    providerMessage.value = summary.messages.join(' ')
+    await store.checkArtistProvider(artist.id)
   } catch (error) {
     store.error = error instanceof Error ? error.message : String(error)
   } finally {
@@ -465,7 +462,6 @@ onBeforeUnmount(() => {
 <template>
   <v-container fluid class="app-page collections-workspace">
     <v-alert v-if="error" type="error" variant="tonal" class="mb-3">{{ error }}</v-alert>
-    <v-alert v-if="providerMessage" type="info" variant="tonal" class="mb-3">{{ providerMessage }}</v-alert>
 
     <div ref="threePaneElement" class="three-pane">
       <v-sheet class="pane collections-pane" :style="paneStyle(0)">

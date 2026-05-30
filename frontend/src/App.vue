@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 
@@ -7,9 +7,13 @@ const store = useLibraryStore()
 const { collections, providerStatus, scanJob, statusHistory, uiSettings } = storeToRefs(store)
 
 const historyDialog = ref(false)
+const historyScrollElement = ref<HTMLElement | null>(null)
+const historyPinnedToBottom = ref(true)
 const completedStatus = ref('')
-const completedStatusState = ref<'done' | 'failed'>('done')
+const completedStatusState = ref<'done' | 'warning' | 'failed'>('done')
 const completedStatusTimer = ref<number | null>(null)
+const scanStartedAt = ref<number | null>(null)
+const providerStartedAt = ref<number | null>(null)
 
 const scanCollectionName = computed(() => {
   const collectionId = scanJob.value?.activeCollectionId ?? scanJob.value?.requestedCollectionId
@@ -23,7 +27,7 @@ const activeStatusMessage = computed(() => {
   if (providerStatus.value.running && providerStatus.value.message) {
     return providerStatus.value.message
   }
-  return completedStatus.value
+  return completedStatus.value || 'Idle (click for history)'
 })
 
 const statusState = computed(() => {
@@ -33,10 +37,65 @@ const statusState = computed(() => {
   return completedStatus.value ? completedStatusState.value : 'idle'
 })
 
-function completeStatus(message: string, state: 'done' | 'failed' = 'done') {
+const statusIcon = computed(() => {
+  if (statusState.value === 'failed') {
+    return 'mdi-alert-circle-outline'
+  }
+  if (statusState.value === 'warning') {
+    return 'mdi-alert-outline'
+  }
+  if (statusState.value === 'done') {
+    return 'mdi-check-circle-outline'
+  }
+  return 'mdi-information-outline'
+})
+
+const statusTransitionKey = computed(() => statusState.value)
+const statusBarLocation = computed(() => uiSettings.value.statusBarLocation === 'bottom' ? 'bottom' : 'top')
+const statusHistoryOverlayClasses = computed(() => [
+  'status-history-overlay',
+  `status-history-overlay--${statusBarLocation.value}`,
+])
+
+function scrollHistoryToBottom() {
+  void nextTick(() => {
+    if (!historyScrollElement.value) {
+      return
+    }
+    historyScrollElement.value.scrollTop = historyScrollElement.value.scrollHeight
+  })
+}
+
+function updateHistoryPinned() {
+  if (!historyScrollElement.value) {
+    historyPinnedToBottom.value = true
+    return
+  }
+  const distanceFromBottom = historyScrollElement.value.scrollHeight
+    - historyScrollElement.value.scrollTop
+    - historyScrollElement.value.clientHeight
+  historyPinnedToBottom.value = distanceFromBottom < 24
+}
+
+function formatElapsed(startedAt: number | null) {
+  return startedAt === null ? null : `${Math.max(0, Date.now() - startedAt)} ms`
+}
+
+function withElapsed(message: string, elapsed: string | null) {
+  if (!elapsed) {
+    return message
+  }
+  return `${message} (took ${elapsed})`
+}
+
+function completeStatus(
+  message: string,
+  state: 'done' | 'warning' | 'failed' = 'done',
+  historyMessage = message,
+) {
   completedStatus.value = message
   completedStatusState.value = state
-  store.addStatusHistory(message, state)
+  store.addStatusHistory(historyMessage, state)
   if (completedStatusTimer.value !== null) {
     window.clearTimeout(completedStatusTimer.value)
   }
@@ -50,16 +109,23 @@ watch(
   () => scanJob.value?.status ?? 'IDLE',
   (status, previousStatus) => {
     if (status === 'RUNNING' && previousStatus !== 'RUNNING') {
+      scanStartedAt.value = Date.now()
       store.addStatusHistory(`Scanning collection ${scanCollectionName.value}`, 'running')
       completedStatus.value = ''
     }
     if (previousStatus === 'RUNNING' && status !== 'RUNNING' && scanJob.value) {
+      const elapsed = formatElapsed(scanStartedAt.value)
+      scanStartedAt.value = null
       if (status === 'DONE') {
+        const message = `${scanCollectionName.value} scan complete: ${scanJob.value.artistProcessed}/${scanJob.value.artistTotal} dirs scanned, ${scanJob.value.parsedCount} artists, ${scanJob.value.createdCount} new`
         completeStatus(
-          `${scanCollectionName.value} scan complete: ${scanJob.value.parsedCount} artists, ${scanJob.value.createdCount} new`,
+          message,
+          'done',
+          withElapsed(message, elapsed),
         )
       } else if (status === 'FAILED' || status === 'CANCELLED') {
-        completeStatus(scanJob.value.message ?? `${scanCollectionName.value} scan ${status.toLowerCase()}`, 'failed')
+        const message = scanJob.value.message ?? `${scanCollectionName.value} scan ${status.toLowerCase()}`
+        completeStatus(message, 'failed', withElapsed(message, elapsed))
       }
     }
   },
@@ -70,12 +136,34 @@ watch(
   (running, wasRunning) => {
     const message = providerStatus.value.message
     if (running && message) {
+      providerStartedAt.value = Date.now()
       store.addStatusHistory(message, 'running')
       completedStatus.value = ''
       return
     }
     if (wasRunning && message) {
-      completeStatus(message, message.toLowerCase().includes('failed') ? 'failed' : 'done')
+      const elapsed = formatElapsed(providerStartedAt.value)
+      providerStartedAt.value = null
+      const state = providerStatus.value.state === 'warning' ? 'warning'
+        : providerStatus.value.state === 'failed' || message.toLowerCase().includes('failed') ? 'failed'
+          : 'done'
+      completeStatus(message, state, withElapsed(message, elapsed))
+    }
+  },
+)
+
+watch(historyDialog, (open) => {
+  if (open) {
+    historyPinnedToBottom.value = true
+    scrollHistoryToBottom()
+  }
+})
+
+watch(
+  () => statusHistory.value.length,
+  () => {
+    if (historyDialog.value && historyPinnedToBottom.value) {
+      scrollHistoryToBottom()
     }
   },
 )
@@ -109,44 +197,83 @@ onMounted(() => {
 
     <v-main class="app-main">
       <button
-        v-if="activeStatusMessage"
+        v-if="statusBarLocation === 'top'"
         class="global-status-bar"
         :class="`global-status-bar--${statusState}`"
         type="button"
         @click="historyDialog = true"
       >
-        <v-progress-circular
-          v-if="statusState === 'running'"
-          indeterminate
-          size="16"
-          width="2"
-        ></v-progress-circular>
-        <span>{{ activeStatusMessage }}</span>
+        <Transition name="status-content" mode="out-in">
+          <span :key="statusTransitionKey" class="global-status-bar__content">
+            <v-progress-circular
+              v-if="statusState === 'running'"
+              indeterminate
+              size="16"
+              width="2"
+            ></v-progress-circular>
+            <v-icon
+              v-else
+              :icon="statusIcon"
+              size="18"
+            ></v-icon>
+            <span>{{ activeStatusMessage }}</span>
+          </span>
+        </Transition>
       </button>
       <router-view />
+      <button
+        v-if="statusBarLocation === 'bottom'"
+        class="global-status-bar"
+        :class="`global-status-bar--${statusState}`"
+        type="button"
+        @click="historyDialog = true"
+      >
+        <Transition name="status-content" mode="out-in">
+          <span :key="statusTransitionKey" class="global-status-bar__content">
+            <v-progress-circular
+              v-if="statusState === 'running'"
+              indeterminate
+              size="16"
+              width="2"
+            ></v-progress-circular>
+            <v-icon
+              v-else
+              :icon="statusIcon"
+              size="18"
+            ></v-icon>
+            <span>{{ activeStatusMessage }}</span>
+          </span>
+        </Transition>
+      </button>
     </v-main>
 
-    <v-dialog v-model="historyDialog" max-width="680">
-      <v-card class="dialog-card">
+    <v-dialog v-model="historyDialog" max-width="1080" :class="statusHistoryOverlayClasses">
+      <v-card class="dialog-card status-history-dialog">
         <v-card-title>Status History</v-card-title>
-        <v-card-text>
-          <v-list density="compact" lines="two">
-            <v-list-item v-for="entry in statusHistory" :key="entry.id">
-              <template #prepend>
-                <v-chip
-                  size="x-small"
-                  :color="entry.state === 'failed' ? 'error' : entry.state === 'done' ? 'success' : 'primary'"
-                >
-                  {{ entry.state }}
-                </v-chip>
-              </template>
-              <v-list-item-title>{{ entry.message }}</v-list-item-title>
-              <v-list-item-subtitle>{{ entry.createdAt }}</v-list-item-subtitle>
-            </v-list-item>
-            <div v-if="statusHistory.length === 0" class="pane-empty pane-empty--compact">
-              No status history yet.
-            </div>
-          </v-list>
+        <v-card-text class="status-history-dialog__text">
+          <div
+            ref="historyScrollElement"
+            class="status-history-dialog__body"
+            @scroll="updateHistoryPinned"
+          >
+            <v-list density="compact" lines="two" class="status-history-list">
+              <v-list-item v-for="entry in statusHistory" :key="entry.id">
+                <template #prepend>
+                  <v-chip
+                    size="x-small"
+                    :color="entry.state === 'failed' ? 'error' : entry.state === 'warning' ? 'warning' : entry.state === 'done' ? 'success' : 'primary'"
+                  >
+                    {{ entry.state }}
+                  </v-chip>
+                </template>
+                <v-list-item-title>{{ entry.message }}</v-list-item-title>
+                <v-list-item-subtitle>{{ entry.createdAt }}</v-list-item-subtitle>
+              </v-list-item>
+              <div v-if="statusHistory.length === 0" class="pane-empty pane-empty--compact">
+                No status history yet.
+              </div>
+            </v-list>
+          </div>
         </v-card-text>
       </v-card>
     </v-dialog>

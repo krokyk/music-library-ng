@@ -47,5 +47,13 @@ public interface MusicLibraryConfig {
         @WithName("default-collection-scan-progress-enabled")
         @WithDefault("true")
         boolean defaultCollectionScanProgressEnabled();
+
+        @WithName("default-status-history-date-format")
+        @WithDefault("yyyy-MM-dd HH:mm:ss.SSS")
+        String defaultStatusHistoryDateFormat();
+
+        @WithName("default-status-bar-location")
+        @WithDefault("top")
+        String defaultStatusBarLocation();
     }
 }

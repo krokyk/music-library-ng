@@ -109,6 +109,8 @@ export interface UiSettingsValues {
   scanPollIntervalMs: number
   collectionScanSpinnerEnabled: boolean
   collectionScanProgressEnabled: boolean
+  statusHistoryDateFormat: string
+  statusBarLocation: 'top' | 'bottom'
 }
 
 export interface UiSettings extends UiSettingsValues {
@@ -120,7 +122,7 @@ export interface StatusHistoryEntry {
   id: number
   createdAt: string
   message: string
-  state: 'running' | 'done' | 'failed' | 'info'
+  state: 'running' | 'done' | 'warning' | 'failed' | 'info'
 }
 
 export interface UserPreference {

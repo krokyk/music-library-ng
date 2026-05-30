@@ -50,7 +50,7 @@ interface State {
   providerCheckRuns: ProviderCheckRun[]
   uiSettings: UiSettings
   statusHistory: StatusHistoryEntry[]
-  providerStatus: { running: boolean; message: string | null }
+  providerStatus: { running: boolean; message: string | null; state: StatusHistoryEntry['state'] }
   loading: boolean
   error: string | null
 }
@@ -87,23 +87,30 @@ export const useLibraryStore = defineStore('library', {
       scanPollIntervalMs: 100,
       collectionScanSpinnerEnabled: true,
       collectionScanProgressEnabled: true,
+      statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
+      statusBarLocation: 'top',
       defaults: {
         statusCompleteVisibleMs: 4000,
         scanPollIntervalMs: 100,
         collectionScanSpinnerEnabled: true,
         collectionScanProgressEnabled: true,
+        statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
+        statusBarLocation: 'top',
       },
       overrides: {
         statusCompleteVisibleMs: false,
         scanPollIntervalMs: false,
         collectionScanSpinnerEnabled: false,
         collectionScanProgressEnabled: false,
+        statusHistoryDateFormat: false,
+        statusBarLocation: false,
       },
     },
     statusHistory: [],
     providerStatus: {
       running: false,
       message: null,
+      state: 'info',
     },
     loading: false,
     error: null,
@@ -206,14 +213,14 @@ export const useLibraryStore = defineStore('library', {
     },
     addStatusHistory(message: string, state: StatusHistoryEntry['state'] = 'info') {
       this.statusHistory = [
+        ...this.statusHistory,
         {
           id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
-          createdAt: new Date().toLocaleString(),
+          createdAt: formatDateWithJavaPattern(new Date(), this.uiSettings.statusHistoryDateFormat),
           message,
           state,
         },
-        ...this.statusHistory,
-      ].slice(0, 100)
+      ].slice(-100)
     },
     async loadArtists(search?: string) {
       this.artists = await apiGet<Artist[]>(withQuery('/api/artists', { search }))
@@ -384,35 +391,107 @@ export const useLibraryStore = defineStore('library', {
       const artistName = this.collectionArtists.find((artist) => artist.id === artistId)?.name
         ?? this.artists.find((artist) => artist.id === artistId)?.name
         ?? `artist ${artistId}`
-      this.providerStatus = { running: true, message: `Checking provider links for ${artistName}` }
+      this.providerStatus = { running: true, message: `Checking provider links for ${artistName}`, state: 'running' }
       try {
         const summary = await apiSend<ProviderCheckSummary>(`/api/provider-checks/artist/${artistId}`, 'POST')
         this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
         await this.loadArtists()
         await this.refreshCollectionContext()
-        const message = `Provider check complete: ${summary.newAlbumCount} new albums`
-        this.providerStatus = { running: false, message }
+        const detail = summary.messages.join(' ').trim()
+        const message = detail || `Provider check complete: ${summary.newAlbumCount} new albums`
+        this.providerStatus = { running: false, message, state: providerSummaryState(summary) }
         return summary
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        this.providerStatus = { running: false, message: `Provider check failed: ${message}` }
+        this.providerStatus = { running: false, message: `Provider check failed: ${message}`, state: 'failed' }
         throw error
       }
     },
     async checkAllProviders() {
-      this.providerStatus = { running: true, message: 'Checking all provider links' }
+      this.providerStatus = { running: true, message: 'Checking all provider links', state: 'running' }
       try {
         const summary = await apiSend<ProviderCheckSummary>('/api/provider-checks/all', 'POST')
         await this.loadAll()
         await this.refreshCollectionContext()
-        const message = `Provider check complete: ${summary.newAlbumCount} new albums`
-        this.providerStatus = { running: false, message }
+        const detail = summary.messages.join(' ').trim()
+        const message = detail || `Provider check complete: ${summary.newAlbumCount} new albums`
+        this.providerStatus = { running: false, message, state: providerSummaryState(summary) }
         return summary
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        this.providerStatus = { running: false, message: `Provider check failed: ${message}` }
+        this.providerStatus = { running: false, message: `Provider check failed: ${message}`, state: 'failed' }
         throw error
       }
     },
   },
 })
+
+function providerSummaryState(summary: ProviderCheckSummary): StatusHistoryEntry['state'] {
+  if (summary.errorCount > 0) {
+    return 'failed'
+  }
+  if (summary.messages.some((message) => message.includes('No enabled provider links found'))) {
+    return 'warning'
+  }
+  return 'done'
+}
+
+function formatDateWithJavaPattern(date: Date, pattern: string) {
+  const safePattern = pattern || 'yyyy-MM-dd HH:mm:ss.SSS'
+  let formatted = ''
+  let quoteOpen = false
+
+  for (let index = 0; index < safePattern.length;) {
+    const char = safePattern[index]
+    if (char === "'") {
+      if (safePattern[index + 1] === "'") {
+        formatted += "'"
+        index += 2
+      } else {
+        quoteOpen = !quoteOpen
+        index++
+      }
+      continue
+    }
+    if (quoteOpen) {
+      formatted += char
+      index++
+      continue
+    }
+
+    let end = index + 1
+    while (end < safePattern.length && safePattern[end] === char) {
+      end++
+    }
+    formatted += formatDateToken(date, char, end - index)
+    index = end
+  }
+
+  return formatted
+}
+
+function formatDateToken(date: Date, char: string, length: number) {
+  switch (char) {
+    case 'y':
+    case 'Y':
+      return length === 2 ? pad(date.getFullYear() % 100, 2) : pad(date.getFullYear(), length)
+    case 'M':
+      return pad(date.getMonth() + 1, length)
+    case 'd':
+      return pad(date.getDate(), length)
+    case 'H':
+      return pad(date.getHours(), length)
+    case 'm':
+      return pad(date.getMinutes(), length)
+    case 's':
+      return pad(date.getSeconds(), length)
+    case 'S':
+      return pad(date.getMilliseconds(), 3).slice(0, Math.max(1, Math.min(length, 3)))
+    default:
+      return char.repeat(length)
+  }
+}
+
+function pad(value: number, length: number) {
+  return String(value).padStart(length, '0')
+}

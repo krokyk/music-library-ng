@@ -16,6 +16,8 @@ const uiSettingKeys: Array<keyof UiSettingsValues> = [
   'scanPollIntervalMs',
   'collectionScanSpinnerEnabled',
   'collectionScanProgressEnabled',
+  'statusHistoryDateFormat',
+  'statusBarLocation',
 ]
 
 const uiForm = reactive<UiSettingsValues>({
@@ -23,6 +25,8 @@ const uiForm = reactive<UiSettingsValues>({
   scanPollIntervalMs: 100,
   collectionScanSpinnerEnabled: true,
   collectionScanProgressEnabled: true,
+  statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
+  statusBarLocation: 'top',
 })
 const savingUiSettings = ref(false)
 const uiSaveTimer = ref<number | null>(null)
@@ -36,6 +40,8 @@ function syncUiForm() {
   uiForm.scanPollIntervalMs = uiSettings.value.scanPollIntervalMs
   uiForm.collectionScanSpinnerEnabled = uiSettings.value.collectionScanSpinnerEnabled
   uiForm.collectionScanProgressEnabled = uiSettings.value.collectionScanProgressEnabled
+  uiForm.statusHistoryDateFormat = uiSettings.value.statusHistoryDateFormat
+  uiForm.statusBarLocation = uiSettings.value.statusBarLocation
 }
 
 function settingSource(key: keyof UiSettingsValues) {
@@ -47,12 +53,17 @@ function settingDefault(key: keyof UiSettingsValues) {
   if (typeof value === 'boolean') {
     return value ? 'on' : 'off'
   }
+  if (typeof value === 'string') {
+    return value
+  }
   return `${value} ms`
 }
 
 function normalizeUiForm() {
   uiForm.statusCompleteVisibleMs = normalizeNumber(uiForm.statusCompleteVisibleMs, 4000, statusVisibleMin, statusVisibleMax)
   uiForm.scanPollIntervalMs = normalizeNumber(uiForm.scanPollIntervalMs, 100, scanPollMin, scanPollMax)
+  uiForm.statusHistoryDateFormat = uiForm.statusHistoryDateFormat.trim() || uiSettings.value.defaults.statusHistoryDateFormat
+  uiForm.statusBarLocation = uiForm.statusBarLocation === 'bottom' ? 'bottom' : 'top'
 }
 
 function normalizeNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -235,6 +246,46 @@ onBeforeUnmount(() => {
           <div class="settings-control__meta">
             {{ settingSource('collectionScanProgressEnabled') }} · default {{ settingDefault('collectionScanProgressEnabled') }}
           </div>
+        </div>
+
+        <div class="settings-control settings-control--wide">
+          <div class="settings-control__header">
+            <span>Status history date format</span>
+            <v-chip size="x-small" :color="uiSettings.overrides.statusHistoryDateFormat ? 'primary' : 'default'">
+              {{ settingSource('statusHistoryDateFormat') }}
+            </v-chip>
+          </div>
+          <v-text-field
+            v-model="uiForm.statusHistoryDateFormat"
+            density="compact"
+            hide-details
+            variant="outlined"
+            @update:model-value="scheduleUiSettingsSave"
+            @blur="saveUiSettingsNow"
+            @keydown.enter="saveUiSettingsNow"
+          ></v-text-field>
+          <div class="settings-control__meta">Default {{ settingDefault('statusHistoryDateFormat') }}</div>
+        </div>
+
+        <div class="settings-control">
+          <div class="settings-control__header">
+            <span>Status bar location</span>
+            <v-chip size="x-small" :color="uiSettings.overrides.statusBarLocation ? 'primary' : 'default'">
+              {{ settingSource('statusBarLocation') }}
+            </v-chip>
+          </div>
+          <v-btn-toggle
+            v-model="uiForm.statusBarLocation"
+            color="primary"
+            density="compact"
+            mandatory
+            variant="outlined"
+            @update:model-value="scheduleUiSettingsSave"
+          >
+            <v-btn value="top">Top</v-btn>
+            <v-btn value="bottom">Bottom</v-btn>
+          </v-btn-toggle>
+          <div class="settings-control__meta">Default {{ settingDefault('statusBarLocation') }}</div>
         </div>
       </div>
     </v-sheet>
