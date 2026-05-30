@@ -12,6 +12,9 @@ import type {
   ProviderCheckSummary,
   ScanEvent,
   ScanRun,
+  StatusHistoryEntry,
+  UiSettings,
+  UiSettingsValues,
   UserPreference,
 } from '@/types'
 
@@ -45,6 +48,9 @@ interface State {
   scanEvents: Record<number, ScanEvent[]>
   providerLinks: Record<number, ArtistProviderLink[]>
   providerCheckRuns: ProviderCheckRun[]
+  uiSettings: UiSettings
+  statusHistory: StatusHistoryEntry[]
+  providerStatus: { running: boolean; message: string | null }
   loading: boolean
   error: string | null
 }
@@ -76,6 +82,29 @@ export const useLibraryStore = defineStore('library', {
     scanEvents: {},
     providerLinks: {},
     providerCheckRuns: [],
+    uiSettings: {
+      statusCompleteVisibleMs: 4000,
+      scanPollIntervalMs: 100,
+      collectionScanSpinnerEnabled: true,
+      collectionScanProgressEnabled: true,
+      defaults: {
+        statusCompleteVisibleMs: 4000,
+        scanPollIntervalMs: 100,
+        collectionScanSpinnerEnabled: true,
+        collectionScanProgressEnabled: true,
+      },
+      overrides: {
+        statusCompleteVisibleMs: false,
+        scanPollIntervalMs: false,
+        collectionScanSpinnerEnabled: false,
+        collectionScanProgressEnabled: false,
+      },
+    },
+    statusHistory: [],
+    providerStatus: {
+      running: false,
+      message: null,
+    },
     loading: false,
     error: null,
   }),
@@ -158,6 +187,33 @@ export const useLibraryStore = defineStore('library', {
       } finally {
         this.loading = false
       }
+    },
+    async loadUiSettings() {
+      try {
+        this.uiSettings = await apiGet<UiSettings>('/api/settings/ui')
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : String(error)
+      }
+      return this.uiSettings
+    },
+    async saveUiSettings(payload: Partial<UiSettingsValues>) {
+      this.uiSettings = await apiSend<UiSettings>('/api/settings/ui', 'PUT', payload)
+      return this.uiSettings
+    },
+    async resetUiSettings() {
+      this.uiSettings = await apiSend<UiSettings>('/api/settings/ui', 'DELETE')
+      return this.uiSettings
+    },
+    addStatusHistory(message: string, state: StatusHistoryEntry['state'] = 'info') {
+      this.statusHistory = [
+        {
+          id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
+          createdAt: new Date().toLocaleString(),
+          message,
+          state,
+        },
+        ...this.statusHistory,
+      ].slice(0, 100)
     },
     async loadArtists(search?: string) {
       this.artists = await apiGet<Artist[]>(withQuery('/api/artists', { search }))
@@ -325,17 +381,38 @@ export const useLibraryStore = defineStore('library', {
       await this.refreshCollectionContext()
     },
     async checkArtistProvider(artistId: number) {
-      const summary = await apiSend<ProviderCheckSummary>(`/api/provider-checks/artist/${artistId}`, 'POST')
-      this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
-      await this.loadArtists()
-      await this.refreshCollectionContext()
-      return summary
+      const artistName = this.collectionArtists.find((artist) => artist.id === artistId)?.name
+        ?? this.artists.find((artist) => artist.id === artistId)?.name
+        ?? `artist ${artistId}`
+      this.providerStatus = { running: true, message: `Checking provider links for ${artistName}` }
+      try {
+        const summary = await apiSend<ProviderCheckSummary>(`/api/provider-checks/artist/${artistId}`, 'POST')
+        this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
+        await this.loadArtists()
+        await this.refreshCollectionContext()
+        const message = `Provider check complete: ${summary.newAlbumCount} new albums`
+        this.providerStatus = { running: false, message }
+        return summary
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.providerStatus = { running: false, message: `Provider check failed: ${message}` }
+        throw error
+      }
     },
     async checkAllProviders() {
-      const summary = await apiSend<ProviderCheckSummary>('/api/provider-checks/all', 'POST')
-      await this.loadAll()
-      await this.refreshCollectionContext()
-      return summary
+      this.providerStatus = { running: true, message: 'Checking all provider links' }
+      try {
+        const summary = await apiSend<ProviderCheckSummary>('/api/provider-checks/all', 'POST')
+        await this.loadAll()
+        await this.refreshCollectionContext()
+        const message = `Provider check complete: ${summary.newAlbumCount} new albums`
+        this.providerStatus = { running: false, message }
+        return summary
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.providerStatus = { running: false, message: `Provider check failed: ${message}` }
+        throw error
+      }
     },
   },
 })

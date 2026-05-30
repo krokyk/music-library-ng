@@ -51,7 +51,7 @@ nvm use --lts
 Verify the project toolchain:
 
 ```bash
-cd /d/dev/projects/music-library-ng
+cd <project-root>
 java -version
 ./gradlew --version
 node -v
@@ -62,12 +62,24 @@ sqlite3 --version
 You do not need to install Maven or system Gradle. The repo includes the Gradle
 wrapper.
 
+### Git SSH From WSL With 1Password
+
+If Git runs in WSL but SSH keys are managed by 1Password for Windows, configure
+Git in WSL to use the Windows SSH client:
+
+```bash
+git config --global core.sshCommand ssh.exe
+```
+
+This lets WSL Git delegate SSH authentication to the Windows environment where
+1Password can provide the key.
+
 ## Running In Dev Mode
 
 Backend dev mode:
 
 ```bash
-./gradlew quarkusDev -Dmusic-library.music-root="E:/Google Drive/Music/_vyber"
+./gradlew quarkusDev -Dmusic-library.music-root="<music-root>"
 ```
 
 The JVM property is optional only when auto-detection finds a valid music root.
@@ -112,15 +124,110 @@ The Gradle build runs:
 Run the packaged app:
 
 ```bash
-java -Dmusic-library.music-root="E:/Google Drive/Music/_vyber" \
+java -Dmusic-library.music-root="<music-root>" \
   -jar build/quarkus-app/quarkus-run.jar
 ```
 
 Build and run in one command:
 
 ```bash
-./gradlew build && java -Dmusic-library.music-root="E:/Google Drive/Music/_vyber" \
+./gradlew build && java -Dmusic-library.music-root="<music-root>" \
   -jar build/quarkus-app/quarkus-run.jar
+```
+
+## Windows Native Executable
+
+Quarkus can build a native Windows `.exe` with GraalVM. Build it from Windows,
+not WSL, because the native image build needs the Windows C++ toolchain.
+
+Build frontend assets in WSL with the normal Gradle build first; that is the
+recommended path for npm/Vite work. Then use the Windows native build described
+below to compile the native executable.
+
+### Prerequisites
+
+Install Visual Studio Build Tools with:
+
+- Desktop development with C++
+- MSVC Build Tools v143 or newer
+- Windows 11 SDK
+
+Install GraalVM for JDK 21, Windows x64 archive, and choose a local install
+directory. The examples below keep that path in one environment variable:
+
+```powershell
+$env:GRAALVM_HOME = "<graalvm-jdk-21>"
+```
+
+### Developer Shell
+
+Open a 64-bit Visual Studio developer PowerShell before running the native
+build. Either use the Visual Studio installer's developer shell shortcut, or
+create a shortcut that imports the Visual Studio developer shell module and
+selects the 64-bit toolchain:
+
+```text
+powershell.exe -noe -c "&{Import-Module '<vs-build-tools-root>\Common7\Tools\Microsoft.VisualStudio.DevShell.dll'; Enter-VsDevShell <instance-id> -DevCmdArguments '-arch=amd64 -host_arch=amd64'}"
+```
+
+Keep the shortcut's "Start in" value pointed at the Visual Studio Build Tools
+install directory:
+
+```text
+<vs-build-tools-root>
+```
+
+### Build
+
+From the 64-bit developer PowerShell:
+
+```powershell
+$env:GRAALVM_HOME = "<graalvm-jdk-21>"
+$env:JAVA_HOME = $env:GRAALVM_HOME
+$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+
+java -version
+cd <project-root>
+.\gradlew build "-Dquarkus.native.enabled=true" "-Dquarkus.package.jar.enabled=false"
+```
+
+If the frontend assets were already built in WSL and `frontend/dist` is current,
+the native build can skip the npm steps:
+
+```powershell
+.\gradlew build "-Dquarkus.native.enabled=true" "-Dquarkus.package.jar.enabled=false" -x frontendInstall -x frontendBuild
+```
+
+Do not skip those tasks when frontend changes need to be included in the native
+executable.
+
+### External Config
+
+For a native app distribution, prefer this layout:
+
+```text
+<app-directory>
+  music-library-ng-runner.exe
+  config/application.properties
+  data/
+```
+
+Quarkus automatically reads `config/application.properties` from the process
+working directory. If you want `application.properties` directly next to the
+`.exe`, launch the executable with:
+
+```powershell
+.\music-library-ng-runner.exe "-Dquarkus.config.locations=file:./application.properties"
+```
+
+### Console Colors
+
+Running the executable from a Windows shortcut or by opening it from File
+Explorer should show colored console output normally. When launching from Total
+Commander, enable Windows virtual terminal processing once for the current user:
+
+```powershell
+Set-ItemProperty -Path "HKCU:\Console" -Name "VirtualTerminalLevel" -Type DWord -Value 1
 ```
 
 ## Configuration
@@ -151,11 +258,11 @@ backups, logging, and UI behavior are shared. The only value expected to differ
 between computers is the physical music root, supplied with:
 
 ```bash
--Dmusic-library.music-root="E:/Google Drive/Music/_vyber"
+-Dmusic-library.music-root="<music-root>"
 ```
 
-The app accepts Windows-style paths such as `e:/Google Drive/...` and resolves
-them to WSL mounts like `/e/...` or `/mnt/e/...` when running under WSL.
+The app accepts Windows-style paths such as `<drive>:/<path-to-music-root>` and
+resolves them to WSL mounts when running under WSL.
 
 ### Music Root Detection
 
@@ -165,8 +272,8 @@ itself is machine-specific.
 Built-in root candidates are intentionally limited to:
 
 ```properties
-music-library.root-detection.candidates[0]=E:/Google Drive/Music/_vyber
-music-library.root-detection.candidates[1]=G:/My Drive/Music/_vyber
+music-library.root-detection.candidates[0]=<primary-music-root>
+music-library.root-detection.candidates[1]=<secondary-music-root>
 ```
 
 A candidate is valid only when all marker playlists exist directly under it:
@@ -181,7 +288,7 @@ If neither expected location is valid, startup fails fast with an error that
 asks for the JVM property:
 
 ```bash
-java -Dmusic-library.music-root="G:/My Drive/Music/_vyber" \
+java -Dmusic-library.music-root="<music-root>" \
   -jar build/quarkus-app/quarkus-run.jar
 ```
 
@@ -222,7 +329,7 @@ Run with more detailed app logs:
 java '-Dquarkus.log.category."org.kroky.musiclib".level=DEBUG' \
   -Dquarkus.log.console.level=DEBUG \
   -Dquarkus.log.file.level=DEBUG \
-  -Dmusic-library.music-root="E:/Google Drive/Music/_vyber" \
+  -Dmusic-library.music-root="<music-root>" \
   -jar build/quarkus-app/quarkus-run.jar
 ```
 
@@ -232,7 +339,7 @@ Run with very noisy parser/database flow logs:
 java '-Dquarkus.log.category."org.kroky.musiclib".level=TRACE' \
   -Dquarkus.log.console.level=TRACE \
   -Dquarkus.log.file.level=TRACE \
-  -Dmusic-library.music-root="E:/Google Drive/Music/_vyber" \
+  -Dmusic-library.music-root="<music-root>" \
   -jar build/quarkus-app/quarkus-run.jar
 ```
 

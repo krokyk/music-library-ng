@@ -60,6 +60,19 @@ public class UserPreferenceRepository {
         }
     }
 
+    public boolean delete(String key) {
+        ensureTable();
+        LOG.debugf("Deleting user preference key=%s", key);
+        String sql = "DELETE FROM user_preferences WHERE key = ?";
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, key);
+            return statement.executeUpdate() > 0;
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to delete user preference " + key, e);
+        }
+    }
+
     private void ensureTable() {
         String sql = """
                 CREATE TABLE IF NOT EXISTS user_preferences (

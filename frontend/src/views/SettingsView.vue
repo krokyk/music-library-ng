@@ -1,12 +1,119 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
+import type { UiSettingsValues } from '@/types'
 
 const store = useLibraryStore()
-const { collections, scanRuns, scanEvents, musicRoot, error } = storeToRefs(store)
+const { collections, scanRuns, scanEvents, musicRoot, uiSettings, error } = storeToRefs(store)
 
-onMounted(() => store.loadSettings())
+const scanPollMin = 100
+const scanPollMax = 2000
+const statusVisibleMin = 0
+const statusVisibleMax = 30000
+const uiSettingKeys: Array<keyof UiSettingsValues> = [
+  'statusCompleteVisibleMs',
+  'scanPollIntervalMs',
+  'collectionScanSpinnerEnabled',
+  'collectionScanProgressEnabled',
+]
+
+const uiForm = reactive<UiSettingsValues>({
+  statusCompleteVisibleMs: 4000,
+  scanPollIntervalMs: 100,
+  collectionScanSpinnerEnabled: true,
+  collectionScanProgressEnabled: true,
+})
+const savingUiSettings = ref(false)
+const uiSaveTimer = ref<number | null>(null)
+
+const customUiSettingCount = computed(() =>
+  uiSettingKeys.filter((key) => uiSettings.value.overrides[key]).length,
+)
+
+function syncUiForm() {
+  uiForm.statusCompleteVisibleMs = uiSettings.value.statusCompleteVisibleMs
+  uiForm.scanPollIntervalMs = uiSettings.value.scanPollIntervalMs
+  uiForm.collectionScanSpinnerEnabled = uiSettings.value.collectionScanSpinnerEnabled
+  uiForm.collectionScanProgressEnabled = uiSettings.value.collectionScanProgressEnabled
+}
+
+function settingSource(key: keyof UiSettingsValues) {
+  return uiSettings.value.overrides[key] ? 'custom' : 'default'
+}
+
+function settingDefault(key: keyof UiSettingsValues) {
+  const value = uiSettings.value.defaults[key]
+  if (typeof value === 'boolean') {
+    return value ? 'on' : 'off'
+  }
+  return `${value} ms`
+}
+
+function normalizeUiForm() {
+  uiForm.statusCompleteVisibleMs = normalizeNumber(uiForm.statusCompleteVisibleMs, 4000, statusVisibleMin, statusVisibleMax)
+  uiForm.scanPollIntervalMs = normalizeNumber(uiForm.scanPollIntervalMs, 100, scanPollMin, scanPollMax)
+}
+
+function normalizeNumber(value: unknown, fallback: number, min: number, max: number) {
+  const numberValue = Number(value)
+  if (!Number.isFinite(numberValue)) {
+    return fallback
+  }
+  return Math.min(max, Math.max(min, Math.round(numberValue)))
+}
+
+function scheduleUiSettingsSave() {
+  if (uiSaveTimer.value !== null) {
+    window.clearTimeout(uiSaveTimer.value)
+  }
+  uiSaveTimer.value = window.setTimeout(saveUiSettingsNow, 250)
+}
+
+async function saveUiSettingsNow() {
+  if (uiSaveTimer.value !== null) {
+    window.clearTimeout(uiSaveTimer.value)
+    uiSaveTimer.value = null
+  }
+  normalizeUiForm()
+  savingUiSettings.value = true
+  try {
+    await store.saveUiSettings({ ...uiForm })
+    syncUiForm()
+  } catch (saveError) {
+    store.error = saveError instanceof Error ? saveError.message : String(saveError)
+  } finally {
+    savingUiSettings.value = false
+  }
+}
+
+async function resetUiSettings() {
+  if (uiSaveTimer.value !== null) {
+    window.clearTimeout(uiSaveTimer.value)
+    uiSaveTimer.value = null
+  }
+  savingUiSettings.value = true
+  try {
+    await store.resetUiSettings()
+    syncUiForm()
+  } catch (resetError) {
+    store.error = resetError instanceof Error ? resetError.message : String(resetError)
+  } finally {
+    savingUiSettings.value = false
+  }
+}
+
+onMounted(async () => {
+  await Promise.all([store.loadSettings(), store.loadUiSettings()])
+  syncUiForm()
+})
+
+onBeforeUnmount(() => {
+  if (uiSaveTimer.value !== null) {
+    window.clearTimeout(uiSaveTimer.value)
+    void saveUiSettingsNow()
+  }
+})
 </script>
 
 <template>
@@ -19,6 +126,118 @@ onMounted(() => store.loadSettings())
         <div class="page-kicker">Effective runtime configuration</div>
       </div>
     </div>
+
+    <v-sheet class="panel pa-4 mb-4">
+      <div class="settings-panel-header">
+        <div class="d-flex align-center ga-3">
+          <h2 class="panel-title mb-0">Interface</h2>
+          <v-chip size="small" :color="customUiSettingCount > 0 ? 'primary' : 'default'">
+            {{ customUiSettingCount > 0 ? `${customUiSettingCount} custom` : 'defaults' }}
+          </v-chip>
+        </div>
+        <v-btn
+          size="small"
+          variant="text"
+          prepend-icon="mdi-backup-restore"
+          :disabled="customUiSettingCount === 0 || savingUiSettings"
+          :loading="savingUiSettings"
+          @click="resetUiSettings"
+        >
+          Reset
+        </v-btn>
+      </div>
+
+      <div class="settings-grid">
+        <div class="settings-control">
+          <div class="settings-control__header">
+            <span>Scan progress polling</span>
+            <v-chip size="x-small" :color="uiSettings.overrides.scanPollIntervalMs ? 'primary' : 'default'">
+              {{ settingSource('scanPollIntervalMs') }}
+            </v-chip>
+          </div>
+          <v-slider
+            v-model.number="uiForm.scanPollIntervalMs"
+            color="primary"
+            density="compact"
+            hide-details
+            :min="scanPollMin"
+            :max="scanPollMax"
+            :step="50"
+            thumb-label
+            @update:model-value="scheduleUiSettingsSave"
+          >
+            <template #append>
+              <v-text-field
+                v-model.number="uiForm.scanPollIntervalMs"
+                class="settings-number-field"
+                density="compact"
+                hide-details
+                max-width="118"
+                suffix="ms"
+                type="number"
+                variant="outlined"
+                :min="scanPollMin"
+                :max="scanPollMax"
+                @blur="saveUiSettingsNow"
+                @keydown.enter="saveUiSettingsNow"
+              ></v-text-field>
+            </template>
+          </v-slider>
+          <div class="settings-control__meta">Default {{ settingDefault('scanPollIntervalMs') }}</div>
+        </div>
+
+        <div class="settings-control">
+          <div class="settings-control__header">
+            <span>Completed status visibility</span>
+            <v-chip size="x-small" :color="uiSettings.overrides.statusCompleteVisibleMs ? 'primary' : 'default'">
+              {{ settingSource('statusCompleteVisibleMs') }}
+            </v-chip>
+          </div>
+          <v-text-field
+            v-model.number="uiForm.statusCompleteVisibleMs"
+            density="compact"
+            hide-details
+            suffix="ms"
+            type="number"
+            variant="outlined"
+            :min="statusVisibleMin"
+            :max="statusVisibleMax"
+            @update:model-value="scheduleUiSettingsSave"
+            @blur="saveUiSettingsNow"
+            @keydown.enter="saveUiSettingsNow"
+          ></v-text-field>
+          <div class="settings-control__meta">Default {{ settingDefault('statusCompleteVisibleMs') }}</div>
+        </div>
+
+        <div class="settings-control settings-control--switches">
+          <v-switch
+            v-model="uiForm.collectionScanSpinnerEnabled"
+            color="primary"
+            density="compact"
+            hide-details
+            label="Collection scan spinner"
+            @update:model-value="scheduleUiSettingsSave"
+          ></v-switch>
+          <div class="settings-control__meta">
+            {{ settingSource('collectionScanSpinnerEnabled') }} · default {{ settingDefault('collectionScanSpinnerEnabled') }}
+          </div>
+        </div>
+
+        <div class="settings-control settings-control--switches">
+          <v-switch
+            v-model="uiForm.collectionScanProgressEnabled"
+            color="primary"
+            density="compact"
+            hide-details
+            label="Collection progress bar"
+            @update:model-value="scheduleUiSettingsSave"
+          ></v-switch>
+          <div class="settings-control__meta">
+            {{ settingSource('collectionScanProgressEnabled') }} · default {{ settingDefault('collectionScanProgressEnabled') }}
+          </div>
+        </div>
+      </div>
+    </v-sheet>
 
     <v-sheet class="panel pa-4 mb-4">
       <div class="d-flex align-center ga-3 mb-3">

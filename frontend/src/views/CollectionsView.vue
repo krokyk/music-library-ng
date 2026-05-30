@@ -29,6 +29,7 @@ const {
   selectedArtistId,
   providerLinks,
   scanJob,
+  uiSettings,
   error,
 } = storeToRefs(store)
 
@@ -110,7 +111,7 @@ function albumDiskTitle(album: Album) {
 }
 
 function scanProgress(collection: MusicCollection) {
-  if (!scanIsRunning.value || scanJob.value?.activeCollectionId !== collection.id) {
+  if (!uiSettings.value.collectionScanProgressEnabled || !scanIsRunning.value || scanJob.value?.activeCollectionId !== collection.id) {
     return 0
   }
   if (scanJob.value.artistTotal <= 0) {
@@ -182,6 +183,7 @@ function startScanPolling() {
   if (scanPoller.value !== null) {
     return
   }
+  const intervalMs = Math.min(2000, Math.max(100, uiSettings.value.scanPollIntervalMs))
   scanPoller.value = window.setInterval(async () => {
     const status = await store.loadScanJob()
     if (!status || status.status !== 'RUNNING') {
@@ -189,7 +191,18 @@ function startScanPolling() {
       await store.loadCollections()
       await store.refreshCollectionArtistsOnly(true)
     }
-  }, 100)
+  }, intervalMs)
+}
+
+function collectionIsScanning(collection: MusicCollection) {
+  return scanIsRunning.value && scanJob.value?.activeCollectionId === collection.id
+}
+
+function selectCollection(collection: MusicCollection) {
+  if (collectionIsScanning(collection)) {
+    return
+  }
+  void store.selectCollection(collection.id)
 }
 
 function paneStyle(index: number) {
@@ -432,6 +445,7 @@ async function deleteAlbum() {
 }
 
 onMounted(async () => {
+  await store.loadUiSettings()
   await loadPaneLayout()
   await store.loadCollections()
   await store.loadScanJob()
@@ -471,13 +485,13 @@ onBeforeUnmount(() => {
             class="nav-row"
             :class="{
               'is-selected': collection.id === selectedCollectionId,
-              'is-scanning': scanIsRunning && scanJob?.activeCollectionId === collection.id,
+              'is-scanning': collectionIsScanning(collection),
             }"
             :style="{ '--scan-progress': `${scanProgress(collection)}%` }"
             role="button"
             tabindex="0"
-            @click="store.selectCollection(collection.id)"
-            @keydown.enter="store.selectCollection(collection.id)"
+            @click="selectCollection(collection)"
+            @keydown.enter="selectCollection(collection)"
           >
             <input
               v-if="editingCollectionId === collection.id"
@@ -488,7 +502,16 @@ onBeforeUnmount(() => {
               @keydown.esc.stop="cancelInlineCollectionEdit"
               @blur="saveInlineCollectionEdit(collection)"
             />
-            <span v-else class="nav-row__title">{{ collection.name }}</span>
+            <span v-else class="nav-row__title">
+              <v-progress-circular
+                v-if="uiSettings.collectionScanSpinnerEnabled && collectionIsScanning(collection)"
+                indeterminate
+                size="14"
+                width="2"
+                class="nav-row__spinner"
+              ></v-progress-circular>
+              <span>{{ collection.name }}</span>
+            </span>
             <span class="nav-row__actions">
               <v-tooltip text="Edit collection" location="top">
                 <template #activator="{ props }">
@@ -497,6 +520,7 @@ onBeforeUnmount(() => {
                     icon="mdi-pencil"
                     size="x-small"
                     variant="text"
+                    :disabled="collectionIsScanning(collection)"
                     @click.stop="startInlineCollectionEdit(collection)"
                   ></v-btn>
                 </template>
@@ -521,6 +545,7 @@ onBeforeUnmount(() => {
                     size="x-small"
                     variant="text"
                     color="error"
+                    :disabled="collectionIsScanning(collection)"
                     @click.stop="askDeleteCollection(collection)"
                   ></v-btn>
                 </template>

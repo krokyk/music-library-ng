@@ -77,6 +77,44 @@ body,
   background: #080808;
 }
 
+.global-status-bar {
+  align-items: center;
+  background: #111111;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 9px;
+  height: 34px;
+  letter-spacing: 0;
+  padding: 0 22px;
+  text-align: left;
+  width: 100%;
+}
+
+.global-status-bar:hover {
+  background: #151515;
+}
+
+.global-status-bar:focus-visible {
+  outline: 2px solid rgba(0, 213, 255, 0.65);
+  outline-offset: -2px;
+}
+
+.global-status-bar--running {
+  color: #ffffff;
+}
+
+.global-status-bar--done {
+  color: rgba(186, 244, 206, 0.92);
+}
+
+.global-status-bar--failed {
+  color: rgba(255, 183, 183, 0.96);
+}
+
 .app-page {
   margin: 0 auto;
   max-width: 1680px;
@@ -110,6 +148,51 @@ body,
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 7px;
+}
+
+.settings-panel-header {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+}
+
+.settings-control {
+  min-width: 0;
+}
+
+.settings-control__header {
+  align-items: center;
+  color: rgba(255, 255, 255, 0.86);
+  display: flex;
+  font-size: 0.8rem;
+  font-weight: 800;
+  gap: 8px;
+  justify-content: space-between;
+  letter-spacing: 0;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.settings-control__meta {
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 0.74rem;
+  margin-top: 6px;
+}
+
+.settings-control--switches {
+  align-self: center;
+}
+
+.settings-number-field {
+  width: 118px;
 }
 
 .panel {
@@ -179,7 +262,7 @@ body,
 
 .three-pane {
   display: flex;
-  height: calc(100vh - 108px);
+  height: calc(100vh - 142px);
   min-height: 560px;
   overflow: auto;
 }
@@ -319,11 +402,29 @@ body,
   color: #ffffff;
 }
 
+.nav-row.is-scanning {
+  cursor: default;
+}
+
 .nav-row__title {
+  align-items: center;
+  display: flex;
+  gap: 6px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.nav-row__title > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-row__spinner {
+  flex: 0 0 auto;
 }
 
 .nav-row__edit {
@@ -542,6 +643,15 @@ body,
 
   .provider-editor-row {
     grid-template-columns: 1fr;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-panel-header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .row-actions {

@@ -97,8 +97,30 @@ export interface ScanJobStatus {
   activeCollectionId?: string | null
   artistTotal: number
   artistProcessed: number
+  parsedCount: number
+  createdCount: number
+  skippedCount: number
   cancelRequested: boolean
   message?: string | null
+}
+
+export interface UiSettingsValues {
+  statusCompleteVisibleMs: number
+  scanPollIntervalMs: number
+  collectionScanSpinnerEnabled: boolean
+  collectionScanProgressEnabled: boolean
+}
+
+export interface UiSettings extends UiSettingsValues {
+  defaults: UiSettingsValues
+  overrides: Record<keyof UiSettingsValues, boolean>
+}
+
+export interface StatusHistoryEntry {
+  id: number
+  createdAt: string
+  message: string
+  state: 'running' | 'done' | 'failed' | 'info'
 }
 
 export interface UserPreference {

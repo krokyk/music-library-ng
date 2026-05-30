@@ -79,7 +79,7 @@ public class ScanJobService {
             if (job.cancelRequested.get()) {
                 job.finish("CANCELLED", "Scan cancelled.");
             } else {
-                job.finish("DONE", summarize(summaries));
+                job.finish("DONE", summarize(summaries), summaries);
             }
         } catch (Exception e) {
             if (job.cancelRequested.get()) {
@@ -104,7 +104,7 @@ public class ScanJobService {
     }
 
     private static ScanJobStatus idleStatus() {
-        return new ScanJobStatus("", "IDLE", null, null, 0, 0, false, null);
+        return new ScanJobStatus("", "IDLE", null, null, 0, 0, 0, 0, 0, false, null);
     }
 
     private static class ScanJob {
@@ -115,6 +115,9 @@ public class ScanJobService {
         private String activeCollectionId;
         private int itemTotal;
         private int itemProcessed;
+        private int parsedCount;
+        private int createdCount;
+        private int skippedCount;
         private String message = "Scan starting.";
 
         private ScanJob(String id, String requestedCollectionId) {
@@ -149,6 +152,13 @@ public class ScanJobService {
             this.message = message;
         }
 
+        synchronized void finish(String status, String message, List<ScanSummary> summaries) {
+            this.parsedCount = summaries.stream().mapToInt(ScanSummary::parsedCount).sum();
+            this.createdCount = summaries.stream().mapToInt(ScanSummary::createdCount).sum();
+            this.skippedCount = summaries.stream().mapToInt(ScanSummary::skippedCount).sum();
+            finish(status, message);
+        }
+
         synchronized ScanJobStatus status() {
             return new ScanJobStatus(
                     id,
@@ -157,6 +167,9 @@ public class ScanJobService {
                     activeCollectionId,
                     itemTotal,
                     itemProcessed,
+                    parsedCount,
+                    createdCount,
+                    skippedCount,
                     cancelRequested.get(),
                     message);
         }

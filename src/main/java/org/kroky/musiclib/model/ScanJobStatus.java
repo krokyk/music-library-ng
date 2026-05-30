@@ -7,6 +7,9 @@ public record ScanJobStatus(
         String activeCollectionId,
         int artistTotal,
         int artistProcessed,
+        int parsedCount,
+        int createdCount,
+        int skippedCount,
         boolean cancelRequested,
         String message) {
 }
