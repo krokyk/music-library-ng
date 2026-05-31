@@ -79,7 +79,7 @@ onMounted(() => store.loadAll())
             ></v-text-field>
           </div>
 
-          <v-table class="music-table" density="compact" fixed-header height="calc(100vh - 230px)">
+          <v-table class="music-table" density="compact" fixed-header height="calc(var(--app-vh) - 230px)">
             <thead>
               <tr>
                 <th>Artist</th>

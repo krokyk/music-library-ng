@@ -33,11 +33,11 @@ public interface MusicLibraryConfig {
 
     interface Ui {
         @WithName("default-status-complete-visible-ms")
-        @WithDefault("4000")
+        @WithDefault("10000")
         int defaultStatusCompleteVisibleMs();
 
         @WithName("default-scan-poll-interval-ms")
-        @WithDefault("100")
+        @WithDefault("200")
         int defaultScanPollIntervalMs();
 
         @WithName("default-collection-scan-spinner-enabled")

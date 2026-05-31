@@ -256,23 +256,22 @@ onMounted(() => {
             class="status-history-dialog__body"
             @scroll="updateHistoryPinned"
           >
-            <v-list density="compact" lines="two" class="status-history-list">
-              <v-list-item v-for="entry in statusHistory" :key="entry.id">
-                <template #prepend>
-                  <v-chip
-                    size="x-small"
-                    :color="entry.state === 'failed' ? 'error' : entry.state === 'warning' ? 'warning' : entry.state === 'done' ? 'success' : 'primary'"
-                  >
-                    {{ entry.state }}
-                  </v-chip>
-                </template>
-                <v-list-item-title>{{ entry.message }}</v-list-item-title>
-                <v-list-item-subtitle>{{ entry.createdAt }}</v-list-item-subtitle>
-              </v-list-item>
+            <div class="status-history-list" role="list">
+              <div v-for="entry in statusHistory" :key="entry.id" class="status-history-entry" role="listitem">
+                <v-chip
+                  class="status-history-entry__state"
+                  size="x-small"
+                  :color="entry.state === 'failed' ? 'error' : entry.state === 'warning' ? 'warning' : entry.state === 'done' ? 'success' : 'primary'"
+                >
+                  {{ entry.state }}
+                </v-chip>
+                <span class="status-history-entry__time">{{ entry.createdAt }}</span>
+                <span class="status-history-entry__message">{{ entry.message }}</span>
+              </div>
               <div v-if="statusHistory.length === 0" class="pane-empty pane-empty--compact">
                 No status history yet.
               </div>
-            </v-list>
+            </div>
           </div>
         </v-card-text>
       </v-card>

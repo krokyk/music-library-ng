@@ -21,7 +21,6 @@ public class SettingsResource {
     private static final String SCAN_POLL_KEY = "ui.scanPollIntervalMs";
     private static final String COLLECTION_SPINNER_KEY = "ui.collectionScanSpinnerEnabled";
     private static final String COLLECTION_PROGRESS_KEY = "ui.collectionScanProgressEnabled";
-    private static final String STATUS_HISTORY_DATE_FORMAT_KEY = "ui.statusHistoryDateFormat";
     private static final String STATUS_BAR_LOCATION_KEY = "ui.statusBarLocation";
     private static final int STATUS_VISIBLE_MIN = 0;
     private static final int STATUS_VISIBLE_MAX = 30_000;
@@ -58,28 +57,36 @@ public class SettingsResource {
             return effectiveUiSettings();
         }
         if (request.statusCompleteVisibleMs() != null) {
-            preferences.save(STATUS_VISIBLE_KEY, String.valueOf(clamp(
+            int value = clamp(
                     request.statusCompleteVisibleMs(),
                     STATUS_VISIBLE_MIN,
-                    STATUS_VISIBLE_MAX)));
+                    STATUS_VISIBLE_MAX);
+            saveOrDelete(STATUS_VISIBLE_KEY, String.valueOf(value), String.valueOf(defaultStatusVisible()));
         }
         if (request.scanPollIntervalMs() != null) {
-            preferences.save(SCAN_POLL_KEY, String.valueOf(clamp(
+            int value = clamp(
                     request.scanPollIntervalMs(),
                     SCAN_POLL_MIN,
-                    SCAN_POLL_MAX)));
+                    SCAN_POLL_MAX);
+            saveOrDelete(SCAN_POLL_KEY, String.valueOf(value), String.valueOf(defaultScanPoll()));
         }
         if (request.collectionScanSpinnerEnabled() != null) {
-            preferences.save(COLLECTION_SPINNER_KEY, String.valueOf(request.collectionScanSpinnerEnabled()));
+            saveOrDelete(
+                    COLLECTION_SPINNER_KEY,
+                    String.valueOf(request.collectionScanSpinnerEnabled()),
+                    String.valueOf(config.ui().defaultCollectionScanSpinnerEnabled()));
         }
         if (request.collectionScanProgressEnabled() != null) {
-            preferences.save(COLLECTION_PROGRESS_KEY, String.valueOf(request.collectionScanProgressEnabled()));
-        }
-        if (request.statusHistoryDateFormat() != null && !request.statusHistoryDateFormat().isBlank()) {
-            preferences.save(STATUS_HISTORY_DATE_FORMAT_KEY, request.statusHistoryDateFormat().trim());
+            saveOrDelete(
+                    COLLECTION_PROGRESS_KEY,
+                    String.valueOf(request.collectionScanProgressEnabled()),
+                    String.valueOf(config.ui().defaultCollectionScanProgressEnabled()));
         }
         if (request.statusBarLocation() != null && !request.statusBarLocation().isBlank()) {
-            preferences.save(STATUS_BAR_LOCATION_KEY, normalizeStatusBarLocation(request.statusBarLocation(), "top"));
+            saveOrDelete(
+                    STATUS_BAR_LOCATION_KEY,
+                    normalizeStatusBarLocation(request.statusBarLocation(), "top"),
+                    defaultStatusBarLocation());
         }
         return effectiveUiSettings();
     }
@@ -91,30 +98,22 @@ public class SettingsResource {
         preferences.delete(SCAN_POLL_KEY);
         preferences.delete(COLLECTION_SPINNER_KEY);
         preferences.delete(COLLECTION_PROGRESS_KEY);
-        preferences.delete(STATUS_HISTORY_DATE_FORMAT_KEY);
         preferences.delete(STATUS_BAR_LOCATION_KEY);
         return effectiveUiSettings();
     }
 
     private UiSettings effectiveUiSettings() {
-        int defaultStatusVisible = clamp(
-                config.ui().defaultStatusCompleteVisibleMs(),
-                STATUS_VISIBLE_MIN,
-                STATUS_VISIBLE_MAX);
-        int defaultScanPoll = clamp(
-                config.ui().defaultScanPollIntervalMs(),
-                SCAN_POLL_MIN,
-                SCAN_POLL_MAX);
+        int defaultStatusVisible = defaultStatusVisible();
+        int defaultScanPoll = defaultScanPoll();
         boolean defaultSpinner = config.ui().defaultCollectionScanSpinnerEnabled();
         boolean defaultProgress = config.ui().defaultCollectionScanProgressEnabled();
         String defaultDateFormat = config.ui().defaultStatusHistoryDateFormat();
-        String defaultStatusBarLocation = normalizeStatusBarLocation(config.ui().defaultStatusBarLocation(), "top");
+        String defaultStatusBarLocation = defaultStatusBarLocation();
 
         var statusVisible = preferences.find(STATUS_VISIBLE_KEY);
         var scanPoll = preferences.find(SCAN_POLL_KEY);
         var spinner = preferences.find(COLLECTION_SPINNER_KEY);
         var progress = preferences.find(COLLECTION_PROGRESS_KEY);
-        var dateFormat = preferences.find(STATUS_HISTORY_DATE_FORMAT_KEY);
         var statusBarLocation = preferences.find(STATUS_BAR_LOCATION_KEY);
 
         return new UiSettings(
@@ -124,8 +123,7 @@ public class SettingsResource {
                         .orElse(defaultScanPoll),
                 spinner.map(value -> Boolean.parseBoolean(value.value())).orElse(defaultSpinner),
                 progress.map(value -> Boolean.parseBoolean(value.value())).orElse(defaultProgress),
-                dateFormat.map(value -> value.value().isBlank() ? defaultDateFormat : value.value())
-                        .orElse(defaultDateFormat),
+                defaultDateFormat,
                 statusBarLocation.map(value -> normalizeStatusBarLocation(value.value(), defaultStatusBarLocation))
                         .orElse(defaultStatusBarLocation),
                 new UiSettings.Values(
@@ -136,12 +134,47 @@ public class SettingsResource {
                         defaultDateFormat,
                         defaultStatusBarLocation),
                 new UiSettings.Overrides(
-                        statusVisible.isPresent(),
-                        scanPoll.isPresent(),
-                        spinner.isPresent(),
-                        progress.isPresent(),
-                        dateFormat.isPresent(),
-                        statusBarLocation.isPresent()));
+                        statusVisible
+                                .map(value -> parseInt(
+                                        value.value(),
+                                        defaultStatusVisible,
+                                        STATUS_VISIBLE_MIN,
+                                        STATUS_VISIBLE_MAX) != defaultStatusVisible)
+                                .orElse(false),
+                        scanPoll
+                                .map(value -> parseInt(
+                                        value.value(),
+                                        defaultScanPoll,
+                                        SCAN_POLL_MIN,
+                                        SCAN_POLL_MAX) != defaultScanPoll)
+                                .orElse(false),
+                        spinner.map(value -> Boolean.parseBoolean(value.value()) != defaultSpinner).orElse(false),
+                        progress.map(value -> Boolean.parseBoolean(value.value()) != defaultProgress).orElse(false),
+                        false,
+                        statusBarLocation
+                                .map(value -> !normalizeStatusBarLocation(value.value(), defaultStatusBarLocation)
+                                        .equals(defaultStatusBarLocation))
+                                .orElse(false)));
+    }
+
+    private int defaultStatusVisible() {
+        return clamp(config.ui().defaultStatusCompleteVisibleMs(), STATUS_VISIBLE_MIN, STATUS_VISIBLE_MAX);
+    }
+
+    private int defaultScanPoll() {
+        return clamp(config.ui().defaultScanPollIntervalMs(), SCAN_POLL_MIN, SCAN_POLL_MAX);
+    }
+
+    private String defaultStatusBarLocation() {
+        return normalizeStatusBarLocation(config.ui().defaultStatusBarLocation(), "top");
+    }
+
+    private void saveOrDelete(String key, String value, String defaultValue) {
+        if (value.equals(defaultValue)) {
+            preferences.delete(key);
+        } else {
+            preferences.save(key, value);
+        }
     }
 
     private static int parseInt(String value, int fallback, int min, int max) {
@@ -169,7 +202,6 @@ public class SettingsResource {
             Integer scanPollIntervalMs,
             Boolean collectionScanSpinnerEnabled,
             Boolean collectionScanProgressEnabled,
-            String statusHistoryDateFormat,
             String statusBarLocation) {
     }
 }

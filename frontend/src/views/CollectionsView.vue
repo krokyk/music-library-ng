@@ -35,7 +35,7 @@ const {
 
 const artistDialog = ref(false)
 const deleteDialog = ref(false)
-const addCollectionDialog = ref(false)
+const addCollectionDropdownOpen = ref(false)
 const deleteCollectionDialog = ref(false)
 const albumToDelete = ref<Album | null>(null)
 const collectionToDelete = ref<MusicCollection | null>(null)
@@ -44,8 +44,9 @@ const savingArtist = ref(false)
 const scanPoller = ref<number | null>(null)
 const editingCollectionId = ref<string | null>(null)
 const editingCollectionName = ref('')
-const collectionPage = ref(1)
 const threePaneElement = ref<HTMLElement | null>(null)
+const addCollectionAnchor = ref<HTMLElement | null>(null)
+const addCollectionDropdown = ref<HTMLElement | null>(null)
 const panePercents = ref([27, 30, 43])
 const paneLayoutSaveTimer = ref<number | null>(null)
 const paneNames = ['collections', 'artists', 'albums'] as const
@@ -84,15 +85,6 @@ const collectionOptions = computed(() =>
 
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
 const paneLayoutPreferenceKey = 'collections.paneLayout'
-const collectionPageSize = 10
-const collectionPageCount = computed(() => Math.max(1, Math.ceil(collectionCandidates.value.length / collectionPageSize)))
-const collectionPageStart = computed(() => (collectionPage.value - 1) * collectionPageSize)
-const collectionPageEnd = computed(() =>
-  Math.min(collectionPageStart.value + collectionPageSize, collectionCandidates.value.length),
-)
-const pagedCollectionCandidates = computed(() =>
-  collectionCandidates.value.slice(collectionPageStart.value, collectionPageEnd.value),
-)
 
 function artistIssueLabel(artist: Artist) {
   if (artist.uncheckedAlbumCount > 0) {
@@ -133,25 +125,21 @@ async function deleteCollection() {
   collectionToDelete.value = null
 }
 
-async function openAddCollectionDialog() {
+async function toggleAddCollectionDropdown() {
+  if (addCollectionDropdownOpen.value) {
+    addCollectionDropdownOpen.value = false
+    return
+  }
   await store.loadCollectionCandidates()
-  collectionPage.value = 1
-  addCollectionDialog.value = true
+  addCollectionDropdownOpen.value = true
 }
 
 async function addCollection(candidate: CollectionFolderCandidate) {
   await store.createCollection(candidate.relativePath)
-  if (collectionPage.value > collectionPageCount.value) {
-    collectionPage.value = collectionPageCount.value
-  }
 }
 
-function previousCollectionPage() {
-  collectionPage.value = Math.max(1, collectionPage.value - 1)
-}
-
-function nextCollectionPage() {
-  collectionPage.value = Math.min(collectionPageCount.value, collectionPage.value + 1)
+function closeAddCollectionDropdown() {
+  addCollectionDropdownOpen.value = false
 }
 
 function startInlineCollectionEdit(collection: MusicCollection) {
@@ -325,6 +313,26 @@ function stopScanPolling() {
   scanPoller.value = null
 }
 
+function handleDocumentPointerDown(event: PointerEvent) {
+  if (!addCollectionDropdownOpen.value) {
+    return
+  }
+  const target = event.target
+  if (!(target instanceof Node)) {
+    return
+  }
+  if (addCollectionAnchor.value?.contains(target) || addCollectionDropdown.value?.contains(target)) {
+    return
+  }
+  closeAddCollectionDropdown()
+}
+
+function handleDocumentKeyDown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    closeAddCollectionDropdown()
+  }
+}
+
 async function openArtistDialog(artist?: Artist) {
   artistForm.id = artist?.id ?? null
   artistForm.name = artist?.name ?? ''
@@ -442,6 +450,8 @@ async function deleteAlbum() {
 }
 
 onMounted(async () => {
+  document.addEventListener('pointerdown', handleDocumentPointerDown)
+  document.addEventListener('keydown', handleDocumentKeyDown)
   await store.loadUiSettings()
   await loadPaneLayout()
   await store.loadCollections()
@@ -452,6 +462,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', handleDocumentPointerDown)
+  document.removeEventListener('keydown', handleDocumentKeyDown)
   stopScanPolling()
   if (paneLayoutSaveTimer.value !== null) {
     savePaneLayout()
@@ -467,10 +479,32 @@ onBeforeUnmount(() => {
       <v-sheet class="pane collections-pane" :style="paneStyle(0)">
         <div class="pane-header">
           <span>Collections</span>
-          <div class="pane-header__actions">
-            <v-btn prepend-icon="mdi-plus" size="small" variant="flat" color="primary" @click="openAddCollectionDialog">
+          <div ref="addCollectionAnchor" class="pane-header__actions">
+            <v-btn prepend-icon="mdi-plus" size="small" variant="flat" color="primary" @click="toggleAddCollectionDropdown">
               Add
             </v-btn>
+          </div>
+        </div>
+
+        <div
+          v-if="addCollectionDropdownOpen"
+          ref="addCollectionDropdown"
+          class="add-collection-dropdown"
+        >
+          <div class="add-collection-dropdown__hint">Add folder to Collections by clicking on it</div>
+          <div class="folder-candidate-list">
+            <button
+              v-for="candidate in collectionCandidates"
+              :key="candidate.relativePath"
+              class="folder-candidate"
+              type="button"
+              @click="addCollection(candidate)"
+            >
+              <span>{{ candidate.folderName }}</span>
+            </button>
+            <div v-if="collectionCandidates.length === 0" class="pane-empty pane-empty--compact">
+              No available folders.
+            </div>
           </div>
         </div>
 
@@ -773,48 +807,6 @@ onBeforeUnmount(() => {
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="artistDialog = false">Close</v-btn>
           <v-btn color="primary" :loading="savingArtist" @click="saveArtistDetails">Save</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <v-dialog v-model="addCollectionDialog" max-width="420">
-      <v-card class="dialog-card add-collection-dialog">
-        <v-card-title>Add Collection</v-card-title>
-        <v-card-text>
-          <div class="cell-muted mb-3">Add folder to Collections by clicking on it</div>
-          <div class="folder-candidate-list">
-            <button
-              v-for="candidate in pagedCollectionCandidates"
-              :key="candidate.relativePath"
-              class="folder-candidate"
-              type="button"
-              @click="addCollection(candidate)"
-            >
-              <span>{{ candidate.collectionName }}</span>
-              <span class="folder-candidate__path">{{ candidate.folderName }}</span>
-            </button>
-            <div v-if="collectionCandidates.length === 0" class="pane-empty pane-empty--compact">
-              No available folders.
-            </div>
-          </div>
-        </v-card-text>
-        <v-card-actions class="folder-candidate-pager">
-          <v-spacer></v-spacer>
-          <v-btn
-            icon="mdi-chevron-left"
-            size="x-small"
-            variant="text"
-            :disabled="collectionPage === 1"
-            @click="previousCollectionPage"
-          ></v-btn>
-          <span>{{ collectionPageEnd }}/{{ collectionCandidates.length }}</span>
-          <v-btn
-            icon="mdi-chevron-right"
-            size="x-small"
-            variant="text"
-            :disabled="collectionPage === collectionPageCount"
-            @click="nextCollectionPage"
-          ></v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

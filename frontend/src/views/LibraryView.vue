@@ -180,7 +180,7 @@ onMounted(() => store.loadAll())
         ></v-select>
       </div>
 
-      <v-table class="music-table" density="compact" fixed-header height="calc(100vh - 355px)">
+      <v-table class="music-table" density="compact" fixed-header height="calc(var(--app-vh) - 355px)">
         <thead>
           <tr>
             <th>Artist</th>
