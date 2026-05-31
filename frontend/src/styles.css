@@ -505,7 +505,7 @@ body,
   display: flex;
   height: calc(var(--app-vh) - 142px);
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .pane {
@@ -515,7 +515,7 @@ body,
   display: flex;
   flex-direction: column;
   min-width: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .collections-pane {
@@ -534,6 +534,11 @@ body,
 .albums-pane {
   flex: 2 1 540px;
   min-width: 380px;
+}
+
+.titles-pane {
+  flex: 1 1 760px;
+  min-width: 520px;
 }
 
 .pane-resizer {
@@ -671,6 +676,18 @@ body,
   flex: 0 0 auto;
 }
 
+.collection-type-icon {
+  flex: 0 0 auto;
+}
+
+.collection-type-icon--artist {
+  color: rgb(var(--v-theme-primary)) !important;
+}
+
+.collection-type-icon--title {
+  color: rgb(var(--v-theme-warning)) !important;
+}
+
 .nav-row__edit {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(0, 213, 255, 0.52);
@@ -697,21 +714,101 @@ body,
   opacity: 1;
 }
 
-.workspace-table {
+.workspace-grid {
   flex: 1 1 auto;
   min-height: 0;
+  overflow: auto;
+  --workspace-grid-columns: 1fr;
 }
 
-.workspace-table .v-table__wrapper {
-  height: 100%;
-  overflow: auto;
+.workspace-grid__row {
+  display: grid;
+  grid-template-columns: var(--workspace-grid-columns);
+  min-width: max-content;
+}
+
+.workspace-grid__header {
+  background: #101010;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+.workspace-grid__cell {
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  height: 42px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 12px;
+}
+
+.workspace-grid__header-cell {
+  background: #101010;
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.72rem;
+  font-weight: 800;
+  height: 38px;
+  letter-spacing: 0;
+  position: relative;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.workspace-grid__row:hover .workspace-grid__cell {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.workspace-grid__header:hover .workspace-grid__cell {
+  background: #101010;
+}
+
+.column-resize-handle {
+  bottom: 0;
+  cursor: col-resize;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 14px;
+  z-index: 5;
+}
+
+.column-resize-handle::before {
+  background: rgba(255, 255, 255, 0.08);
+  bottom: 7px;
+  content: "";
+  position: absolute;
+  right: 3px;
+  top: 7px;
+  transition: background 120ms ease;
+  width: 1px;
+}
+
+body.is-column-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.column-resize-handle:hover::before {
+  background: rgba(0, 213, 255, 0.72);
+}
+
+.column-autosize-measurer {
+  left: -10000px;
+  pointer-events: none;
+  position: fixed;
+  top: -10000px;
+  visibility: hidden;
+  white-space: nowrap;
 }
 
 .workspace-row {
   cursor: pointer;
 }
 
-.workspace-row.is-selected > td {
+.workspace-row.is-selected > .workspace-grid__cell {
   background: rgba(0, 213, 255, 0.1);
 }
 
@@ -732,6 +829,12 @@ body,
 
 .row-action-cell {
   width: 76px;
+}
+
+.truncate-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .row-actions {
@@ -810,6 +913,67 @@ body,
 
 .folder-candidate:hover {
   background: rgba(0, 213, 255, 0.1);
+}
+
+.collection-edit-popover {
+  background: #161616;
+  border: 1px solid rgba(0, 213, 255, 0.28);
+  border-radius: 8px;
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.44);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: min(460px, calc(var(--app-vw) - 36px));
+  min-width: 390px;
+  padding: 18px;
+}
+
+.collection-edit-popover__location {
+  align-items: baseline;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.collection-edit-popover__path {
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-edit-popover__name {
+  margin: 6px 0 10px;
+}
+
+.collection-edit-popover__label {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.collection-edit-popover__type {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.collection-type-toggle {
+  align-self: flex-start;
+}
+
+.collection-type-toggle .v-btn__content,
+.collection-type-chip .v-chip__content {
+  gap: 7px;
+}
+
+.collection-edit-popover__actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .dialog-card {

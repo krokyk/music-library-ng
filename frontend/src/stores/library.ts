@@ -5,6 +5,7 @@ import type {
   Artist,
   ArtistProviderLink,
   CollectionFolderCandidate,
+  CollectionTitleItem,
   MusicRootInfo,
   MusicCollection,
   ScanJobStatus,
@@ -40,6 +41,7 @@ interface State {
   collectionCandidates: CollectionFolderCandidate[]
   collectionArtists: Artist[]
   collectionAlbums: Album[]
+  collectionTitleItems: CollectionTitleItem[]
   selectedCollectionId: string | null
   selectedArtistId: number | null
   musicRoot: MusicRootInfo | null
@@ -66,6 +68,28 @@ function withQuery(path: string, params: Record<string, string | number | boolea
   return suffix ? `${path}?${suffix}` : path
 }
 
+const defaultWorkspaceColumnDefaults = {
+  artist: {
+    name: 280,
+    actions: 64,
+  },
+  album: {
+    name: 360,
+    year: 100,
+    checked: 120,
+    actions: 56,
+  },
+  title: {
+    title: 460,
+    artist: 220,
+    year: 90,
+    status: 120,
+    actions: 64,
+  },
+}
+
+let scanJobPoller: number | null = null
+
 export const useLibraryStore = defineStore('library', {
   state: (): State => ({
     artists: [],
@@ -74,6 +98,7 @@ export const useLibraryStore = defineStore('library', {
     collectionCandidates: [],
     collectionArtists: [],
     collectionAlbums: [],
+    collectionTitleItems: [],
     selectedCollectionId: null,
     selectedArtistId: null,
     musicRoot: null,
@@ -89,6 +114,7 @@ export const useLibraryStore = defineStore('library', {
       collectionScanProgressEnabled: true,
       statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
       statusBarLocation: 'top',
+      workspaceColumnDefaults: defaultWorkspaceColumnDefaults,
       defaults: {
         statusCompleteVisibleMs: 10000,
         scanPollIntervalMs: 200,
@@ -96,6 +122,7 @@ export const useLibraryStore = defineStore('library', {
         collectionScanProgressEnabled: true,
         statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
         statusBarLocation: 'top',
+        workspaceColumnDefaults: defaultWorkspaceColumnDefaults,
       },
       overrides: {
         statusCompleteVisibleMs: false,
@@ -160,11 +187,15 @@ export const useLibraryStore = defineStore('library', {
       this.collectionCandidates = this.collectionCandidates.filter((candidate) => candidate.relativePath !== relativePath)
       return collection
     },
-    async updateCollection(collectionId: string, payload: { name: string }) {
+    async updateCollection(collectionId: string, payload: { name?: string; type?: MusicCollection['type'] }) {
       const collection = await apiSend<MusicCollection>(`/api/collections/${encodeURIComponent(collectionId)}`, 'PUT', {
         name: payload.name,
+        type: payload.type,
       })
       this.collections = this.collections.map((item) => (item.id === collection.id ? collection : item))
+      if (this.selectedCollectionId === collection.id) {
+        await this.selectCollection(collection.id)
+      }
       return collection
     },
     async deleteCollection(collectionId: string) {
@@ -175,6 +206,7 @@ export const useLibraryStore = defineStore('library', {
         this.selectedArtistId = null
         this.collectionArtists = []
         this.collectionAlbums = []
+        this.collectionTitleItems = []
       }
     },
     async loadSettings() {
@@ -229,7 +261,32 @@ export const useLibraryStore = defineStore('library', {
       this.selectedCollectionId = collectionId
       this.selectedArtistId = null
       this.collectionAlbums = []
-      await this.loadArtistsForSelectedCollection()
+      const collection = this.collections.find((item) => item.id === collectionId)
+      if (collection?.type === 'TITLE') {
+        this.collectionArtists = []
+        await this.loadTitlesForSelectedCollection()
+      } else {
+        this.collectionTitleItems = []
+        await this.loadArtistsForSelectedCollection()
+      }
+    },
+    async loadTitlesForSelectedCollection() {
+      if (!this.selectedCollectionId) {
+        this.collectionTitleItems = []
+        return
+      }
+      this.collectionTitleItems = await apiGet<CollectionTitleItem[]>(
+        `/api/collections/${encodeURIComponent(this.selectedCollectionId)}/titles`,
+      )
+    },
+    async updateTitleItem(item: CollectionTitleItem, payload: { title: string; artistName?: string | null; year?: number | null }) {
+      const updated = await apiSend<CollectionTitleItem>(
+        `/api/collections/${encodeURIComponent(item.collectionId)}/titles/${item.id}`,
+        'PUT',
+        payload,
+      )
+      this.collectionTitleItems = this.collectionTitleItems.map((current) => (current.id === updated.id ? updated : current))
+      return updated
     },
     async loadArtistsForSelectedCollection() {
       if (!this.selectedCollectionId) {
@@ -264,6 +321,11 @@ export const useLibraryStore = defineStore('library', {
       if (!this.selectedCollectionId) {
         return
       }
+      const collection = this.collections.find((item) => item.id === this.selectedCollectionId)
+      if (collection?.type === 'TITLE') {
+        await this.loadTitlesForSelectedCollection()
+        return
+      }
       await this.loadArtistsForSelectedCollection()
       if (this.selectedArtistId) {
         await this.loadAlbumsForSelectedArtist()
@@ -277,7 +339,12 @@ export const useLibraryStore = defineStore('library', {
         this.selectedArtistId = null
       }
       this.collectionAlbums = []
-      await this.loadArtistsForSelectedCollection()
+      const collection = this.collections.find((item) => item.id === this.selectedCollectionId)
+      if (collection?.type === 'TITLE') {
+        await this.loadTitlesForSelectedCollection()
+      } else {
+        await this.loadArtistsForSelectedCollection()
+      }
     },
     async addArtist(name: string, collectionIds: string[] = []) {
       await this.saveArtist({ name, sortName: null, notes: null, collectionIds })
@@ -328,11 +395,37 @@ export const useLibraryStore = defineStore('library', {
         ? this.collectionAlbums.map((item) => (item.id === album.id ? album : item))
         : this.collectionAlbums
     },
-    async scan(collectionId?: string) {
-      const query = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : ''
-      await apiSend(`/api/scan${query}`, 'POST')
-      await this.loadSettings()
-      await this.refreshCollectionArtistsOnly(true)
+    async runScanJob(collectionId?: string) {
+      await this.startScanJob(collectionId)
+      this.startScanJobPolling()
+      return this.scanJob
+    },
+    startScanJobPolling() {
+      if (scanJobPoller !== null) {
+        return
+      }
+      const intervalMs = Math.min(2000, Math.max(100, this.uiSettings.scanPollIntervalMs))
+      const poll = async () => {
+        try {
+          const status = await this.loadScanJob()
+          if (!status || status.status !== 'RUNNING') {
+            this.stopScanJobPolling()
+            await this.loadSettings()
+            await this.refreshCollectionArtistsOnly(true)
+          }
+        } catch (error) {
+          this.stopScanJobPolling()
+          this.error = error instanceof Error ? error.message : String(error)
+        }
+      }
+      scanJobPoller = window.setInterval(() => void poll(), intervalMs)
+    },
+    stopScanJobPolling() {
+      if (scanJobPoller === null) {
+        return
+      }
+      window.clearInterval(scanJobPoller)
+      scanJobPoller = null
     },
     async startScanJob(collectionId?: string) {
       const query = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : ''

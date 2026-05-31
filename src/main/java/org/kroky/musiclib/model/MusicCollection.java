@@ -6,6 +6,7 @@ public record MusicCollection(
         String relativePath,
         String resolvedPath,
         boolean exists,
+        CollectionType type,
         ParserType parser,
         String lastScanAt,
         String lastScanStatus,

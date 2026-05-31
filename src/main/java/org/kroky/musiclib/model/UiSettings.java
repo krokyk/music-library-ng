@@ -7,6 +7,7 @@ public record UiSettings(
         boolean collectionScanProgressEnabled,
         String statusHistoryDateFormat,
         String statusBarLocation,
+        WorkspaceColumnWidths workspaceColumnDefaults,
         Values defaults,
         Overrides overrides) {
 
@@ -16,7 +17,8 @@ public record UiSettings(
             boolean collectionScanSpinnerEnabled,
             boolean collectionScanProgressEnabled,
             String statusHistoryDateFormat,
-            String statusBarLocation) {
+            String statusBarLocation,
+            WorkspaceColumnWidths workspaceColumnDefaults) {
     }
 
     public record Overrides(
@@ -26,5 +28,31 @@ public record UiSettings(
             boolean collectionScanProgressEnabled,
             boolean statusHistoryDateFormat,
             boolean statusBarLocation) {
+    }
+
+    public record WorkspaceColumnWidths(
+            ArtistColumns artist,
+            AlbumColumns album,
+            TitleColumns title) {
+    }
+
+    public record ArtistColumns(
+            int name,
+            int actions) {
+    }
+
+    public record AlbumColumns(
+            int name,
+            int year,
+            int checked,
+            int actions) {
+    }
+
+    public record TitleColumns(
+            int title,
+            int artist,
+            int year,
+            int status,
+            int actions) {
     }
 }

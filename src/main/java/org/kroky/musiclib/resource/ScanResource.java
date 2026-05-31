@@ -6,10 +6,8 @@ import org.jboss.logging.Logger;
 import org.kroky.musiclib.model.ScanEvent;
 import org.kroky.musiclib.model.ScanJobStatus;
 import org.kroky.musiclib.model.ScanRun;
-import org.kroky.musiclib.model.ScanSummary;
 import org.kroky.musiclib.repository.ScanRunRepository;
 import org.kroky.musiclib.scan.ScanJobService;
-import org.kroky.musiclib.scan.ScanService;
 
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -24,22 +22,10 @@ public class ScanResource {
     private static final Logger LOG = Logger.getLogger(ScanResource.class);
 
     @Inject
-    ScanService scanService;
-
-    @Inject
     ScanRunRepository scanRuns;
 
     @Inject
     ScanJobService scanJobs;
-
-    @POST
-    public List<ScanSummary> scan(@QueryParam("collectionId") String collectionId) {
-        LOG.infof("Scan requested collectionId=%s", collectionId);
-        if (collectionId == null || collectionId.isBlank()) {
-            return scanService.scanAllEnabled();
-        }
-        return List.of(scanService.scan(collectionId));
-    }
 
     @POST
     @Path("/jobs")

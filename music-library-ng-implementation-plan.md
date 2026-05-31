@@ -570,7 +570,7 @@ Provider-discovered album creation sets `checked = false`.
 GET /api/collections
 ```
 
-Collections are seeded from shared config. Editing collection definitions from the UI is intentionally out of scope so the app stays identical across computers.
+Collections are user-managed from direct folders under the configured music root. First-run defaults come from application properties, while user-created collections and runtime layout/preferences are stored in SQLite.
 
 ### Settings
 
@@ -578,19 +578,21 @@ Collections are seeded from shared config. Editing collection definitions from t
 GET /api/settings/music-root
 ```
 
-Settings are backed by the shared Quarkus properties config file plus the per-machine `music-library.music-root` JVM override. The Settings view shows effective read-only configuration and validation status.
+Settings use Quarkus properties as first-run defaults and SQLite preferences for runtime overrides. The Settings view exposes only settings that are useful to change while the app is running.
 
 ### Scan
 
 ```text
-POST /api/scan
-POST /api/scan?collectionId=melodeath
+POST /api/scan/jobs
+POST /api/scan/jobs?collectionId=melodeath
+GET  /api/scan/jobs/current
+POST /api/scan/jobs/current/cancel
 GET  /api/scan/runs?limit=25
 GET  /api/scan/runs/{id}
 GET  /api/scan/runs/{id}/events
 ```
 
-Synchronous scan is acceptable. Add background jobs when scan duration requires it.
+User-facing scan triggers must use the scan job flow so status history, busy indicators, progress polling, cancellation, and post-scan refresh stay consistent.
 
 ### Provider Links
 

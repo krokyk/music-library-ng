@@ -48,10 +48,28 @@ export interface MusicCollection {
   relativePath: string
   resolvedPath?: string | null
   exists: boolean
+  type: 'ARTIST' | 'TITLE'
   parser: string
   lastScanAt?: string | null
   lastScanStatus?: string | null
   lastScanMessage?: string | null
+}
+
+export interface CollectionTitleItem {
+  id: number
+  collectionId: string
+  rawFolderName: string
+  relativePath: string
+  title: string
+  artistName?: string | null
+  year?: number | null
+  metadataSource: 'AUTO' | 'MANUAL'
+  parseStatus: 'EXACT' | 'PARTIAL' | 'TITLE_ONLY' | 'MANUAL'
+  firstSeenAt: string
+  lastSeenAt: string
+  missingSince?: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface CollectionFolderCandidate {
@@ -111,11 +129,32 @@ export interface UiSettingsValues {
   collectionScanProgressEnabled: boolean
   statusHistoryDateFormat: string
   statusBarLocation: 'top' | 'bottom'
+  workspaceColumnDefaults: WorkspaceColumnWidths
 }
 
 export interface UiSettings extends UiSettingsValues {
   defaults: UiSettingsValues
-  overrides: Record<keyof UiSettingsValues, boolean>
+  overrides: Record<Exclude<keyof UiSettingsValues, 'workspaceColumnDefaults'>, boolean>
+}
+
+export interface WorkspaceColumnWidths {
+  artist: {
+    name: number
+    actions: number
+  }
+  album: {
+    name: number
+    year: number
+    checked: number
+    actions: number
+  }
+  title: {
+    title: number
+    artist: number
+    year: number
+    status: number
+    actions: number
+  }
 }
 
 export interface StatusHistoryEntry {

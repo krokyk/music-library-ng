@@ -55,5 +55,55 @@ public interface MusicLibraryConfig {
         @WithName("default-status-bar-location")
         @WithDefault("top")
         String defaultStatusBarLocation();
+
+        @WithName("default-workspace-column-widths")
+        WorkspaceColumnWidths defaultWorkspaceColumnWidths();
+    }
+
+    interface WorkspaceColumnWidths {
+        ArtistColumns artist();
+
+        AlbumColumns album();
+
+        TitleColumns title();
+    }
+
+    interface ArtistColumns {
+        @WithDefault("280")
+        int name();
+
+        @WithDefault("64")
+        int actions();
+    }
+
+    interface AlbumColumns {
+        @WithDefault("360")
+        int name();
+
+        @WithDefault("100")
+        int year();
+
+        @WithDefault("120")
+        int checked();
+
+        @WithDefault("56")
+        int actions();
+    }
+
+    interface TitleColumns {
+        @WithDefault("460")
+        int title();
+
+        @WithDefault("220")
+        int artist();
+
+        @WithDefault("90")
+        int year();
+
+        @WithDefault("120")
+        int status();
+
+        @WithDefault("64")
+        int actions();
     }
 }

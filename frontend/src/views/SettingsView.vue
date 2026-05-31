@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 import type { UiSettingsValues } from '@/types'
@@ -11,15 +11,24 @@ type EditableUiSettingKey =
   | 'collectionScanProgressEnabled'
   | 'statusBarLocation'
 
+interface UiForm {
+  statusCompleteVisibleMs: number
+  scanPollIntervalMs: number
+  collectionScanSpinnerEnabled: boolean
+  collectionScanProgressEnabled: boolean
+  statusHistoryDateFormat: string
+  statusBarLocation: 'top' | 'bottom'
+}
+
 const store = useLibraryStore()
-const { collections, scanRuns, scanEvents, musicRoot, uiSettings, error } = storeToRefs(store)
+const { collections, scanJob, scanRuns, scanEvents, musicRoot, uiSettings, error } = storeToRefs(store)
 
 const scanPollMin = 100
 const scanPollMax = 2000
 const statusVisibleMin = 0
 const statusVisibleMax = 30000
 
-const uiForm = reactive<UiSettingsValues>({
+const uiForm = reactive<UiForm>({
   statusCompleteVisibleMs: 10000,
   scanPollIntervalMs: 200,
   collectionScanSpinnerEnabled: true,
@@ -30,6 +39,7 @@ const uiForm = reactive<UiSettingsValues>({
 const savingUiSettings = ref(false)
 const uiSaveTimer = ref<number | null>(null)
 const pendingUiSettingKeys = new Set<EditableUiSettingKey>()
+const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
 
 function syncUiForm() {
   uiForm.statusCompleteVisibleMs = uiSettings.value.statusCompleteVisibleMs
@@ -49,6 +59,22 @@ function settingValue(key: EditableUiSettingKey) {
     return `${value} ms`
   }
   return value
+}
+
+function collectionTypeIcon(type: string) {
+  return type === 'TITLE' ? 'mdi-album' : 'mdi-account-music'
+}
+
+function collectionTypeIconClass(type: string) {
+  return type === 'TITLE' ? 'collection-type-icon--title' : 'collection-type-icon--artist'
+}
+
+function collectionIsScanning(collectionId: string) {
+  return scanIsRunning.value && scanJob.value?.activeCollectionId === collectionId
+}
+
+async function scanCollection(collectionId: string) {
+  await store.runScanJob(collectionId)
 }
 
 function normalizeUiForm() {
@@ -165,7 +191,10 @@ async function resetUiSettings() {
 }
 
 onMounted(async () => {
-  await Promise.all([store.loadSettings(), store.loadUiSettings()])
+  await Promise.all([store.loadSettings(), store.loadUiSettings(), store.loadScanJob()])
+  if (scanIsRunning.value) {
+    store.startScanJobPolling()
+  }
   syncUiForm()
 })
 
@@ -340,6 +369,7 @@ onBeforeUnmount(() => {
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Type</th>
                   <th>Relative Path</th>
                   <th>Resolved Path</th>
                   <th>Last Scan</th>
@@ -349,6 +379,17 @@ onBeforeUnmount(() => {
               <tbody>
                 <tr v-for="collection in collections" :key="collection.id">
                   <td class="cell-strong">{{ collection.name }}</td>
+                  <td>
+                    <v-chip size="small" variant="tonal" class="collection-type-chip">
+                      <v-icon
+                        :icon="collectionTypeIcon(collection.type)"
+                        size="15"
+                        class="collection-type-icon"
+                        :class="collectionTypeIconClass(collection.type)"
+                      ></v-icon>
+                      <span>{{ collection.type.toLowerCase() }}</span>
+                    </v-chip>
+                  </td>
                   <td class="mono-path">{{ collection.relativePath }}</td>
                   <td>
                     <v-chip :color="collection.exists ? 'success' : 'warning'" size="small" class="mr-2">
@@ -362,7 +403,9 @@ onBeforeUnmount(() => {
                       size="small"
                       variant="text"
                       prepend-icon="mdi-refresh"
-                      @click="store.scan(collection.id)"
+                      :loading="collectionIsScanning(collection.id)"
+                      :disabled="scanIsRunning"
+                      @click="scanCollection(collection.id)"
                     >
                       Scan
                     </v-btn>

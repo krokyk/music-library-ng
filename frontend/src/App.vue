@@ -20,6 +20,13 @@ const scanCollectionName = computed(() => {
   return collections.value.find((collection) => collection.id === collectionId)?.name ?? collectionId ?? 'collection'
 })
 
+const scanCollectionType = computed(() => {
+  const collectionId = scanJob.value?.activeCollectionId ?? scanJob.value?.requestedCollectionId
+  return collections.value.find((collection) => collection.id === collectionId)?.type ?? 'ARTIST'
+})
+
+const scanEntityName = computed(() => (scanCollectionType.value === 'TITLE' ? 'titles' : 'artists'))
+
 const activeStatusMessage = computed(() => {
   if (scanJob.value?.status === 'RUNNING') {
     return `Scanning collection ${scanCollectionName.value}: ${scanJob.value.artistProcessed}/${scanJob.value.artistTotal} dirs scanned`
@@ -117,7 +124,7 @@ watch(
       const elapsed = formatElapsed(scanStartedAt.value)
       scanStartedAt.value = null
       if (status === 'DONE') {
-        const message = `${scanCollectionName.value} scan complete: ${scanJob.value.artistProcessed}/${scanJob.value.artistTotal} dirs scanned, ${scanJob.value.parsedCount} artists, ${scanJob.value.createdCount} new`
+        const message = `${scanCollectionName.value} scan complete: ${scanJob.value.artistProcessed}/${scanJob.value.artistTotal} dirs scanned, ${scanJob.value.parsedCount} ${scanEntityName.value}, ${scanJob.value.createdCount} new`
         completeStatus(
           message,
           'done',
@@ -168,8 +175,11 @@ watch(
   },
 )
 
-onMounted(() => {
-  void store.loadUiSettings()
+onMounted(async () => {
+  await Promise.all([store.loadUiSettings(), store.loadCollections(), store.loadScanJob()])
+  if (scanJob.value?.status === 'RUNNING') {
+    store.startScanJobPolling()
+  }
 })
 </script>
 

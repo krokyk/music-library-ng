@@ -12,6 +12,7 @@ import javax.sql.DataSource;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.db.Names;
+import org.kroky.musiclib.model.CollectionType;
 import org.kroky.musiclib.model.CollectionFolderCandidate;
 import org.kroky.musiclib.model.MusicCollection;
 import org.kroky.musiclib.model.ParserType;
@@ -34,7 +35,7 @@ public class MusicCollectionRepository {
     public List<MusicCollection> list() {
         LOG.debug("Listing music collections");
         String sql = """
-                SELECT id, name, relative_path, parser, last_scan_at, last_scan_status, last_scan_message
+                SELECT id, name, relative_path, type, parser, last_scan_at, last_scan_status, last_scan_message
                 FROM collections
                 ORDER BY name
                 """;
@@ -54,7 +55,7 @@ public class MusicCollectionRepository {
     public Optional<MusicCollection> find(String id) {
         LOG.tracef("Finding music collection id=%s", id);
         String sql = """
-                SELECT id, name, relative_path, parser, last_scan_at, last_scan_status, last_scan_message
+                SELECT id, name, relative_path, type, parser, last_scan_at, last_scan_status, last_scan_message
                 FROM collections
                 WHERE id = ?
                 """;
@@ -111,18 +112,21 @@ public class MusicCollectionRepository {
         }
         String id = uniqueId(Names.slug(folder));
         String name = Names.chicagoStyle(folder);
-        ParserType parser = inferParser(folder);
-        LOG.infof("Creating collection id=%s name='%s' relativePath='%s' parser=%s", id, name, folder, parser);
+        CollectionType type = CollectionType.ARTIST;
+        ParserType parser = defaultParser(type);
+        LOG.infof("Creating collection id=%s name='%s' relativePath='%s' type=%s parser=%s",
+                id, name, folder, type, parser);
         String sql = """
-                INSERT INTO collections (id, name, relative_path, parser)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO collections (id, name, relative_path, type, parser)
+                VALUES (?, ?, ?, ?, ?)
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, id);
             statement.setString(2, name);
             statement.setString(3, folder);
-            statement.setString(4, parser.name());
+            statement.setString(4, type.name());
+            statement.setString(5, parser.name());
             statement.executeUpdate();
             return find(id).orElseThrow();
         } catch (Exception e) {
@@ -130,17 +134,24 @@ public class MusicCollectionRepository {
         }
     }
 
-    public Optional<MusicCollection> update(String id, String name) {
-        LOG.infof("Updating collection id=%s name='%s'", id, name);
+    public Optional<MusicCollection> update(String id, String name, CollectionType type, ParserType parser) {
+        CollectionType resolvedType = type == null ? null : type;
+        ParserType resolvedParser = parser != null ? parser : defaultParser(resolvedType);
+        LOG.infof("Updating collection id=%s name='%s' type=%s parser=%s", id, name, resolvedType, resolvedParser);
         String sql = """
                 UPDATE collections
-                SET name = ?, updated_at = CURRENT_TIMESTAMP
+                SET name = COALESCE(?, name),
+                    type = COALESCE(?, type),
+                    parser = COALESCE(?, parser),
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, name);
-            statement.setString(2, id);
+            statement.setString(1, blankToNull(name));
+            statement.setString(2, resolvedType == null ? null : resolvedType.name());
+            statement.setString(3, resolvedParser == null ? null : resolvedParser.name());
+            statement.setString(4, id);
             int updated = statement.executeUpdate();
             return updated == 0 ? Optional.empty() : find(id);
         } catch (Exception e) {
@@ -157,12 +168,16 @@ public class MusicCollectionRepository {
                     "DELETE FROM album_local_paths WHERE collection_id = ?");
                     PreparedStatement deleteArtistMemberships = connection.prepareStatement(
                             "DELETE FROM artist_collections WHERE collection_id = ?");
+                    PreparedStatement deleteTitleItems = connection.prepareStatement(
+                            "DELETE FROM collection_title_items WHERE collection_id = ?");
                     PreparedStatement deleteCollection = connection.prepareStatement(
                             "DELETE FROM collections WHERE id = ?")) {
                 deleteLocalPaths.setString(1, id);
                 deleteLocalPaths.executeUpdate();
                 deleteArtistMemberships.setString(1, id);
                 deleteArtistMemberships.executeUpdate();
+                deleteTitleItems.setString(1, id);
+                deleteTitleItems.executeUpdate();
                 deleteCollection.setString(1, id);
                 deleteCollection.executeUpdate();
                 connection.commit();
@@ -184,6 +199,7 @@ public class MusicCollectionRepository {
                 rs.getString("relative_path"),
                 resolvedCollectionPath(rs.getString("relative_path")),
                 collectionExists(rs.getString("relative_path")),
+                CollectionType.valueOf(rs.getString("type")),
                 ParserType.valueOf(rs.getString("parser")),
                 rs.getString("last_scan_at"),
                 rs.getString("last_scan_status"),
@@ -218,12 +234,14 @@ public class MusicCollectionRepository {
         return candidate;
     }
 
-    private static ParserType inferParser(String folder) {
-        String normalized = Names.normalize(folder);
-        if (normalized.contains("soundtrack") || normalized.contains("musical")) {
-            return ParserType.TITLE_ARTIST_YEAR;
+    public static ParserType defaultParser(CollectionType type) {
+        if (type == CollectionType.TITLE) {
+            return ParserType.TITLE_PIPELINE;
         }
-        return ParserType.ARTIST_YEAR_ALBUM;
+        if (type == CollectionType.ARTIST) {
+            return ParserType.FLAT_ARTIST_YEAR_ALBUM;
+        }
+        return null;
     }
 
     private static void rollbackQuietly(Connection connection) {

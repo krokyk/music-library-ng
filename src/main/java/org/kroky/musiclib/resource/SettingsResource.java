@@ -126,13 +126,15 @@ public class SettingsResource {
                 defaultDateFormat,
                 statusBarLocation.map(value -> normalizeStatusBarLocation(value.value(), defaultStatusBarLocation))
                         .orElse(defaultStatusBarLocation),
+                defaultWorkspaceColumnWidths(),
                 new UiSettings.Values(
                         defaultStatusVisible,
                         defaultScanPoll,
                         defaultSpinner,
                         defaultProgress,
                         defaultDateFormat,
-                        defaultStatusBarLocation),
+                        defaultStatusBarLocation,
+                        defaultWorkspaceColumnWidths()),
                 new UiSettings.Overrides(
                         statusVisible
                                 .map(value -> parseInt(
@@ -155,6 +157,25 @@ public class SettingsResource {
                                 .map(value -> !normalizeStatusBarLocation(value.value(), defaultStatusBarLocation)
                                         .equals(defaultStatusBarLocation))
                                 .orElse(false)));
+    }
+
+    private UiSettings.WorkspaceColumnWidths defaultWorkspaceColumnWidths() {
+        var defaults = config.ui().defaultWorkspaceColumnWidths();
+        return new UiSettings.WorkspaceColumnWidths(
+                new UiSettings.ArtistColumns(
+                        defaults.artist().name(),
+                        defaults.artist().actions()),
+                new UiSettings.AlbumColumns(
+                        defaults.album().name(),
+                        defaults.album().year(),
+                        defaults.album().checked(),
+                        defaults.album().actions()),
+                new UiSettings.TitleColumns(
+                        defaults.title().title(),
+                        defaults.title().artist(),
+                        defaults.title().year(),
+                        defaults.title().status(),
+                        defaults.title().actions()));
     }
 
     private int defaultStatusVisible() {

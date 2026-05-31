@@ -13,12 +13,16 @@ music root may differ between computers.
 - Serves a Vue 3 + Vuetify frontend from the Quarkus app.
 - Stores data in SQLite with Flyway migrations.
 - Default HTTP port is `8795`.
-- Supports configurable scan collections.
-- Supports collections based on disk folders, for example Power Metal,
-  Melodeath, Rock, Soundtracks, and Musicals.
-- Uses a three-pane Collections workspace: collections, artists, and albums.
-- Scans standard folders named `artist - year - album`.
-- Scans soundtrack/musical folders named `title (artist, year)`.
+- Supports configurable scan collections added from direct music-root folders.
+- Supports artist-centric collections, for example Power Metal, Melodeath, and
+  Rock.
+- Supports title-centric collections, for example Soundtracks.
+- Uses a type-aware Collections workspace:
+  - artist collections: collections, artists, albums
+  - title collections: collections, titles
+- Scans artist collections lazily by artist folders first; albums are loaded
+  only when an artist workflow needs them.
+- Parses title collections with a soundtrack-oriented folder-name pipeline.
 - Tracks one album listening flag: `checked=true` means listened.
 - Tracks disk presence separately from the listened flag.
 - Allows artists to be assigned to collections even before any local album folder exists.
@@ -261,6 +265,38 @@ between computers is the physical music root, supplied with:
 -Dmusic-library.music-root="<music-root>"
 ```
 
+### UI Defaults
+
+Runtime UI preferences are stored in SQLite. First-run defaults live in
+`application.properties`.
+
+Status/progress defaults:
+
+```properties
+music-library.ui.default-status-complete-visible-ms=10000
+music-library.ui.default-scan-poll-interval-ms=200
+music-library.ui.default-collection-scan-spinner-enabled=true
+music-library.ui.default-collection-scan-progress-enabled=true
+music-library.ui.default-status-history-date-format=yyyy-MM-dd HH:mm:ss.SSS
+music-library.ui.default-status-bar-location=top
+```
+
+Workspace column width defaults:
+
+```properties
+music-library.ui.default-workspace-column-widths.artist.name=280
+music-library.ui.default-workspace-column-widths.artist.actions=64
+music-library.ui.default-workspace-column-widths.album.name=360
+music-library.ui.default-workspace-column-widths.album.year=100
+music-library.ui.default-workspace-column-widths.album.checked=120
+music-library.ui.default-workspace-column-widths.album.actions=56
+music-library.ui.default-workspace-column-widths.title.title=460
+music-library.ui.default-workspace-column-widths.title.artist=220
+music-library.ui.default-workspace-column-widths.title.year=90
+music-library.ui.default-workspace-column-widths.title.status=120
+music-library.ui.default-workspace-column-widths.title.actions=64
+```
+
 The app accepts Windows-style paths such as `<drive>:/<path-to-music-root>` and
 resolves them to WSL mounts when running under WSL.
 
@@ -343,9 +379,13 @@ java '-Dquarkus.log.category."org.kroky.musiclib".level=TRACE' \
   -jar build/quarkus-app/quarkus-run.jar
 ```
 
-## Scan Collection Parsers
+## Collection Types And Parsers
 
-Standard music folders:
+New collections start as artist-centric. Change the collection type with the
+pencil action in the Collections pane.
+
+Artist-centric collections scan direct child folders and create artists only.
+The current flat parser expects:
 
 ```text
 artist - year - album
@@ -357,21 +397,35 @@ Example:
 Dark Tranquillity - 2007 - Fiction
 ```
 
-Soundtracks and musicals:
+Only the artist part is inserted during the collection scan. Album data is
+handled later by artist/provider/album workflows.
+
+Title-centric collections store one row per direct child folder and use these
+parser rules in order:
 
 ```text
 title (artist, year)
+title (year)
+title - year - subtitle
+title - year
+title
 ```
 
-Example:
+Examples:
 
 ```text
 The Fountain (Clint Mansell, 2006)
+Ahsoka - Vol. 1 (Episodes 1-4) (Kevin Kiner, 2023)
+Conan the Barbarian (2011)
+World of Warcraft - 2007 - The Burning Crusade
+Clash of the Titans
 ```
 
-The configured collection itself acts as the folder/genre bucket. For example,
-an album found under the Power Metal collection is stored with
-`collectionId=power-metal`.
+Parsed title metadata can be edited manually. Manual edits are marked as manual
+metadata and later scans update the seen/path state without overwriting the
+edited title, artist, or year.
+
+The configured collection itself acts as the folder/genre bucket.
 
 ## SQLite Usage
 
@@ -412,14 +466,21 @@ curl -X POST http://localhost:8795/api/albums \
   -d '{"artistId":1,"title":"Example Album","releaseYear":2026,"checked":true}'
 ```
 
-Scan all enabled collections:
+Start a scan job for all collections:
 
 ```bash
-curl -X POST http://localhost:8795/api/scan
+curl -X POST http://localhost:8795/api/scan/jobs
 ```
 
-Scan one collection:
+Start a scan job for one collection:
 
 ```bash
-curl -X POST 'http://localhost:8795/api/scan?collectionId=power-metal'
+curl -X POST 'http://localhost:8795/api/scan/jobs?collectionId=power-metal'
+```
+
+Poll or cancel the current scan job:
+
+```bash
+curl http://localhost:8795/api/scan/jobs/current
+curl -X POST http://localhost:8795/api/scan/jobs/current/cancel
 ```

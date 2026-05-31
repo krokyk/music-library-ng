@@ -5,9 +5,13 @@ import java.util.List;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.model.Artist;
+import org.kroky.musiclib.model.CollectionTitleItem;
+import org.kroky.musiclib.model.CollectionType;
 import org.kroky.musiclib.model.CollectionFolderCandidate;
 import org.kroky.musiclib.model.MusicCollection;
+import org.kroky.musiclib.model.ParserType;
 import org.kroky.musiclib.repository.ArtistRepository;
+import org.kroky.musiclib.repository.CollectionTitleItemRepository;
 import org.kroky.musiclib.repository.MusicCollectionRepository;
 
 import jakarta.inject.Inject;
@@ -31,6 +35,9 @@ public class MusicCollectionResource {
 
     @Inject
     ArtistRepository artists;
+
+    @Inject
+    CollectionTitleItemRepository titleItems;
 
     @GET
     public List<MusicCollection> list() {
@@ -62,14 +69,45 @@ public class MusicCollectionResource {
         return artists.list(null, id);
     }
 
+    @GET
+    @Path("/{id}/titles")
+    public List<CollectionTitleItem> titles(@PathParam("id") String id) {
+        LOG.infof("Listing title items for collection %s", id);
+        return titleItems.list(id);
+    }
+
+    @PUT
+    @Path("/{id}/titles/{titleItemId}")
+    public CollectionTitleItem updateTitle(
+            @PathParam("id") String id,
+            @PathParam("titleItemId") long titleItemId,
+            TitleItemRequest request) {
+        if (request == null || request.title() == null || request.title().isBlank()) {
+            throw new BadRequestException("title is required");
+        }
+        LOG.infof("Update title item request collection=%s id=%d title='%s'",
+                id, titleItemId, request.title());
+        return titleItems.updateManual(
+                id,
+                titleItemId,
+                request.title().trim(),
+                request.artistName(),
+                request.year()).orElseThrow(NotFoundException::new);
+    }
+
     @PUT
     @Path("/{id}")
     public MusicCollection update(@PathParam("id") String id, MusicCollectionRequest request) {
-        if (request == null || request.name() == null || request.name().isBlank()) {
-            throw new BadRequestException("name is required");
+        if (request == null || !request.hasUpdate()) {
+            throw new BadRequestException("name, type, or parser is required");
         }
-        LOG.infof("Update collection request id=%s name='%s'", id, request.name());
-        return collections.update(id, request.name().trim())
+        LOG.infof("Update collection request id=%s name='%s' type=%s parser=%s",
+                id, request.name(), request.type(), request.parser());
+        return collections.update(
+                id,
+                request.name() == null ? null : request.name().trim(),
+                parseCollectionType(request.type()),
+                parseParserType(request.parser()))
                 .orElseThrow(NotFoundException::new);
     }
 
@@ -81,6 +119,36 @@ public class MusicCollectionResource {
         return Response.noContent().build();
     }
 
-    public record MusicCollectionRequest(String name, String relativePath) {
+    private static CollectionType parseCollectionType(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return CollectionType.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Unknown collection type: " + value);
+        }
+    }
+
+    private static ParserType parseParserType(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return ParserType.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Unknown parser: " + value);
+        }
+    }
+
+    public record MusicCollectionRequest(String name, String relativePath, String type, String parser) {
+        boolean hasUpdate() {
+            return (name != null && !name.isBlank())
+                    || (type != null && !type.isBlank())
+                    || (parser != null && !parser.isBlank());
+        }
+    }
+
+    public record TitleItemRequest(String title, String artistName, Integer year) {
     }
 }

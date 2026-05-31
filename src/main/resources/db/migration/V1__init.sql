@@ -35,13 +35,15 @@ CREATE TABLE collections (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     relative_path TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'ARTIST',
     parser TEXT NOT NULL,
     last_scan_at TEXT,
     last_scan_status TEXT,
     last_scan_message TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (relative_path)
+    UNIQUE (relative_path),
+    CHECK (type IN ('ARTIST', 'TITLE'))
 );
 
 CREATE TABLE artist_collections (
@@ -71,6 +73,35 @@ CREATE TABLE album_local_paths (
 CREATE INDEX idx_album_local_paths_album ON album_local_paths(album_id);
 CREATE INDEX idx_album_local_paths_collection ON album_local_paths(collection_id);
 CREATE INDEX idx_album_local_paths_missing ON album_local_paths(missing_since);
+
+CREATE TABLE collection_title_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    collection_id TEXT NOT NULL,
+    raw_folder_name TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    title TEXT NOT NULL,
+    normalized_title TEXT NOT NULL,
+    artist_name TEXT,
+    normalized_artist_name TEXT,
+    year INTEGER,
+    metadata_source TEXT NOT NULL DEFAULT 'AUTO',
+    parse_status TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    missing_since TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
+    UNIQUE (collection_id, relative_path),
+    CHECK (metadata_source IN ('AUTO', 'MANUAL')),
+    CHECK (parse_status IN ('EXACT', 'PARTIAL', 'TITLE_ONLY', 'MANUAL'))
+);
+
+CREATE INDEX idx_collection_title_items_collection ON collection_title_items(collection_id);
+CREATE INDEX idx_collection_title_items_title ON collection_title_items(normalized_title);
+CREATE INDEX idx_collection_title_items_artist ON collection_title_items(normalized_artist_name);
+CREATE INDEX idx_collection_title_items_year ON collection_title_items(year);
+CREATE INDEX idx_collection_title_items_missing ON collection_title_items(missing_since);
 
 CREATE TABLE user_preferences (
     key TEXT PRIMARY KEY,

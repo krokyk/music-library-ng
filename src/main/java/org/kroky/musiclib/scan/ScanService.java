@@ -8,10 +8,12 @@ import java.util.List;
 import java.util.Set;
 
 import org.kroky.musiclib.db.Names;
+import org.kroky.musiclib.model.CollectionType;
 import org.kroky.musiclib.model.MusicCollection;
 import org.kroky.musiclib.model.ScanSummary;
 import org.kroky.musiclib.model.UpsertResult;
 import org.kroky.musiclib.repository.ArtistRepository;
+import org.kroky.musiclib.repository.CollectionTitleItemRepository;
 import org.kroky.musiclib.repository.ScanRunRepository;
 import org.kroky.musiclib.repository.MusicCollectionRepository;
 
@@ -30,6 +32,9 @@ public class ScanService {
 
     @Inject
     ArtistRepository artistRepository;
+
+    @Inject
+    CollectionTitleItemRepository titleItemRepository;
 
     @Inject
     ScanRunRepository scanRunRepository;
@@ -104,6 +109,44 @@ public class ScanService {
             progress.collectionStarted(collection.id(), folders.size());
 
             int processedFolders = 0;
+            if (collection.type() == CollectionType.TITLE) {
+                Set<String> seenPaths = new HashSet<>();
+                for (Path folder : folders) {
+                    if (progress.isCancelled()) {
+                        String message = "Scan cancelled for " + collection.name() + ".";
+                        messages.add(message);
+                        scanRunRepository.event(runId, "INFO", message);
+                        scanRunRepository.finish(runId, "SKIPPED", parsed, created, updated, missing, skipped, message);
+                        collectionRepository.markScanned(collection.id(), "SKIPPED", message);
+                        return new ScanSummary(runId, collection.id(), "SKIPPED", parsed, created, updated, missing,
+                                skipped, messages);
+                    }
+
+                    var parsedTitle = parser.parseTitleItem(folder, collection.id());
+                    seenPaths.add(folder.getFileName().toString());
+                    parsed++;
+                    UpsertResult result = titleItemRepository.upsertParsed(parsedTitle);
+                    if (result.created()) {
+                        created++;
+                    } else {
+                        existing++;
+                    }
+                    processedFolders++;
+                    progress.itemProcessed(collection.id(), processedFolders);
+                }
+
+                missing = titleItemRepository.markMissingPaths(collection.id(), seenPaths);
+                String message = "Scanned " + collection.name() + ": " + parsed + " titles, " + created
+                        + " created, " + existing + " existing, " + missing + " missing.";
+                messages.add(message);
+                scanRunRepository.event(runId, "INFO", message);
+                scanRunRepository.finish(runId, "DONE", parsed, created, updated, missing, skipped, message);
+                collectionRepository.markScanned(collection.id(), "DONE", message);
+                LOG.info(message);
+                return new ScanSummary(runId, collection.id(), "DONE", parsed, created, updated, missing, skipped,
+                        messages);
+            }
+
             for (Path folder : folders) {
                 if (progress.isCancelled()) {
                     String message = "Scan cancelled for " + collection.name() + ".";
