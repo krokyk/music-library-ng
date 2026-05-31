@@ -137,42 +137,6 @@ http://localhost:8795/
 
 Port `5173` is Vite dev server only.
 
-## Commit Message Guidance
-
-Commit messages should be brief but complete enough to explain what changed.
-
-Use this shape:
-
-```text
-Short imperative summary
-
-- Changed user-visible behavior A
-- Added backend/API/storage support B
-- Updated docs/config/dev tooling C
-- Verified with <command>
-```
-
-Rules:
-
-- Mention all meaningful areas touched: backend, frontend, DB, config, docs, tooling.
-- Do not list every file.
-- Do not include implementation trivia unless it affects behavior or future maintenance.
-- Mention tests or builds run.
-- If something was intentionally not tested, say so.
-- Keep bullets concise.
-
-Example:
-
-```text
-Refine collection scanning and settings UI
-
-- Scan collections lazily by artist folders only
-- Add runtime UI preferences with application.properties defaults
-- Rework settings into a compact pane layout
-- Document native Windows build and dev shell commands
-- Verified with npm run build --prefix frontend and ./gradlew test
-```
-
 ## Review Checklist
 
 Before finishing a change:
