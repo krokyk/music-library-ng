@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 import type { Album, Artist, CollectionFolderCandidate, CollectionTitleItem, MusicCollection } from '@/types'
+import type { CSSProperties } from 'vue'
 
 interface ArtistForm {
   id: number | null
@@ -66,14 +67,12 @@ const titleItemForm = reactive({
 
 const artistColumnWidths = reactive({
   name: 280,
-  actions: 64,
 })
 
 const albumColumnWidths = reactive({
   name: 360,
   year: 100,
   checked: 120,
-  actions: 56,
 })
 
 const titleColumnWidths = reactive({
@@ -81,7 +80,6 @@ const titleColumnWidths = reactive({
   artist: 220,
   year: 90,
   status: 120,
-  actions: 64,
 })
 
 const columnWidthSaveTimers = new Map<string, number>()
@@ -241,15 +239,23 @@ function paneStyle(index: number) {
   const resizerWidth = 20
   const resizerShare = (resizerWidth * panePercents.value[index]) / 100
   return {
+    display: 'flex',
     flex: `0 0 calc(${panePercents.value[index]}% - ${resizerShare}px)`,
-  }
+    flexDirection: 'column',
+    minWidth: '0',
+    overflow: index === 0 ? 'visible' : 'hidden',
+  } satisfies CSSProperties
 }
 
 function titlePaneStyle() {
   const titlePercent = panePercents.value[1] + panePercents.value[2]
   return {
+    display: 'flex',
     flex: `1 1 calc(${titlePercent}% - 10px)`,
-  }
+    flexDirection: 'column',
+    minWidth: '0',
+    overflow: 'hidden',
+  } satisfies CSSProperties
 }
 
 function startPaneResize(index: number, event: PointerEvent) {
@@ -401,8 +407,10 @@ function columnWidthState(table: keyof typeof columnWidthPreferenceKeys) {
 
 function columnGridStyle(table: keyof typeof columnWidthPreferenceKeys) {
   const widths = columnWidthState(table)
+  const dataWidth = Object.values(widths).reduce((sum, width) => sum + width, 0)
   return {
-    '--workspace-grid-columns': Object.values(widths).map((width) => `${width}px`).join(' '),
+    '--workspace-grid-columns': `${Object.values(widths).map((width) => `${width}px`).join(' ')} minmax(76px, 1fr)`,
+    '--workspace-grid-min-width': `${dataWidth + 76}px`,
   }
 }
 
@@ -464,7 +472,6 @@ function measureColumnText(cells: HTMLElement[]) {
 }
 
 function columnAutosizePadding(table: keyof typeof columnWidthPreferenceKeys, key: string) {
-  if (key === 'actions') return 16
   if (table === 'title' && key === 'status') return 44
   if (table === 'album' && key === 'checked') return 34
   return 42
@@ -488,7 +495,6 @@ function saveColumnWidths(table: keyof typeof columnWidthPreferenceKeys) {
 }
 
 function columnMinimumWidth(table: keyof typeof columnWidthPreferenceKeys, key: string) {
-  if (key === 'actions') return 56
   if (table === 'title' && key === 'title') return 220
   if (table === 'album' && key === 'name') return 180
   if (key === 'year') return 70
@@ -900,13 +906,6 @@ onBeforeUnmount(() => {
                     @dblclick="autosizeColumn('title', 'status', $event)"
                   ></span>
               </div>
-              <div class="workspace-grid__cell workspace-grid__header-cell" data-column="title.actions">
-                  <span
-                    class="column-resize-handle"
-                    @pointerdown="startColumnResize('title', 'actions', $event)"
-                    @dblclick="autosizeColumn('title', 'actions', $event)"
-                  ></span>
-              </div>
             </div>
             <div v-for="item in collectionTitleItems" :key="item.id" class="workspace-grid__row workspace-row">
                 <div data-column="title.title" class="workspace-grid__cell truncate-cell">
@@ -919,7 +918,7 @@ onBeforeUnmount(() => {
                     {{ item.parseStatus.toLowerCase().replace('_', ' ') }}
                   </v-chip>
                 </div>
-                <div data-column="title.actions" class="workspace-grid__cell row-action-cell">
+                <div class="workspace-grid__cell row-action-cell">
                   <div class="row-actions">
                     <v-tooltip text="Edit title metadata" location="top">
                       <template #activator="{ props }">
@@ -981,7 +980,7 @@ onBeforeUnmount(() => {
                   </v-chip>
                 </div>
               </div>
-              <div data-column="artist.actions" class="workspace-grid__cell row-action-cell">
+              <div class="workspace-grid__cell row-action-cell">
                 <div class="row-actions">
                   <v-tooltip text="Edit artist" location="top">
                     <template #activator="{ props }">
@@ -1047,13 +1046,6 @@ onBeforeUnmount(() => {
                   @dblclick="autosizeColumn('album', 'checked', $event)"
                 ></span>
             </div>
-            <div class="workspace-grid__cell workspace-grid__header-cell" data-column="album.actions">
-                <span
-                  class="column-resize-handle"
-                  @pointerdown="startColumnResize('album', 'actions', $event)"
-                  @dblclick="autosizeColumn('album', 'actions', $event)"
-                ></span>
-            </div>
           </div>
           <div v-for="album in collectionAlbums" :key="album.id" class="workspace-grid__row workspace-row">
               <div data-column="album.name" class="workspace-grid__cell truncate-cell">
@@ -1082,7 +1074,7 @@ onBeforeUnmount(() => {
                   @update:model-value="(value) => updateAlbumChecked(album, Boolean(value))"
                 ></v-checkbox>
               </div>
-              <div data-column="album.actions" class="workspace-grid__cell row-action-cell">
+              <div class="workspace-grid__cell row-action-cell">
                 <div class="row-actions">
                   <v-tooltip text="Delete album" location="top">
                     <template #activator="{ props }">

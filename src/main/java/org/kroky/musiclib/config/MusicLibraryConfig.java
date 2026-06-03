@@ -71,9 +71,6 @@ public interface MusicLibraryConfig {
     interface ArtistColumns {
         @WithDefault("280")
         int name();
-
-        @WithDefault("64")
-        int actions();
     }
 
     interface AlbumColumns {
@@ -85,9 +82,6 @@ public interface MusicLibraryConfig {
 
         @WithDefault("120")
         int checked();
-
-        @WithDefault("56")
-        int actions();
     }
 
     interface TitleColumns {
@@ -102,8 +96,5 @@ public interface MusicLibraryConfig {
 
         @WithDefault("120")
         int status();
-
-        @WithDefault("64")
-        int actions();
     }
 }

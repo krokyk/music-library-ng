@@ -140,20 +140,17 @@ export interface UiSettings extends UiSettingsValues {
 export interface WorkspaceColumnWidths {
   artist: {
     name: number
-    actions: number
   }
   album: {
     name: number
     year: number
     checked: number
-    actions: number
   }
   title: {
     title: number
     artist: number
     year: number
     status: number
-    actions: number
   }
 }
 

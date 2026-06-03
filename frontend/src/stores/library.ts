@@ -71,20 +71,17 @@ function withQuery(path: string, params: Record<string, string | number | boolea
 const defaultWorkspaceColumnDefaults = {
   artist: {
     name: 280,
-    actions: 64,
   },
   album: {
     name: 360,
     year: 100,
     checked: 120,
-    actions: 56,
   },
   title: {
     title: 460,
     artist: 220,
     year: 90,
     status: 120,
-    actions: 64,
   },
 }
 

@@ -37,22 +37,19 @@ public record UiSettings(
     }
 
     public record ArtistColumns(
-            int name,
-            int actions) {
+            int name) {
     }
 
     public record AlbumColumns(
             int name,
             int year,
-            int checked,
-            int actions) {
+            int checked) {
     }
 
     public record TitleColumns(
             int title,
             int artist,
             int year,
-            int status,
-            int actions) {
+            int status) {
     }
 }

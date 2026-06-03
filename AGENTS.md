@@ -137,6 +137,54 @@ http://localhost:8795/
 
 Port `5173` is Vite dev server only.
 
+## UI Layout Smoke Check
+
+Use `scripts/check-ui-layout.ps1` when changing pane layout, grid layout,
+scrolling, sticky headers, column resizing, status-bar placement, or anything
+that can affect whether the app fits in the browser viewport.
+
+Run it after building and starting either the packaged app or dev app. From WSL,
+prefer the packaged app for final verification:
+
+```bash
+./gradlew build
+java -jar build/quarkus-app/quarkus-run.jar
+```
+
+In another WSL shell, run the smoke check through Windows PowerShell:
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File "$(wslpath -w scripts/check-ui-layout.ps1)" \
+  -AppUrl "http://localhost:8795/"
+```
+
+If Windows cannot reach the WSL app through `localhost`, pass the WSL IP:
+
+```bash
+APP_HOST="$(hostname -I | awk '{print $1}')"
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File "$(wslpath -w scripts/check-ui-layout.ps1)" \
+  -AppUrl "http://${APP_HOST}:8795/"
+```
+
+The script opens headless Chrome or Edge through CDP, disables browser cache,
+selects the configured artist and title collections, captures screenshots, and
+prints DOM metrics for pane heights, scroll heights, row counts, and document
+height.
+
+Treat this check as failed if:
+
+- `document.documentScrollHeight` is greater than `document.documentClientHeight`.
+- `.collection-list`, `.artists-pane .workspace-grid`, or `.titles-pane .workspace-grid` has a near-zero height when content is present.
+- Expected collection rows, artist rows, or title rows are missing while the API/DB has data.
+- Screenshots show clipped pane bottoms, tiny scrollbars, ghost columns, or headers scrolling away.
+
+The script writes screenshots to the Windows temp directory by default. Use
+`-OutputDir` to choose another location, `-ArtistCollection` or
+`-TitleCollection` if the test DB uses different collection names, and
+`-KeepChromeOpen` only while debugging.
+
 ## Review Checklist
 
 Before finishing a change:
@@ -145,6 +193,7 @@ Before finishing a change:
 - Does the app still build?
 - Are browser scrollbars avoided at the app level?
 - Are panes/dialogs/dropdowns scrollable when content overflows?
+- For pane/grid/scroll changes, did you run `scripts/check-ui-layout.ps1` or clearly explain why it was not possible?
 - Are runtime preferences stored in the right place?
 - Are docs updated if setup, config, or workflow changed?
 - Is the commit-message summary accurate for the whole diff?

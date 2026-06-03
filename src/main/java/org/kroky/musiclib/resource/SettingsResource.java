@@ -163,19 +163,16 @@ public class SettingsResource {
         var defaults = config.ui().defaultWorkspaceColumnWidths();
         return new UiSettings.WorkspaceColumnWidths(
                 new UiSettings.ArtistColumns(
-                        defaults.artist().name(),
-                        defaults.artist().actions()),
+                        defaults.artist().name()),
                 new UiSettings.AlbumColumns(
                         defaults.album().name(),
                         defaults.album().year(),
-                        defaults.album().checked(),
-                        defaults.album().actions()),
+                        defaults.album().checked()),
                 new UiSettings.TitleColumns(
                         defaults.title().title(),
                         defaults.title().artist(),
                         defaults.title().year(),
-                        defaults.title().status(),
-                        defaults.title().actions()));
+                        defaults.title().status()));
     }
 
     private int defaultStatusVisible() {

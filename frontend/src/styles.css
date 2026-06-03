@@ -93,6 +93,8 @@ body,
 
 .app-main {
   background: #080808;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
 }
@@ -498,21 +500,28 @@ body,
 }
 
 .collections-workspace {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: calc(var(--app-vh) - 98px);
   max-width: none;
+  overflow: hidden;
 }
 
 .three-pane {
   display: flex;
-  height: calc(var(--app-vh) - 142px);
+  flex: 1 1 0;
+  height: auto;
   min-height: 0;
   overflow: hidden;
 }
 
-.pane {
+.pane,
+.v-sheet.pane {
   background: #141414;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  display: flex;
+  display: flex !important;
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
@@ -718,13 +727,28 @@ body,
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
   --workspace-grid-columns: 1fr;
+  --workspace-grid-min-width: 100%;
 }
 
 .workspace-grid__row {
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: var(--workspace-grid-columns);
-  min-width: max-content;
+  min-width: var(--workspace-grid-min-width);
+  position: relative;
+  width: 100%;
+}
+
+.workspace-grid__row::after {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  bottom: 0;
+  content: "";
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
 }
 
 .workspace-grid__header {
@@ -734,9 +758,12 @@ body,
   z-index: 4;
 }
 
+.workspace-grid__header::after {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
 .workspace-grid__cell {
   align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   height: 42px;
   min-width: 0;
@@ -746,7 +773,6 @@ body,
 
 .workspace-grid__header-cell {
   background: #101010;
-  border-bottom-color: rgba(255, 255, 255, 0.1);
   color: rgba(255, 255, 255, 0.58);
   font-size: 0.72rem;
   font-weight: 800;
@@ -757,11 +783,11 @@ body,
   white-space: nowrap;
 }
 
-.workspace-grid__row:hover .workspace-grid__cell {
+.workspace-row:hover {
   background: rgba(255, 255, 255, 0.035);
 }
 
-.workspace-grid__header:hover .workspace-grid__cell {
+.workspace-grid__header:hover {
   background: #101010;
 }
 
@@ -808,7 +834,7 @@ body.is-column-resizing {
   cursor: pointer;
 }
 
-.workspace-row.is-selected > .workspace-grid__cell {
+.workspace-row.is-selected {
   background: rgba(0, 213, 255, 0.1);
 }
 
@@ -828,7 +854,14 @@ body.is-column-resizing {
 }
 
 .row-action-cell {
+  bottom: 0;
+  justify-content: flex-end;
+  padding: 0 8px;
+  position: absolute;
+  right: 0;
+  top: 0;
   width: 76px;
+  z-index: 2;
 }
 
 .truncate-cell {
@@ -843,12 +876,14 @@ body.is-column-resizing {
   gap: 2px;
   justify-content: flex-end;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 120ms ease;
 }
 
 .workspace-row:hover .row-actions,
 .row-actions:focus-within {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .pane-empty {
