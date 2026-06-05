@@ -58,13 +58,13 @@ public class ScanJobService {
         try {
             ScanService.ProgressListener progress = new ScanService.ProgressListener() {
                 @Override
-                public void collectionStarted(String collectionId, int artistTotal) {
-                    job.collectionStarted(collectionId, artistTotal);
+                public void collectionStarted(String collectionId, int itemTotal) {
+                    job.collectionStarted(collectionId, itemTotal);
                 }
 
                 @Override
-                public void itemProcessed(String collectionId, int itemProcessed) {
-                    job.itemProcessed(collectionId, itemProcessed);
+                public void itemProcessed(String collectionId, int processedItems) {
+                    job.itemProcessed(collectionId, processedItems);
                 }
 
                 @Override

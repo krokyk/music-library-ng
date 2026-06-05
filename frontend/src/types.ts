@@ -28,10 +28,9 @@ export interface AlbumLocalPath {
 
 export interface Album {
   id: number
-  artistId: number
+  artistIds: number[]
   artistName: string
   title: string
-  releaseYear?: number | null
   releaseDate?: string | null
   checked: boolean
   hasLocalPath: boolean
@@ -62,8 +61,9 @@ export interface CollectionTitleItem {
   relativePath: string
   title: string
   artistName?: string | null
-  year?: number | null
-  metadataSource: 'AUTO' | 'MANUAL'
+  releaseDate?: string | null
+  sortName: string
+  sortNameSource: 'AUTO' | 'MANUAL'
   parseStatus: 'EXACT' | 'PARTIAL' | 'TITLE_ONLY' | 'MANUAL'
   firstSeenAt: string
   lastSeenAt: string
@@ -113,8 +113,8 @@ export interface ScanJobStatus {
   status: string
   requestedCollectionId?: string | null
   activeCollectionId?: string | null
-  artistTotal: number
-  artistProcessed: number
+  itemTotal: number
+  itemProcessed: number
   parsedCount: number
   createdCount: number
   skippedCount: number
@@ -128,6 +128,7 @@ export interface UiSettingsValues {
   collectionScanSpinnerEnabled: boolean
   collectionScanProgressEnabled: boolean
   statusHistoryDateFormat: string
+  releaseDateDisplayFormat: string
   statusBarLocation: 'top' | 'bottom'
   workspaceColumnDefaults: WorkspaceColumnWidths
 }
@@ -143,13 +144,13 @@ export interface WorkspaceColumnWidths {
   }
   album: {
     name: number
-    year: number
+    releaseDate: number
     checked: number
   }
   title: {
     title: number
     artist: number
-    year: number
+    releaseDate: number
     status: number
   }
 }

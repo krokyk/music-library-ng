@@ -6,7 +6,8 @@ public record ParsedTitleItem(
         String rawFolderName,
         String title,
         String artistName,
-        Integer year,
+        String releaseDate,
+        String sortName,
         Path relativePath,
         String collectionId,
         ParseStatus parseStatus) {

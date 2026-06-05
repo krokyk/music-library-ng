@@ -29,7 +29,7 @@ const scanEntityName = computed(() => (scanCollectionType.value === 'TITLE' ? 't
 
 const activeStatusMessage = computed(() => {
   if (scanJob.value?.status === 'RUNNING') {
-    return `Scanning collection ${scanCollectionName.value}: ${scanJob.value.artistProcessed}/${scanJob.value.artistTotal} dirs scanned`
+    return `Scanning collection ${scanCollectionName.value}: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} dirs scanned`
   }
   if (providerStatus.value.running && providerStatus.value.message) {
     return providerStatus.value.message
@@ -124,7 +124,7 @@ watch(
       const elapsed = formatElapsed(scanStartedAt.value)
       scanStartedAt.value = null
       if (status === 'DONE') {
-        const message = `${scanCollectionName.value} scan complete: ${scanJob.value.artistProcessed}/${scanJob.value.artistTotal} dirs scanned, ${scanJob.value.parsedCount} ${scanEntityName.value}, ${scanJob.value.createdCount} new`
+        const message = `${scanCollectionName.value} scan complete: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} dirs scanned, ${scanJob.value.parsedCount} ${scanEntityName.value}, ${scanJob.value.createdCount} new`
         completeStatus(
           message,
           'done',

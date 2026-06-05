@@ -1,15 +1,18 @@
 package org.kroky.musiclib.resource;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.jboss.logging.Logger;
+import org.kroky.musiclib.db.ArtistNames;
 import org.kroky.musiclib.model.Artist;
 import org.kroky.musiclib.model.CollectionTitleItem;
 import org.kroky.musiclib.model.CollectionType;
 import org.kroky.musiclib.model.CollectionFolderCandidate;
 import org.kroky.musiclib.model.MusicCollection;
 import org.kroky.musiclib.model.ParserType;
+import org.kroky.musiclib.repository.AlbumRepository;
 import org.kroky.musiclib.repository.ArtistRepository;
 import org.kroky.musiclib.repository.CollectionTitleItemRepository;
 import org.kroky.musiclib.repository.MusicCollectionRepository;
@@ -38,6 +41,9 @@ public class MusicCollectionResource {
 
     @Inject
     CollectionTitleItemRepository titleItems;
+
+    @Inject
+    AlbumRepository albums;
 
     @GET
     public List<MusicCollection> list() {
@@ -87,12 +93,31 @@ public class MusicCollectionResource {
         }
         LOG.infof("Update title item request collection=%s id=%d title='%s'",
                 id, titleItemId, request.title());
-        return titleItems.updateManual(
-                id,
-                titleItemId,
-                request.title().trim(),
-                request.artistName(),
-                request.year()).orElseThrow(NotFoundException::new);
+        try {
+            CollectionTitleItem updated = titleItems.updateManual(
+                    id,
+                    titleItemId,
+                    request.title().trim(),
+                    request.artistName(),
+                    request.releaseDate(),
+                    request.sortName()).orElseThrow(NotFoundException::new);
+            populateArtistAlbum(id, updated);
+            return updated;
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException(e.getMessage());
+        }
+    }
+
+    private void populateArtistAlbum(String collectionId, CollectionTitleItem item) {
+        List<Long> artistIds = new ArrayList<>();
+        for (String artistName : ArtistNames.splitList(item.artistName())) {
+            var artist = artists.upsertByName(artistName);
+            artists.assignToCollection(artist.id(), collectionId);
+            artistIds.add(artist.id());
+        }
+        if (!artistIds.isEmpty()) {
+            albums.upsertScanned(artistIds, item.title(), item.releaseDate(), item.relativePath(), collectionId);
+        }
     }
 
     @PUT
@@ -149,6 +174,10 @@ public class MusicCollectionResource {
         }
     }
 
-    public record TitleItemRequest(String title, String artistName, Integer year) {
+    public record TitleItemRequest(
+            String title,
+            String artistName,
+            String releaseDate,
+            String sortName) {
     }
 }

@@ -6,26 +6,29 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.kroky.musiclib.db.Names;
+import org.kroky.musiclib.db.TitleSortNames;
 import org.kroky.musiclib.model.ParseStatus;
 import org.kroky.musiclib.model.ParsedAlbum;
 import org.kroky.musiclib.model.ParsedTitleItem;
 import org.kroky.musiclib.model.ParserType;
+import org.kroky.musiclib.model.ReleaseDates;
 
 import jakarta.enterprise.context.ApplicationScoped;
 
 @ApplicationScoped
 public class FolderNameParser {
 
+    private static final String RELEASE_DATE = "\\d{4}(?:-\\d{2}(?:-\\d{2})?)?";
     private static final Pattern ARTIST_YEAR_ALBUM =
-            Pattern.compile("^(.+?)\\s+-\\s+(\\d{4})\\s+-\\s+(.+)$");
+            Pattern.compile("^(.+?)\\s+-\\s+(" + RELEASE_DATE + ")\\s+-\\s+(.+)$");
     private static final Pattern TITLE_FINAL_ARTIST_YEAR =
-            Pattern.compile("^(.+)\\s+\\(([^()]+),\\s*(\\d{4})\\)$");
+            Pattern.compile("^(.+)\\s+\\(([^()]+),\\s*(" + RELEASE_DATE + ")\\)$");
     private static final Pattern TITLE_FINAL_YEAR =
-            Pattern.compile("^(.+)\\s+\\((\\d{4})\\)$");
+            Pattern.compile("^(.+)\\s+\\((" + RELEASE_DATE + ")\\)$");
     private static final Pattern TITLE_DASH_YEAR_SUBTITLE =
-            Pattern.compile("^(.+?)\\s+-\\s+(\\d{4})\\s+-\\s+(.+)$");
+            Pattern.compile("^(.+?)\\s+-\\s+(" + RELEASE_DATE + ")\\s+-\\s+(.+)$");
     private static final Pattern TITLE_DASH_YEAR =
-            Pattern.compile("^(.+?)\\s+-\\s+(\\d{4})$");
+            Pattern.compile("^(.+?)\\s+-\\s+(" + RELEASE_DATE + ")$");
 
     public Optional<ParsedAlbum> parse(Path folder, ParserType parserType, String collectionId) {
         String name = folder.getFileName().toString().trim();
@@ -40,11 +43,14 @@ public class FolderNameParser {
 
         Matcher artistYear = TITLE_FINAL_ARTIST_YEAR.matcher(name);
         if (artistYear.matches()) {
+            String title = clean(artistYear.group(1));
+            String releaseDate = clean(artistYear.group(3));
             return new ParsedTitleItem(
                     name,
-                    clean(artistYear.group(1)),
+                    title,
                     Names.chicagoStyle(clean(artistYear.group(2))),
-                    Integer.parseInt(artistYear.group(3)),
+                    releaseDate,
+                    TitleSortNames.create(title, releaseDate),
                     folder,
                     collectionId,
                     ParseStatus.EXACT);
@@ -52,11 +58,14 @@ public class FolderNameParser {
 
         Matcher finalYear = TITLE_FINAL_YEAR.matcher(name);
         if (finalYear.matches()) {
+            String title = clean(finalYear.group(1));
+            String releaseDate = clean(finalYear.group(2));
             return new ParsedTitleItem(
                     name,
-                    clean(finalYear.group(1)),
+                    title,
                     null,
-                    Integer.parseInt(finalYear.group(2)),
+                    releaseDate,
+                    TitleSortNames.create(title, releaseDate),
                     folder,
                     collectionId,
                     ParseStatus.PARTIAL);
@@ -64,11 +73,16 @@ public class FolderNameParser {
 
         Matcher dashYearSubtitle = TITLE_DASH_YEAR_SUBTITLE.matcher(name);
         if (dashYearSubtitle.matches()) {
+            String baseTitle = clean(dashYearSubtitle.group(1));
+            String releaseDate = clean(dashYearSubtitle.group(2));
+            String subtitle = clean(dashYearSubtitle.group(3));
+            String title = baseTitle + " - " + subtitle;
             return new ParsedTitleItem(
                     name,
-                    clean(dashYearSubtitle.group(1)) + " - " + clean(dashYearSubtitle.group(3)),
+                    title,
                     null,
-                    Integer.parseInt(dashYearSubtitle.group(2)),
+                    releaseDate,
+                    TitleSortNames.create(baseTitle, releaseDate, subtitle),
                     folder,
                     collectionId,
                     ParseStatus.PARTIAL);
@@ -76,11 +90,14 @@ public class FolderNameParser {
 
         Matcher dashYear = TITLE_DASH_YEAR.matcher(name);
         if (dashYear.matches()) {
+            String title = clean(dashYear.group(1));
+            String releaseDate = clean(dashYear.group(2));
             return new ParsedTitleItem(
                     name,
-                    clean(dashYear.group(1)),
+                    title,
                     null,
-                    Integer.parseInt(dashYear.group(2)),
+                    releaseDate,
+                    TitleSortNames.create(title, releaseDate),
                     folder,
                     collectionId,
                     ParseStatus.PARTIAL);
@@ -91,6 +108,7 @@ public class FolderNameParser {
                 name,
                 null,
                 null,
+                TitleSortNames.create(name, null),
                 folder,
                 collectionId,
                 ParseStatus.TITLE_ONLY);
@@ -104,7 +122,7 @@ public class FolderNameParser {
         return Optional.of(new ParsedAlbum(
                 Names.chicagoStyle(clean(matcher.group(1))),
                 clean(matcher.group(3)),
-                Integer.parseInt(matcher.group(2)),
+                ReleaseDates.normalize(matcher.group(2)),
                 folder,
                 collectionId));
     }
@@ -112,4 +130,5 @@ public class FolderNameParser {
     private static String clean(String value) {
         return value.trim().replaceAll("\\s+", " ");
     }
+
 }

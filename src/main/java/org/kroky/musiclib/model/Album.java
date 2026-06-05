@@ -4,10 +4,9 @@ import java.util.List;
 
 public record Album(
         long id,
-        long artistId,
+        List<Long> artistIds,
         String artistName,
         String title,
-        Integer releaseYear,
         String releaseDate,
         boolean checked,
         boolean hasLocalPath,

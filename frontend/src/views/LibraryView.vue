@@ -10,7 +10,7 @@ const { artists, albums, loading, error } = storeToRefs(store)
 const artistName = ref('')
 const albumArtistId = ref<number | null>(null)
 const albumTitle = ref('')
-const albumYear = ref<number | null>(null)
+const albumReleaseDate = ref('')
 const albumChecked = ref(true)
 const localFilter = ref<'all' | 'local' | 'not-local'>('all')
 const checkedFilter = ref<'all' | 'checked' | 'unchecked'>('all')
@@ -43,7 +43,7 @@ const filteredAlbums = computed(() => {
     })
     .filter((album) => {
       if (!needle) return true
-      return `${album.artistName} ${album.title} ${album.releaseYear ?? ''} ${album.localPaths.map((path) => path.collectionName).join(' ')}`
+      return `${album.artistName} ${album.title} ${album.releaseDate ?? ''} ${album.localPaths.map((path) => path.collectionName).join(' ')}`
         .toLowerCase()
         .includes(needle)
     })
@@ -78,14 +78,23 @@ async function addAlbum() {
   if (!albumArtistId.value || !albumTitle.value.trim()) {
     return
   }
-  await store.addAlbum(albumArtistId.value, albumTitle.value.trim(), albumYear.value, albumChecked.value)
+  await store.addAlbum(albumArtistId.value, albumTitle.value.trim(), albumReleaseDate.value.trim() || null, albumChecked.value)
   albumTitle.value = ''
-  albumYear.value = null
+  albumReleaseDate.value = ''
   albumChecked.value = true
 }
 
 async function updateAlbum(album: Album, patch: Partial<Album>) {
   await store.updateAlbum({ ...album, ...patch })
+}
+
+function albumReleaseDateValue(album: Album) {
+  return album.releaseDate ?? ''
+}
+
+function normalizeReleaseDateInput(value: unknown) {
+  const text = value == null ? '' : String(value).trim()
+  return text || null
 }
 
 onMounted(() => store.loadAll())
@@ -141,7 +150,7 @@ onMounted(() => store.loadAll())
               <v-text-field v-model="albumTitle" density="compact" label="Album" hide-details></v-text-field>
             </v-col>
             <v-col cols="6" md="2">
-              <v-text-field v-model.number="albumYear" type="number" density="compact" label="Year" hide-details></v-text-field>
+              <v-text-field v-model="albumReleaseDate" density="compact" label="Release date" hide-details></v-text-field>
             </v-col>
             <v-col cols="6" md="2">
               <v-checkbox v-model="albumChecked" density="compact" label="Listened" hide-details></v-checkbox>
@@ -185,7 +194,7 @@ onMounted(() => store.loadAll())
           <tr>
             <th>Artist</th>
             <th>Album</th>
-            <th>Year</th>
+            <th>Release date</th>
             <th>Listened</th>
             <th>Local</th>
             <th>Path</th>
@@ -197,11 +206,10 @@ onMounted(() => store.loadAll())
             <td>{{ album.title }}</td>
             <td style="width: 120px">
               <v-text-field
-                :model-value="album.releaseYear"
-                type="number"
+                :model-value="albumReleaseDateValue(album)"
                 density="compact"
                 hide-details
-                @update:model-value="(value) => updateAlbum(album, { releaseYear: Number(value) || null })"
+                @update:model-value="(value) => updateAlbum(album, { releaseDate: normalizeReleaseDateInput(value) })"
               ></v-text-field>
             </td>
             <td style="width: 112px">

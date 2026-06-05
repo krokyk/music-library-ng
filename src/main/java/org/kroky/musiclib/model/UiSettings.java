@@ -6,6 +6,7 @@ public record UiSettings(
         boolean collectionScanSpinnerEnabled,
         boolean collectionScanProgressEnabled,
         String statusHistoryDateFormat,
+        String releaseDateDisplayFormat,
         String statusBarLocation,
         WorkspaceColumnWidths workspaceColumnDefaults,
         Values defaults,
@@ -17,6 +18,7 @@ public record UiSettings(
             boolean collectionScanSpinnerEnabled,
             boolean collectionScanProgressEnabled,
             String statusHistoryDateFormat,
+            String releaseDateDisplayFormat,
             String statusBarLocation,
             WorkspaceColumnWidths workspaceColumnDefaults) {
     }
@@ -27,6 +29,7 @@ public record UiSettings(
             boolean collectionScanSpinnerEnabled,
             boolean collectionScanProgressEnabled,
             boolean statusHistoryDateFormat,
+            boolean releaseDateDisplayFormat,
             boolean statusBarLocation) {
     }
 
@@ -42,14 +45,14 @@ public record UiSettings(
 
     public record AlbumColumns(
             int name,
-            int year,
+            int releaseDate,
             int checked) {
     }
 
     public record TitleColumns(
             int title,
             int artist,
-            int year,
+            int releaseDate,
             int status) {
     }
 }

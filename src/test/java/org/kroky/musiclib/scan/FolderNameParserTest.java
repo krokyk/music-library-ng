@@ -22,7 +22,7 @@ class FolderNameParserTest {
         assertTrue(parsed.isPresent());
         assertEquals("Dark Tranquillity", parsed.get().artistName());
         assertEquals("Fiction", parsed.get().title());
-        assertEquals(2007, parsed.get().releaseYear());
+        assertEquals("2007", parsed.get().releaseDate());
     }
 
     @Test
@@ -33,7 +33,44 @@ class FolderNameParserTest {
 
         assertEquals("Kevin Kiner", parsed.artistName());
         assertEquals("Ahsoka - Vol. 1 (Episodes 1-4)", parsed.title());
-        assertEquals(2023, parsed.year());
+        assertEquals("2023", parsed.releaseDate());
+        assertEquals("Ahsoka - Vol. 1 (Episodes 1-4) | 2023", parsed.sortName());
+        assertEquals(ParseStatus.EXACT, parsed.parseStatus());
+    }
+
+    @Test
+    void parsesTitleFoldersWithFullReleaseDate() {
+        var parsed = parser.parseTitleItem(
+                Path.of("V for Vendetta (Dario Marianelli, 2006-03-13)"),
+                "soundtracks");
+
+        assertEquals("V for Vendetta", parsed.title());
+        assertEquals("Dario Marianelli", parsed.artistName());
+        assertEquals("2006-03-13", parsed.releaseDate());
+        assertEquals(ParseStatus.EXACT, parsed.parseStatus());
+    }
+
+    @Test
+    void parsesTitleFoldersWithMultipleArtists() {
+        var parsed = parser.parseTitleItem(
+                Path.of("Ad Astra (Max Richter, Lorne Balfe, 2019)"),
+                "soundtracks");
+
+        assertEquals("Ad Astra", parsed.title());
+        assertEquals("Max Richter, Lorne Balfe", parsed.artistName());
+        assertEquals("2019", parsed.releaseDate());
+        assertEquals(ParseStatus.EXACT, parsed.parseStatus());
+    }
+
+    @Test
+    void parsesTitleFoldersWithPartialReleaseMonth() {
+        var parsed = parser.parseTitleItem(
+                Path.of("Example Score (Composer Name, 2006-03)"),
+                "soundtracks");
+
+        assertEquals("Example Score", parsed.title());
+        assertEquals("Composer Name", parsed.artistName());
+        assertEquals("2006-03", parsed.releaseDate());
         assertEquals(ParseStatus.EXACT, parsed.parseStatus());
     }
 
@@ -42,7 +79,7 @@ class FolderNameParserTest {
         var parsed = parser.parseTitleItem(Path.of("Conan the Barbarian (2011)"), "soundtracks");
 
         assertEquals("Conan the Barbarian", parsed.title());
-        assertEquals(2011, parsed.year());
+        assertEquals("2011", parsed.releaseDate());
         assertEquals(ParseStatus.PARTIAL, parsed.parseStatus());
     }
 
@@ -51,7 +88,8 @@ class FolderNameParserTest {
         var parsed = parser.parseTitleItem(Path.of("World of Warcraft - 2007 - The Burning Crusade"), "soundtracks");
 
         assertEquals("World of Warcraft - The Burning Crusade", parsed.title());
-        assertEquals(2007, parsed.year());
+        assertEquals("2007", parsed.releaseDate());
+        assertEquals("World of Warcraft | 2007 | The Burning Crusade", parsed.sortName());
         assertEquals(ParseStatus.PARTIAL, parsed.parseStatus());
     }
 
@@ -61,7 +99,7 @@ class FolderNameParserTest {
 
         assertEquals("Wojciech Kilar - The Best", parsed.title());
         assertNull(parsed.artistName());
-        assertNull(parsed.year());
+        assertNull(parsed.releaseDate());
         assertEquals(ParseStatus.TITLE_ONLY, parsed.parseStatus());
     }
 

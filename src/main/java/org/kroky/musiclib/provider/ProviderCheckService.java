@@ -72,13 +72,11 @@ public class ProviderCheckService {
                 runs.event(runId, link.artistId(), link.id(), "INFO",
                         "Found " + remoteAlbums.size() + " albums for " + link.artistName());
                 for (RemoteAlbum remoteAlbum : remoteAlbums) {
-                    if (albums.findDuplicate(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseYear()).isPresent()) {
+                    if (albums.findDuplicate(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseDate()).isPresent()) {
                         existingAlbums++;
                         continue;
                     }
-                    albums.create(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseYear(),
-                            remoteAlbum.releaseDate() == null ? null : remoteAlbum.releaseDate().toString(),
-                            false, null);
+                    albums.create(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseDate(), false, null);
                     newAlbums++;
                     runs.event(runId, link.artistId(), link.id(), "INFO",
                             "Added unchecked album: " + remoteAlbum.title());

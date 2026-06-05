@@ -26,6 +26,9 @@ public class ArtistRepository {
     @Inject
     DataSource dataSource;
 
+    @Inject
+    AlbumRepository albums;
+
     public List<Artist> list(String search) {
         return list(search, null);
     }
@@ -204,11 +207,12 @@ public class ArtistRepository {
     }
 
     public void delete(long id) {
-        LOG.warnf("Deleting artist id=%d and cascading albums", id);
+        LOG.infof("Deleting artist id=%d", id);
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement("DELETE FROM artists WHERE id = ?")) {
             statement.setLong(1, id);
             statement.executeUpdate();
+            albums.deleteOrphanAlbums();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to delete artist " + id, e);
         }
@@ -245,7 +249,8 @@ public class ArtistRepository {
                            ORDER BY ac.collection_id
                        )) AS collection_ids
                 FROM artists a
-                LEFT JOIN albums al ON al.artist_id = a.id
+                LEFT JOIN album_artists aa ON aa.artist_id = a.id
+                LEFT JOIN albums al ON al.id = aa.album_id
                 """
                 + whereClause
                 + "\n"

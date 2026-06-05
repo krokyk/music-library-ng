@@ -13,10 +13,12 @@ import javax.sql.DataSource;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.db.Names;
+import org.kroky.musiclib.db.TitleSortNames;
 import org.kroky.musiclib.model.CollectionTitleItem;
 import org.kroky.musiclib.model.MetadataSource;
 import org.kroky.musiclib.model.ParseStatus;
 import org.kroky.musiclib.model.ParsedTitleItem;
+import org.kroky.musiclib.model.ReleaseDates;
 import org.kroky.musiclib.model.UpsertResult;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -26,6 +28,12 @@ import jakarta.inject.Inject;
 public class CollectionTitleItemRepository {
 
     private static final Logger LOG = Logger.getLogger(CollectionTitleItemRepository.class);
+    private static final String SELECT_COLUMNS = """
+            id, collection_id, raw_folder_name, relative_path, title, artist_name,
+            release_date, sort_name, sort_name_source,
+            parse_status, first_seen_at, last_seen_at, missing_since,
+            created_at, updated_at
+            """;
 
     @Inject
     DataSource dataSource;
@@ -33,13 +41,11 @@ public class CollectionTitleItemRepository {
     public List<CollectionTitleItem> list(String collectionId) {
         LOG.debugf("Listing title items collectionId=%s", collectionId);
         String sql = """
-                SELECT id, collection_id, raw_folder_name, relative_path, title, artist_name, year,
-                       metadata_source, parse_status, first_seen_at, last_seen_at, missing_since,
-                       created_at, updated_at
+                SELECT %s
                 FROM collection_title_items
                 WHERE collection_id = ?
-                ORDER BY normalized_title, coalesce(year, 999999), coalesce(normalized_artist_name, '')
-                """;
+                ORDER BY normalized_sort_name, release_date, normalized_title
+                """.formatted(SELECT_COLUMNS);
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, collectionId);
@@ -57,12 +63,10 @@ public class CollectionTitleItemRepository {
 
     public Optional<CollectionTitleItem> find(long id) {
         String sql = """
-                SELECT id, collection_id, raw_folder_name, relative_path, title, artist_name, year,
-                       metadata_source, parse_status, first_seen_at, last_seen_at, missing_since,
-                       created_at, updated_at
+                SELECT %s
                 FROM collection_title_items
                 WHERE id = ?
-                """;
+                """.formatted(SELECT_COLUMNS);
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, id);
@@ -77,26 +81,43 @@ public class CollectionTitleItemRepository {
     public UpsertResult upsertParsed(ParsedTitleItem parsed) {
         String relativePath = parsed.relativePath().getFileName().toString();
         Optional<CollectionTitleItem> existing = findByPath(parsed.collectionId(), relativePath);
-        if (existing.isPresent() && existing.get().metadataSource() == MetadataSource.MANUAL) {
+        if (existing.isPresent() && existing.get().parseStatus() == ParseStatus.MANUAL) {
             touchManualItem(existing.get().id(), parsed.rawFolderName());
             return new UpsertResult(existing.get().id(), false);
         }
 
+        String sortName = existing
+                .filter(item -> item.sortNameSource() == MetadataSource.MANUAL)
+                .map(CollectionTitleItem::sortName)
+                .orElse(parsed.sortName());
+
         String sql = """
                 INSERT INTO collection_title_items (
                     collection_id, raw_folder_name, relative_path, title, normalized_title,
-                    artist_name, normalized_artist_name, year, metadata_source, parse_status,
+                    artist_name, normalized_artist_name, release_date,
+                    sort_name, normalized_sort_name, sort_name_source, parse_status,
                     last_seen_at, missing_since
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'AUTO', ?, CURRENT_TIMESTAMP, NULL)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AUTO', ?, CURRENT_TIMESTAMP, NULL)
                 ON CONFLICT(collection_id, relative_path) DO UPDATE SET
                     raw_folder_name = excluded.raw_folder_name,
                     title = excluded.title,
                     normalized_title = excluded.normalized_title,
                     artist_name = excluded.artist_name,
                     normalized_artist_name = excluded.normalized_artist_name,
-                    year = excluded.year,
-                    metadata_source = 'AUTO',
+                    release_date = excluded.release_date,
+                    sort_name = CASE
+                        WHEN collection_title_items.sort_name_source = 'MANUAL' THEN collection_title_items.sort_name
+                        ELSE excluded.sort_name
+                    END,
+                    normalized_sort_name = CASE
+                        WHEN collection_title_items.sort_name_source = 'MANUAL' THEN collection_title_items.normalized_sort_name
+                        ELSE excluded.normalized_sort_name
+                    END,
+                    sort_name_source = CASE
+                        WHEN collection_title_items.sort_name_source = 'MANUAL' THEN collection_title_items.sort_name_source
+                        ELSE excluded.sort_name_source
+                    END,
                     parse_status = excluded.parse_status,
                     last_seen_at = CURRENT_TIMESTAMP,
                     missing_since = NULL,
@@ -111,8 +132,10 @@ public class CollectionTitleItemRepository {
             statement.setString(5, Names.normalize(parsed.title()));
             statement.setString(6, blankToNull(parsed.artistName()));
             statement.setString(7, Names.normalize(parsed.artistName()));
-            setNullableInt(statement, 8, parsed.year());
-            statement.setString(9, parsed.parseStatus().name());
+            statement.setString(8, blankToNull(parsed.releaseDate()));
+            statement.setString(9, sortName);
+            statement.setString(10, Names.normalize(sortName));
+            statement.setString(11, parsed.parseStatus().name());
             statement.executeUpdate();
             long id = findByPath(parsed.collectionId(), relativePath).orElseThrow().id();
             return new UpsertResult(id, existing.isEmpty());
@@ -126,17 +149,25 @@ public class CollectionTitleItemRepository {
             long id,
             String title,
             String artistName,
-            Integer year) {
-        LOG.infof("Updating title item collection=%s id=%d title='%s' artist='%s' year=%s",
-                collectionId, id, title, artistName, year);
+            String releaseDate,
+            String sortName) {
+        String normalizedReleaseDate = ReleaseDates.normalize(releaseDate);
+        String effectiveSortName = blankToNull(sortName);
+        if (effectiveSortName == null) {
+            effectiveSortName = TitleSortNames.create(title, normalizedReleaseDate);
+        }
+        LOG.infof("Updating title item collection=%s id=%d title='%s' artist='%s' releaseDate='%s' sortName='%s'",
+                collectionId, id, title, artistName, normalizedReleaseDate, effectiveSortName);
         String sql = """
                 UPDATE collection_title_items
                 SET title = ?,
                     normalized_title = ?,
                     artist_name = ?,
                     normalized_artist_name = ?,
-                    year = ?,
-                    metadata_source = 'MANUAL',
+                    release_date = ?,
+                    sort_name = ?,
+                    normalized_sort_name = ?,
+                    sort_name_source = 'MANUAL',
                     parse_status = 'MANUAL',
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND collection_id = ?
@@ -147,9 +178,11 @@ public class CollectionTitleItemRepository {
             statement.setString(2, Names.normalize(title));
             statement.setString(3, blankToNull(artistName));
             statement.setString(4, Names.normalize(artistName));
-            setNullableInt(statement, 5, year);
-            statement.setLong(6, id);
-            statement.setString(7, collectionId);
+            statement.setString(5, normalizedReleaseDate);
+            statement.setString(6, effectiveSortName);
+            statement.setString(7, Names.normalize(effectiveSortName));
+            statement.setLong(8, id);
+            statement.setString(9, collectionId);
             int updated = statement.executeUpdate();
             return updated == 0 ? Optional.empty() : find(id);
         } catch (Exception e) {
@@ -193,12 +226,10 @@ public class CollectionTitleItemRepository {
 
     private Optional<CollectionTitleItem> findByPath(String collectionId, String relativePath) {
         String sql = """
-                SELECT id, collection_id, raw_folder_name, relative_path, title, artist_name, year,
-                       metadata_source, parse_status, first_seen_at, last_seen_at, missing_since,
-                       created_at, updated_at
+                SELECT %s
                 FROM collection_title_items
                 WHERE collection_id = ? AND relative_path = ?
-                """;
+                """.formatted(SELECT_COLUMNS);
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, collectionId);
@@ -238,22 +269,15 @@ public class CollectionTitleItemRepository {
                 rs.getString("relative_path"),
                 rs.getString("title"),
                 rs.getString("artist_name"),
-                (Integer) rs.getObject("year"),
-                MetadataSource.valueOf(rs.getString("metadata_source")),
+                rs.getString("release_date"),
+                rs.getString("sort_name"),
+                MetadataSource.valueOf(rs.getString("sort_name_source")),
                 ParseStatus.valueOf(rs.getString("parse_status")),
                 rs.getString("first_seen_at"),
                 rs.getString("last_seen_at"),
                 rs.getString("missing_since"),
                 rs.getString("created_at"),
                 rs.getString("updated_at"));
-    }
-
-    private static void setNullableInt(PreparedStatement statement, int index, Integer value) throws Exception {
-        if (value == null) {
-            statement.setObject(index, null);
-        } else {
-            statement.setInt(index, value);
-        }
     }
 
     private static String blankToNull(String value) {

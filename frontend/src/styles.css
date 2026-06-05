@@ -783,6 +783,33 @@ body,
   white-space: nowrap;
 }
 
+.sortable-header {
+  cursor: pointer;
+  gap: 6px;
+  padding-right: 30px;
+}
+
+.sortable-header__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sort-direction-icon {
+  color: rgb(var(--v-theme-primary));
+  flex: 0 0 auto;
+}
+
+.title-sort-mode-button {
+  color: rgb(var(--v-theme-primary)) !important;
+  flex: 0 0 auto;
+  margin-left: 2px;
+}
+
+.title-sort-mode-button:hover {
+  background: rgba(0, 213, 255, 0.14);
+}
+
 .workspace-row:hover {
   background: rgba(255, 255, 255, 0.035);
 }

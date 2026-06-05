@@ -278,6 +278,7 @@ music-library.ui.default-scan-poll-interval-ms=200
 music-library.ui.default-collection-scan-spinner-enabled=true
 music-library.ui.default-collection-scan-progress-enabled=true
 music-library.ui.default-status-history-date-format=yyyy-MM-dd HH:mm:ss.SSS
+music-library.release.date.display.format=yyyy-MM-dd
 music-library.ui.default-status-bar-location=top
 ```
 
@@ -285,17 +286,18 @@ Workspace column width defaults:
 
 ```properties
 music-library.ui.default-workspace-column-widths.artist.name=280
-music-library.ui.default-workspace-column-widths.artist.actions=64
 music-library.ui.default-workspace-column-widths.album.name=360
-music-library.ui.default-workspace-column-widths.album.year=100
+music-library.ui.default-workspace-column-widths.album.release-date=140
 music-library.ui.default-workspace-column-widths.album.checked=120
-music-library.ui.default-workspace-column-widths.album.actions=56
 music-library.ui.default-workspace-column-widths.title.title=460
 music-library.ui.default-workspace-column-widths.title.artist=220
-music-library.ui.default-workspace-column-widths.title.year=90
+music-library.ui.default-workspace-column-widths.title.release-date=150
 music-library.ui.default-workspace-column-widths.title.status=120
-music-library.ui.default-workspace-column-widths.title.actions=64
 ```
+
+Release date columns display the year in the table. Fuller values, such as
+`2006-03-13`, are shown in a tooltip using
+`music-library.release.date.display.format`.
 
 The app accepts Windows-style paths such as `<drive>:/<path-to-music-root>` and
 resolves them to WSL mounts when running under WSL.
@@ -388,7 +390,7 @@ Artist-centric collections scan direct child folders and create artists only.
 The current flat parser expects:
 
 ```text
-artist - year - album
+artist - release date - album
 ```
 
 Example:
@@ -404,10 +406,10 @@ Title-centric collections store one row per direct child folder and use these
 parser rules in order:
 
 ```text
-title (artist, year)
-title (year)
-title - year - subtitle
-title - year
+title (artist, release date)
+title (release date)
+title - release date - subtitle
+title - release date
 title
 ```
 
@@ -423,7 +425,14 @@ Clash of the Titans
 
 Parsed title metadata can be edited manually. Manual edits are marked as manual
 metadata and later scans update the seen/path state without overwriting the
-edited title, artist, or year.
+edited title, artist, release date, or sort key.
+
+When a title-centric folder has a parsed or manually entered artist, the app
+also creates or updates the corresponding artist, album, and local album path.
+Ambiguous title-only folders stay as title rows until artist metadata is added.
+Comma-separated artists in title metadata are split into separate artists and
+linked to the same album, so `Ad Astra (Max Richter, Lorne Balfe, 2019)` does
+not create one combined artist.
 
 The configured collection itself acts as the folder/genre bucket.
 
@@ -463,7 +472,7 @@ Create a checked album:
 ```bash
 curl -X POST http://localhost:8795/api/albums \
   -H 'Content-Type: application/json' \
-  -d '{"artistId":1,"title":"Example Album","releaseYear":2026,"checked":true}'
+  -d '{"artistId":1,"title":"Example Album","releaseDate":"2026","checked":true}'
 ```
 
 Start a scan job for all collections:

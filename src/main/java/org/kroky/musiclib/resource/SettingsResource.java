@@ -108,6 +108,7 @@ public class SettingsResource {
         boolean defaultSpinner = config.ui().defaultCollectionScanSpinnerEnabled();
         boolean defaultProgress = config.ui().defaultCollectionScanProgressEnabled();
         String defaultDateFormat = config.ui().defaultStatusHistoryDateFormat();
+        String defaultReleaseDateDisplayFormat = config.release().date().display().format();
         String defaultStatusBarLocation = defaultStatusBarLocation();
 
         var statusVisible = preferences.find(STATUS_VISIBLE_KEY);
@@ -124,6 +125,7 @@ public class SettingsResource {
                 spinner.map(value -> Boolean.parseBoolean(value.value())).orElse(defaultSpinner),
                 progress.map(value -> Boolean.parseBoolean(value.value())).orElse(defaultProgress),
                 defaultDateFormat,
+                defaultReleaseDateDisplayFormat,
                 statusBarLocation.map(value -> normalizeStatusBarLocation(value.value(), defaultStatusBarLocation))
                         .orElse(defaultStatusBarLocation),
                 defaultWorkspaceColumnWidths(),
@@ -133,6 +135,7 @@ public class SettingsResource {
                         defaultSpinner,
                         defaultProgress,
                         defaultDateFormat,
+                        defaultReleaseDateDisplayFormat,
                         defaultStatusBarLocation,
                         defaultWorkspaceColumnWidths()),
                 new UiSettings.Overrides(
@@ -153,6 +156,7 @@ public class SettingsResource {
                         spinner.map(value -> Boolean.parseBoolean(value.value()) != defaultSpinner).orElse(false),
                         progress.map(value -> Boolean.parseBoolean(value.value()) != defaultProgress).orElse(false),
                         false,
+                        false,
                         statusBarLocation
                                 .map(value -> !normalizeStatusBarLocation(value.value(), defaultStatusBarLocation)
                                         .equals(defaultStatusBarLocation))
@@ -166,12 +170,12 @@ public class SettingsResource {
                         defaults.artist().name()),
                 new UiSettings.AlbumColumns(
                         defaults.album().name(),
-                        defaults.album().year(),
+                        defaults.album().releaseDate(),
                         defaults.album().checked()),
                 new UiSettings.TitleColumns(
                         defaults.title().title(),
                         defaults.title().artist(),
-                        defaults.title().year(),
+                        defaults.title().releaseDate(),
                         defaults.title().status()));
     }
 

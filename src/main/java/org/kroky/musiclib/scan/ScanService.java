@@ -8,11 +8,13 @@ import java.util.List;
 import java.util.Set;
 
 import org.kroky.musiclib.db.Names;
+import org.kroky.musiclib.db.ArtistNames;
 import org.kroky.musiclib.model.CollectionType;
 import org.kroky.musiclib.model.MusicCollection;
 import org.kroky.musiclib.model.ScanSummary;
 import org.kroky.musiclib.model.UpsertResult;
 import org.kroky.musiclib.repository.ArtistRepository;
+import org.kroky.musiclib.repository.AlbumRepository;
 import org.kroky.musiclib.repository.CollectionTitleItemRepository;
 import org.kroky.musiclib.repository.ScanRunRepository;
 import org.kroky.musiclib.repository.MusicCollectionRepository;
@@ -32,6 +34,9 @@ public class ScanService {
 
     @Inject
     ArtistRepository artistRepository;
+
+    @Inject
+    AlbumRepository albumRepository;
 
     @Inject
     CollectionTitleItemRepository titleItemRepository;
@@ -131,6 +136,15 @@ public class ScanService {
                     } else {
                         existing++;
                     }
+                    List<Long> artistIds = upsertArtists(parsedTitle.artistName(), collection.id());
+                    if (!artistIds.isEmpty()) {
+                        albumRepository.upsertScanned(
+                                artistIds,
+                                parsedTitle.title(),
+                                parsedTitle.releaseDate(),
+                                folder.getFileName().toString(),
+                                collection.id());
+                    }
                     processedFolders++;
                     progress.itemProcessed(collection.id(), processedFolders);
                 }
@@ -216,14 +230,24 @@ public class ScanService {
         }
     }
 
+    private List<Long> upsertArtists(String artistName, String collectionId) {
+        List<Long> artistIds = new ArrayList<>();
+        for (String name : ArtistNames.splitList(artistName)) {
+            UpsertResult artistResult = artistRepository.upsertByName(name);
+            artistRepository.assignToCollection(artistResult.id(), collectionId);
+            artistIds.add(artistResult.id());
+        }
+        return artistIds;
+    }
+
     public interface ProgressListener {
         ProgressListener NONE = new ProgressListener() {
         };
 
-        default void collectionStarted(String collectionId, int artistTotal) {
+        default void collectionStarted(String collectionId, int itemTotal) {
         }
 
-        default void itemProcessed(String collectionId, int itemProcessed) {
+        default void itemProcessed(String collectionId, int processedItems) {
         }
 
         default boolean isCancelled() {

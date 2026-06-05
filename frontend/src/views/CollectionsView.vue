@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
+import { formatDateWithJavaPattern } from '@/dateFormat'
 import type { Album, Artist, CollectionFolderCandidate, CollectionTitleItem, MusicCollection } from '@/types'
 import type { CSSProperties } from 'vue'
 
@@ -19,6 +20,12 @@ interface ProviderLinkForm {
   providerUrl: string
   enabled: boolean
 }
+
+type SortDirection = 'asc' | 'desc'
+type ArtistSortKey = 'name'
+type AlbumSortKey = 'name' | 'releaseDate'
+type TitleSortKey = 'title' | 'artist' | 'releaseDate' | 'status'
+type TitleSortMode = 'title' | 'sortName'
 
 const store = useLibraryStore()
 const {
@@ -62,7 +69,8 @@ const collectionEditForm = reactive({
 const titleItemForm = reactive({
   title: '',
   artistName: '',
-  year: null as number | null,
+  releaseDate: '',
+  sortName: '',
 })
 
 const artistColumnWidths = reactive({
@@ -71,16 +79,33 @@ const artistColumnWidths = reactive({
 
 const albumColumnWidths = reactive({
   name: 360,
-  year: 100,
+  releaseDate: 140,
   checked: 120,
 })
 
 const titleColumnWidths = reactive({
   title: 460,
   artist: 220,
-  year: 90,
+  releaseDate: 150,
   status: 120,
 })
+
+const artistSort = reactive<{ key: ArtistSortKey; direction: SortDirection }>({
+  key: 'name',
+  direction: 'asc',
+})
+
+const albumSort = reactive<{ key: AlbumSortKey; direction: SortDirection }>({
+  key: 'releaseDate',
+  direction: 'asc',
+})
+
+const titleSort = reactive<{ key: TitleSortKey; direction: SortDirection }>({
+  key: 'title',
+  direction: 'asc',
+})
+
+const titleSortMode = ref<TitleSortMode>('sortName')
 
 const columnWidthSaveTimers = new Map<string, number>()
 const columnWidthPreferenceKeys = {
@@ -126,11 +151,157 @@ const collectionOptions = computed(() =>
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
 const paneLayoutPreferenceKey = 'collections.paneLayout'
 
+const sortedCollectionArtists = computed(() =>
+  [...collectionArtists.value].sort((left, right) => applyDirection(compareText(left.name, right.name), artistSort.direction)),
+)
+
+const sortedCollectionAlbums = computed(() =>
+  [...collectionAlbums.value].sort((left, right) => {
+    const result = albumSort.key === 'releaseDate'
+      ? compareReleaseDates(
+        releaseDateSortValue(left.releaseDate),
+        releaseDateSortValue(right.releaseDate),
+        albumSort.direction,
+      )
+      : compareText(left.title, right.title)
+    return albumSort.key === 'releaseDate'
+      ? result || compareText(left.title, right.title)
+      : applyDirection(result || compareReleaseDates(
+        releaseDateSortValue(left.releaseDate),
+        releaseDateSortValue(right.releaseDate),
+        'asc',
+      ), albumSort.direction)
+  }),
+)
+
+const sortedCollectionTitleItems = computed(() =>
+  [...collectionTitleItems.value].sort((left, right) => {
+    let result = 0
+    if (titleSort.key === 'title') {
+      result = titleSortMode.value === 'sortName'
+        ? compareText(left.sortName, right.sortName)
+        : compareText(left.title, right.title)
+    } else if (titleSort.key === 'artist') {
+      result = compareText(left.artistName ?? '', right.artistName ?? '')
+    } else if (titleSort.key === 'releaseDate') {
+      result = compareReleaseDates(
+        releaseDateSortValue(left.releaseDate),
+        releaseDateSortValue(right.releaseDate),
+        titleSort.direction,
+      )
+    } else {
+      result = compareText(left.parseStatus, right.parseStatus)
+    }
+    return titleSort.key === 'releaseDate'
+      ? result || compareText(left.sortName, right.sortName) || compareText(left.title, right.title)
+      : applyDirection(result || compareText(left.sortName, right.sortName) || compareText(left.title, right.title), titleSort.direction)
+  }),
+)
+
 function artistIssueLabel(artist: Artist) {
   if (artist.uncheckedAlbumCount > 0) {
     return `${artist.uncheckedAlbumCount} unchecked`
   }
   return ''
+}
+
+function compareText(left: string | null | undefined, right: string | null | undefined) {
+  return (left ?? '').localeCompare(right ?? '', undefined, { numeric: true, sensitivity: 'base' })
+}
+
+function compareReleaseDates(left: string | null, right: string | null, direction: SortDirection) {
+  if (left === null && right === null) return 0
+  if (left === null) return 1
+  if (right === null) return -1
+  return applyDirection(compareText(left, right), direction)
+}
+
+function applyDirection(result: number, direction: SortDirection) {
+  return direction === 'asc' ? result : -result
+}
+
+function releaseDateSortValue(releaseDate: string | null | undefined) {
+  if (releaseDate && releaseDate.trim()) {
+    return releaseDate.trim()
+  }
+  return null
+}
+
+function releaseDateYearLabel(releaseDate: string | null | undefined) {
+  if (releaseDate && /^\d{4}/.test(releaseDate)) {
+    return releaseDate.slice(0, 4)
+  }
+  return ''
+}
+
+function releaseDateTooltip(releaseDate: string | null | undefined) {
+  if (!releaseDate || releaseDate.length <= 4) {
+    return ''
+  }
+  return formatReleaseDate(releaseDate)
+}
+
+function formatReleaseDate(releaseDate: string) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(releaseDate)) {
+    const [year, month, day] = releaseDate.split('-').map(Number)
+    return formatDateWithJavaPattern(
+      new Date(year, month - 1, day),
+      uiSettings.value.releaseDateDisplayFormat,
+      'yyyy-MM-dd',
+    )
+  }
+  return releaseDate
+}
+
+function toggleArtistSort(key: ArtistSortKey) {
+  if (artistSort.key === key) {
+    artistSort.direction = oppositeDirection(artistSort.direction)
+    return
+  }
+  artistSort.key = key
+  artistSort.direction = 'asc'
+}
+
+function toggleAlbumSort(key: AlbumSortKey) {
+  if (albumSort.key === key) {
+    albumSort.direction = oppositeDirection(albumSort.direction)
+    return
+  }
+  albumSort.key = key
+  albumSort.direction = 'asc'
+}
+
+function toggleTitleSort(key: TitleSortKey) {
+  if (titleSort.key === key) {
+    titleSort.direction = oppositeDirection(titleSort.direction)
+    return
+  }
+  titleSort.key = key
+  titleSort.direction = 'asc'
+}
+
+function toggleTitleSortMode() {
+  titleSortMode.value = titleSortMode.value === 'sortName' ? 'title' : 'sortName'
+  titleSort.key = 'title'
+  titleSort.direction = 'asc'
+}
+
+function oppositeDirection(direction: SortDirection) {
+  return direction === 'asc' ? 'desc' : 'asc'
+}
+
+function sortIcon(direction: SortDirection) {
+  return direction === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+}
+
+function titleSortModeIcon() {
+  return titleSortMode.value === 'sortName' ? 'mdi-calendar-clock' : 'mdi-sort-alphabetical-ascending'
+}
+
+function titleSortModeTooltip() {
+  return titleSortMode.value === 'sortName'
+    ? 'Title sorting uses Sort as'
+    : 'Title sorting uses display title'
 }
 
 function albumDiskTitle(album: Album) {
@@ -153,10 +324,10 @@ function scanProgress(collection: MusicCollection) {
   if (!uiSettings.value.collectionScanProgressEnabled || !scanIsRunning.value || scanJob.value?.activeCollectionId !== collection.id) {
     return 0
   }
-  if (scanJob.value.artistTotal <= 0) {
+  if (scanJob.value.itemTotal <= 0) {
     return 0
   }
-  return Math.min(100, (scanJob.value.artistProcessed / scanJob.value.artistTotal) * 100)
+  return Math.min(100, (scanJob.value.itemProcessed / scanJob.value.itemTotal) * 100)
 }
 
 function askDeleteCollection(collection: MusicCollection) {
@@ -497,7 +668,7 @@ function saveColumnWidths(table: keyof typeof columnWidthPreferenceKeys) {
 function columnMinimumWidth(table: keyof typeof columnWidthPreferenceKeys, key: string) {
   if (table === 'title' && key === 'title') return 220
   if (table === 'album' && key === 'name') return 180
-  if (key === 'year') return 70
+  if (key === 'releaseDate') return 120
   if (key === 'checked' || key === 'status') return 95
   return 140
 }
@@ -643,7 +814,8 @@ function openTitleItemDialog(item: CollectionTitleItem) {
   titleItemToEdit.value = item
   titleItemForm.title = item.title
   titleItemForm.artistName = item.artistName ?? ''
-  titleItemForm.year = item.year ?? null
+  titleItemForm.releaseDate = item.releaseDate ?? ''
+  titleItemForm.sortName = item.sortName
   titleItemDialog.value = true
 }
 
@@ -656,7 +828,8 @@ async function saveTitleItem() {
     await store.updateTitleItem(titleItemToEdit.value, {
       title: titleItemForm.title.trim(),
       artistName: titleItemForm.artistName.trim() || null,
-      year: titleItemForm.year,
+      releaseDate: titleItemForm.releaseDate.trim() || null,
+      sortName: titleItemForm.sortName.trim() || null,
     })
     titleItemDialog.value = false
     titleItemToEdit.value = null
@@ -874,32 +1047,85 @@ onBeforeUnmount(() => {
           <div v-if="!selectedCollection" class="pane-empty">Select a collection.</div>
           <div v-else class="workspace-grid" :style="columnGridStyle('title')">
             <div class="workspace-grid__row workspace-grid__header">
-              <div class="workspace-grid__cell workspace-grid__header-cell" data-column="title.title">
-                Title
+              <div
+                class="workspace-grid__cell workspace-grid__header-cell sortable-header"
+                data-column="title.title"
+                @click="toggleTitleSort('title')"
+              >
+                <span class="sortable-header__label">Title</span>
+                <v-tooltip :text="titleSortModeTooltip()" location="top">
+                  <template #activator="{ props }">
+                    <v-btn
+                      v-bind="props"
+                      :icon="titleSortModeIcon()"
+                      size="x-small"
+                      variant="text"
+                      color="primary"
+                      class="title-sort-mode-button"
+                      @click.stop="toggleTitleSortMode"
+                    ></v-btn>
+                  </template>
+                </v-tooltip>
+                <v-icon
+                  v-if="titleSort.key === 'title'"
+                  :icon="sortIcon(titleSort.direction)"
+                  size="14"
+                  class="sort-direction-icon"
+                ></v-icon>
                   <span
                     class="column-resize-handle"
                     @pointerdown="startColumnResize('title', 'title', $event)"
                     @dblclick="autosizeColumn('title', 'title', $event)"
                   ></span>
               </div>
-              <div class="workspace-grid__cell workspace-grid__header-cell" data-column="title.artist">
-                Artist
+              <div
+                class="workspace-grid__cell workspace-grid__header-cell sortable-header"
+                data-column="title.artist"
+                @click="toggleTitleSort('artist')"
+              >
+                <span class="sortable-header__label">Artist</span>
+                <v-icon
+                  v-if="titleSort.key === 'artist'"
+                  :icon="sortIcon(titleSort.direction)"
+                  size="14"
+                  class="sort-direction-icon"
+                ></v-icon>
                   <span
                     class="column-resize-handle"
                     @pointerdown="startColumnResize('title', 'artist', $event)"
                     @dblclick="autosizeColumn('title', 'artist', $event)"
                   ></span>
               </div>
-              <div class="workspace-grid__cell workspace-grid__header-cell" data-column="title.year">
-                Year
+              <div
+                class="workspace-grid__cell workspace-grid__header-cell sortable-header"
+                data-column="title.releaseDate"
+                @click="toggleTitleSort('releaseDate')"
+              >
+                <span class="sortable-header__label">Release date</span>
+                <v-icon
+                  v-if="titleSort.key === 'releaseDate'"
+                  :icon="sortIcon(titleSort.direction)"
+                  size="14"
+                  class="sort-direction-icon"
+                ></v-icon>
                   <span
                     class="column-resize-handle"
-                    @pointerdown="startColumnResize('title', 'year', $event)"
-                    @dblclick="autosizeColumn('title', 'year', $event)"
+                    @pointerdown="startColumnResize('title', 'releaseDate', $event)"
+                    @dblclick="autosizeColumn('title', 'releaseDate', $event)"
                   ></span>
               </div>
-              <div class="workspace-grid__cell workspace-grid__header-cell" data-column="title.status">
-                Status
+              <div
+                class="workspace-grid__cell workspace-grid__header-cell sortable-header"
+                data-column="title.status"
+                @click="toggleTitleSort('status')"
+              >
+                <span class="sortable-header__label">Status</span>
+                <v-icon
+                  v-if="titleSort.key === 'status'"
+                  :icon="sortIcon(titleSort.direction)"
+                  size="14"
+                  class="sort-direction-icon"
+                ></v-icon>
                   <span
                     class="column-resize-handle"
                     @pointerdown="startColumnResize('title', 'status', $event)"
@@ -907,14 +1133,21 @@ onBeforeUnmount(() => {
                   ></span>
               </div>
             </div>
-            <div v-for="item in collectionTitleItems" :key="item.id" class="workspace-grid__row workspace-row">
+            <div v-for="item in sortedCollectionTitleItems" :key="item.id" class="workspace-grid__row workspace-row">
                 <div data-column="title.title" class="workspace-grid__cell truncate-cell">
                   <span class="cell-strong">{{ item.title }}</span>
                 </div>
                 <div data-column="title.artist" class="workspace-grid__cell truncate-cell">{{ item.artistName ?? '' }}</div>
-                <div data-column="title.year" class="workspace-grid__cell cell-muted">{{ item.year ?? '' }}</div>
+                <div data-column="title.releaseDate" class="workspace-grid__cell cell-muted">
+                  <v-tooltip v-if="releaseDateTooltip(item.releaseDate)" :text="releaseDateTooltip(item.releaseDate)" location="top">
+                    <template #activator="{ props }">
+                      <span v-bind="props">{{ releaseDateYearLabel(item.releaseDate) }}</span>
+                    </template>
+                  </v-tooltip>
+                  <span v-else>{{ releaseDateYearLabel(item.releaseDate) }}</span>
+                </div>
                 <div data-column="title.status" class="workspace-grid__cell">
-                  <v-chip size="x-small" :color="item.metadataSource === 'MANUAL' ? 'primary' : 'default'" variant="tonal">
+                  <v-chip size="x-small" :color="item.parseStatus === 'MANUAL' ? 'primary' : 'default'" variant="tonal">
                     {{ item.parseStatus.toLowerCase().replace('_', ' ') }}
                   </v-chip>
                 </div>
@@ -943,6 +1176,18 @@ onBeforeUnmount(() => {
         <div class="pane-header">
           <span>Artists</span>
           <div class="pane-header__actions">
+            <v-tooltip text="Sort artists" location="top">
+              <template #activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  :icon="artistSort.direction === 'asc' ? 'mdi-sort-alphabetical-ascending' : 'mdi-sort-alphabetical-descending'"
+                  size="small"
+                  variant="text"
+                  :disabled="!selectedCollectionId"
+                  @click="toggleArtistSort('name')"
+                ></v-btn>
+              </template>
+            </v-tooltip>
             <v-tooltip text="Add artist" location="top">
               <template #activator="{ props }">
                 <v-btn
@@ -961,7 +1206,7 @@ onBeforeUnmount(() => {
         <div v-if="!selectedCollection" class="pane-empty">Select a collection.</div>
         <div v-else class="workspace-grid workspace-grid--no-header" :style="columnGridStyle('artist')">
           <div
-            v-for="artist in collectionArtists"
+            v-for="artist in sortedCollectionArtists"
             :key="artist.id"
             class="workspace-grid__row workspace-row"
             :class="{ 'is-selected': artist.id === selectedArtistId }"
@@ -1022,20 +1267,40 @@ onBeforeUnmount(() => {
         <div v-if="!selectedArtist" class="pane-empty">Select an artist.</div>
         <div v-else class="workspace-grid" :style="columnGridStyle('album')">
           <div class="workspace-grid__row workspace-grid__header">
-            <div class="workspace-grid__cell workspace-grid__header-cell" data-column="album.name">
-              Name
+            <div
+              class="workspace-grid__cell workspace-grid__header-cell sortable-header"
+              data-column="album.name"
+              @click="toggleAlbumSort('name')"
+            >
+              <span class="sortable-header__label">Name</span>
+              <v-icon
+                v-if="albumSort.key === 'name'"
+                :icon="sortIcon(albumSort.direction)"
+                size="14"
+                class="sort-direction-icon"
+              ></v-icon>
                 <span
                   class="column-resize-handle"
                   @pointerdown="startColumnResize('album', 'name', $event)"
                   @dblclick="autosizeColumn('album', 'name', $event)"
                 ></span>
             </div>
-            <div class="workspace-grid__cell workspace-grid__header-cell" data-column="album.year">
-              Year
+            <div
+              class="workspace-grid__cell workspace-grid__header-cell sortable-header"
+              data-column="album.releaseDate"
+              @click="toggleAlbumSort('releaseDate')"
+            >
+              <span class="sortable-header__label">Release date</span>
+              <v-icon
+                v-if="albumSort.key === 'releaseDate'"
+                :icon="sortIcon(albumSort.direction)"
+                size="14"
+                class="sort-direction-icon"
+              ></v-icon>
                 <span
                   class="column-resize-handle"
-                  @pointerdown="startColumnResize('album', 'year', $event)"
-                  @dblclick="autosizeColumn('album', 'year', $event)"
+                  @pointerdown="startColumnResize('album', 'releaseDate', $event)"
+                  @dblclick="autosizeColumn('album', 'releaseDate', $event)"
                 ></span>
             </div>
             <div class="workspace-grid__cell workspace-grid__header-cell" data-column="album.checked">
@@ -1047,7 +1312,7 @@ onBeforeUnmount(() => {
                 ></span>
             </div>
           </div>
-          <div v-for="album in collectionAlbums" :key="album.id" class="workspace-grid__row workspace-row">
+          <div v-for="album in sortedCollectionAlbums" :key="album.id" class="workspace-grid__row workspace-row">
               <div data-column="album.name" class="workspace-grid__cell truncate-cell">
                 <div class="album-cell">
                   <span>{{ album.title }}</span>
@@ -1064,7 +1329,14 @@ onBeforeUnmount(() => {
                   </v-tooltip>
                 </div>
               </div>
-              <div data-column="album.year" class="workspace-grid__cell cell-muted">{{ album.releaseYear ?? '' }}</div>
+              <div data-column="album.releaseDate" class="workspace-grid__cell cell-muted">
+                <v-tooltip v-if="releaseDateTooltip(album.releaseDate)" :text="releaseDateTooltip(album.releaseDate)" location="top">
+                  <template #activator="{ props }">
+                    <span v-bind="props">{{ releaseDateYearLabel(album.releaseDate) }}</span>
+                  </template>
+                </v-tooltip>
+                <span v-else>{{ releaseDateYearLabel(album.releaseDate) }}</span>
+              </div>
               <div data-column="album.checked" class="workspace-grid__cell">
                 <v-checkbox
                   :model-value="album.checked"
@@ -1191,12 +1463,10 @@ onBeforeUnmount(() => {
               <v-text-field v-model="titleItemForm.artistName" label="Artist" hide-details="auto"></v-text-field>
             </v-col>
             <v-col cols="12" md="4">
-              <v-number-input
-                v-model="titleItemForm.year"
-                label="Year"
-                control-variant="hidden"
-                hide-details="auto"
-              ></v-number-input>
+              <v-text-field v-model="titleItemForm.releaseDate" label="Release date" hide-details="auto"></v-text-field>
+            </v-col>
+            <v-col cols="12">
+              <v-text-field v-model="titleItemForm.sortName" label="Sort as" hide-details="auto"></v-text-field>
             </v-col>
           </v-row>
         </v-card-text>

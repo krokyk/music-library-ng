@@ -9,6 +9,7 @@ import org.jsoup.nodes.Element;
 import org.kroky.musiclib.provider.DiscographyProvider;
 import org.kroky.musiclib.provider.ProviderException;
 import org.kroky.musiclib.provider.RemoteAlbum;
+import org.kroky.musiclib.model.ReleaseDates;
 
 import jakarta.enterprise.context.ApplicationScoped;
 
@@ -35,14 +36,14 @@ public class SpiritOfMetalProvider implements DiscographyProvider {
                 return albums;
             }
             discography.select("h4[itemprop=name]").forEach(h4 -> {
-                Integer year = null;
+                String releaseDate = null;
                 for (Element el : h4.siblingElements()) {
                     if (el.tagName().equals("div") && "datePublished".equals(el.attr("itemprop"))) {
-                        year = parseYear(el.text());
+                        releaseDate = parseReleaseDate(el.text());
                         break;
                     }
                 }
-                albums.add(new RemoteAlbum(h4.text(), year, null, providerUrl));
+                albums.add(new RemoteAlbum(h4.text(), releaseDate, providerUrl));
             });
             return albums;
         } catch (Exception e) {
@@ -50,9 +51,9 @@ public class SpiritOfMetalProvider implements DiscographyProvider {
         }
     }
 
-    private static Integer parseYear(String value) {
+    private static String parseReleaseDate(String value) {
         try {
-            return Integer.parseInt(value.trim());
+            return ReleaseDates.normalize(value.trim());
         } catch (Exception e) {
             return null;
         }

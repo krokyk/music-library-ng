@@ -25,6 +25,21 @@ public interface MusicLibraryConfig {
     @WithName("ui")
     Ui ui();
 
+    Release release();
+
+    interface Release {
+        Date date();
+    }
+
+    interface Date {
+        Display display();
+    }
+
+    interface Display {
+        @WithDefault("yyyy-MM-dd")
+        String format();
+    }
+
     interface RootDetection {
         List<String> candidates();
 
@@ -78,7 +93,7 @@ public interface MusicLibraryConfig {
         int name();
 
         @WithDefault("100")
-        int year();
+        int releaseDate();
 
         @WithDefault("120")
         int checked();
@@ -91,8 +106,8 @@ public interface MusicLibraryConfig {
         @WithDefault("220")
         int artist();
 
-        @WithDefault("90")
-        int year();
+        @WithDefault("120")
+        int releaseDate();
 
         @WithDefault("120")
         int status();

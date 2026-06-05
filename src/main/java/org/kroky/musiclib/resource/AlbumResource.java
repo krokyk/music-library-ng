@@ -5,9 +5,11 @@ import java.util.List;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.model.Album;
+import org.kroky.musiclib.model.ReleaseDates;
 import org.kroky.musiclib.repository.AlbumRepository;
 
 import jakarta.inject.Inject;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
@@ -44,19 +46,19 @@ public class AlbumResource {
 
     @POST
     public Response create(AlbumRequest request) {
-        LOG.infof("Create album request artistId=%d title='%s' year=%s checked=%s",
-                request.artistId(), request.title(), request.releaseYear(), request.checkedOrDefault());
-        Album album = albums.create(request.artistId(), request.title(), request.releaseYear(),
-                request.releaseDate(), request.checkedOrDefault(), request.notes());
+        LOG.infof("Create album request artistId=%d title='%s' releaseDate='%s' checked=%s",
+                request.artistId(), request.title(), request.releaseDate(), request.checkedOrDefault());
+        Album album = albums.create(request.artistId(), request.title(), request.normalizedReleaseDate(),
+                request.checkedOrDefault(), request.notes());
         return Response.created(URI.create("/api/albums/" + album.id())).entity(album).build();
     }
 
     @PUT
     @Path("/{id}")
     public Album update(@PathParam("id") long id, AlbumRequest request) {
-        LOG.infof("Update album request id=%d title='%s' year=%s checked=%s",
-                id, request.title(), request.releaseYear(), request.checkedOrDefault());
-        return albums.update(id, request.title(), request.releaseYear(), request.releaseDate(),
+        LOG.infof("Update album request id=%d title='%s' releaseDate='%s' checked=%s",
+                id, request.title(), request.releaseDate(), request.checkedOrDefault());
+        return albums.update(id, request.title(), request.normalizedReleaseDate(),
                 request.checkedOrDefault(), request.notes()).orElseThrow(NotFoundException::new);
     }
 
@@ -68,10 +70,17 @@ public class AlbumResource {
         return Response.noContent().build();
     }
 
-    public record AlbumRequest(long artistId, String title, Integer releaseYear, String releaseDate, Boolean checked,
-            String notes) {
+    public record AlbumRequest(long artistId, String title, String releaseDate, Boolean checked, String notes) {
         boolean checkedOrDefault() {
             return checked == null || checked;
+        }
+
+        String normalizedReleaseDate() {
+            try {
+                return ReleaseDates.normalize(releaseDate);
+            } catch (IllegalArgumentException ex) {
+                throw new BadRequestException(ex.getMessage(), ex);
+            }
         }
     }
 }

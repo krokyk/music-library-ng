@@ -71,6 +71,8 @@ Document behavior that a maintainer or user needs to know.
 - Status/history UI should preserve layout stability. Avoid content appearing/disappearing in a way that shifts the main workspace.
 - If text can grow, constrain it with ellipsis, wrapping, or internal scrolling so it does not overlap adjacent controls.
 - Workspace pane data grids should use the custom CSS grid pattern, not Vuetify `v-table`, when columns need resizing or sticky headers. Use explicit pixel column widths, one resize handle per column boundary, a sticky grid header, and a single scroll container owned by the grid. Avoid table/colgroup layout for these panes because native table layout can resize adjacent columns unpredictably and create ghost columns.
+- Workspace pane headers should be clickable for sorting when the column has sortable data. Title-centric `Title` sorting has a separate colored icon inside the `Title` header that switches between display-title sort and `sortName` sort; clicking the rest of the header changes direction.
+- Release date table columns display only the year. If a fuller value is available, show the full release date in a tooltip using the configured display pattern.
 - If the same action can be invoked from multiple places, route all entry points through the same store/action/job path. The visible behavior must be identical: same status bar messages, same polling, same busy indicators, same cancellation behavior when available, and same refresh-after-completion behavior.
 
 ## Settings And Preferences
@@ -85,9 +87,11 @@ Document behavior that a maintainer or user needs to know.
 ## Scanning Behavior
 
 - Collection filesystem scan should be lazy and fast.
-- Initial collection scan populates artists only. Do not populate albums during collection scan.
+- Artist-centric collection scans populate artists only. Do not populate albums during artist-centric collection scans.
+- Title-centric collection scans populate title items, and also populate artist/album/local-path rows when the title parser has a credible artist value.
+- Comma-separated title artists, such as `Max Richter, Lorne Balfe`, must populate separate artist rows and link the same album to each artist. Do not create a single composite artist for that string.
 - Artists discovered from folders should be created in readable title case, not all caps.
-- Albums should be loaded or scanned only when the user explicitly drills into artist/album workflows or provider checks require it.
+- Artist-centric albums should be loaded or scanned only when the user explicitly drills into artist/album workflows or provider checks require it.
 - Progress should reflect actual work where practical, but do not make scans materially slower just to improve animation.
 - Any collection scan trigger, including Settings and collection row actions, must use the scan job flow so status history, status bar progress, row spinners/progress, polling, and post-scan refresh are consistent.
 
@@ -98,8 +102,11 @@ Document behavior that a maintainer or user needs to know.
 - Parser/layout answers how folders encode metadata, for example `FLAT_ARTIST_YEAR_ALBUM`, `NESTED_ARTIST_ALBUM`, or `TITLE_PIPELINE`.
 - Do not normalize by renaming folders on disk. Keep raw folder/path values as evidence and normalize into DB metadata fields.
 - Parsed metadata should be user-editable. Track whether metadata came from automatic parsing or manual override so later scans do not overwrite manual fixes.
-- Title-centric collections such as soundtracks need a parser pipeline, not one regex. Parse the final metadata suffix first, e.g. `Title (Artist, Year)`, while preserving inner parentheses in titles.
-- Ambiguous title folders should be stored with partial metadata and a parse status instead of forcing bad artist/year values.
+- Title-centric collections such as soundtracks need a parser pipeline, not one regex. Parse the final metadata suffix first, e.g. `Title (Artist, Release Date)`, while preserving inner parentheses in titles.
+- Release date is stored as canonical text. `releaseDate` may be a year, year-month, or full date such as `2006-03-13`; year display, chronological sorting, and filtering derive from that value.
+- Album ownership is many-to-many through album/artist links. Do not reintroduce a single `artist_id` owner on albums.
+- Title items also store `sortName`/`sort_name` for chronology/grouping. Auto sort names can be regenerated from parsed title metadata, but manually edited sort names must be preserved across scans.
+- Ambiguous title folders should be stored with partial metadata and a parse status instead of forcing bad artist/release values.
 - Future artist-centric nested layouts should be handled by adding a new parser/layout while keeping type `ARTIST`.
 
 ## Build And Test Commands

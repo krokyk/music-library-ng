@@ -17,6 +17,11 @@ Title-centric collections use a different flow:
 Collections -> Titles
 ```
 
+When a title-centric row has parsed or manually entered artist metadata, scans
+and title metadata saves also populate the shared artist, album, and local-path
+tables. Ambiguous title-only rows remain title-only until artist metadata is
+available.
+
 The initial title-centric use case is `SOUNDTRACKS`.
 
 ## Data Model
@@ -34,10 +39,12 @@ The initial title-centric use case is `SOUNDTRACKS`.
   - `relative_path`
   - `title`
   - `artist_name`
-  - `year`
-  - `metadata_source`: `AUTO` or `MANUAL`
+  - `release_date`: raw release value, for example `2023`, `2023-05`, or `2006-03-13`
+  - `sort_name`
+  - `sort_name_source`: `AUTO` or `MANUAL`
   - `parse_status`: `EXACT`, `PARTIAL`, `TITLE_ONLY`, or `MANUAL`
   - seen/timestamp fields
+- Add `album_artists` so one album/title can be linked to more than one artist.
 - Keep raw folder/path values as evidence.
 - Normalize metadata into DB fields.
 - Do not rename folders on disk as part of normalization.
@@ -48,22 +55,35 @@ Add a title parser pipeline for soundtrack/title collections.
 
 Rules, in order:
 
-1. Final `(artist, year)` suffix, preserving inner title parentheses.
+1. Final `(artist, release date)` suffix, preserving inner title parentheses.
    - `Ahsoka - Vol. 1 (Episodes 1-4) (Kevin Kiner, 2023)`
-2. Final `(year)` suffix.
+   - `Ad Astra (Max Richter, Lorne Balfe, 2019)`
+2. Final `(release date)` suffix.
    - `Conan the Barbarian (2011)`
-3. `Title - YYYY`.
+3. `Title - YYYY` or `Title - YYYY-MM-DD`.
    - `World of Warcraft - 2004`
-4. `Title - YYYY - Subtitle`.
+4. `Title - YYYY - Subtitle` or `Title - YYYY-MM-DD - Subtitle`.
    - `World of Warcraft - 2007 - The Burning Crusade`
 5. Fallback title-only.
    - `Clash of the Titans`
    - `Wojciech Kilar - The Best`
 
-Manual edits must be protected:
+Year display, chronological sorting, and filtering derive from `release_date`.
+Manual edits preserve the entered release text.
 
-- `metadata_source = AUTO`: scanner may update parsed metadata.
-- `metadata_source = MANUAL`: scanner updates path/seen state only.
+Auto `sort_name` should be generated from structured pieces, for example:
+
+```text
+World of Warcraft | 2007 | The Burning Crusade
+```
+
+Manual `sort_name` edits must be protected across future scans.
+
+Manual edits must be protected by `parse_status = MANUAL`: scanner updates
+path/seen state only and does not overwrite title metadata.
+
+Comma-separated title artists are kept as display text in the title row, but
+split into separate artists when populating shared artist/album/local-path data.
 
 ## Collections Pane
 
@@ -99,7 +119,7 @@ Collections | Titles
 The title table must include at least:
 
 ```text
-Title | Artist | Year
+Title | Artist | Release date
 ```
 
 Also include parse status and actions when useful.
@@ -108,12 +128,12 @@ Title item editing should allow fixing:
 
 - title
 - artist
-- year
+- release date
+- sort as
 
 Saving manual edits sets:
 
 ```text
-metadata_source = MANUAL
 parse_status = MANUAL
 ```
 
@@ -121,6 +141,13 @@ parse_status = MANUAL
 
 - Table headers should be resizable by dragging.
 - Double-clicking a header resize handle should autosize to the longest visible text in the column.
+- Table headers should be clickable for sorting.
+- Title-centric `Title` sorting has two modes:
+  - display title
+  - `sort_name`
+- The title sort-mode toggle lives inside the `Title` header as a distinct colored clickable icon.
+- Release date columns display only the year in the table; full release dates are shown in hover tooltips.
+- Artist-centric albums default to release-date ascending sort.
 - Changed column widths are stored in DB preferences.
 - Default column widths are stored in `application.properties`.
 - Scope widths by view/table:

@@ -8,6 +8,7 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -42,15 +43,15 @@ public class AlbumRepository {
     public List<Album> list(Long artistId, String collectionId, Boolean checked, Boolean hasLocalPath, String search) {
         LOG.debugf("Listing albums artistId=%s collectionId=%s checked=%s hasLocalPath=%s search='%s'",
                 artistId, collectionId, checked, hasLocalPath, search);
-        String sql = """
-                SELECT a.id, a.artist_id, ar.name AS artist_name, a.title, a.release_year, a.release_date,
-                       a.checked, a.notes, a.created_at, a.updated_at
-                FROM albums a
-                JOIN artists ar ON ar.id = a.artist_id
-                WHERE (? IS NULL OR a.artist_id = ?)
+        String sql = selectAlbums("""
+                WHERE (? IS NULL OR EXISTS (
+                    SELECT 1 FROM album_artists aa_filter
+                    WHERE aa_filter.album_id = a.id AND aa_filter.artist_id = ?
+                ))
                   AND (? IS NULL OR EXISTS (
-                      SELECT 1 FROM artist_collections ac
-                      WHERE ac.artist_id = a.artist_id AND ac.collection_id = ?
+                      SELECT 1 FROM album_artists aa_collection
+                      JOIN artist_collections ac ON ac.artist_id = aa_collection.artist_id
+                      WHERE aa_collection.album_id = a.id AND ac.collection_id = ?
                   ))
                   AND (? IS NULL OR a.checked = ?)
                   AND (
@@ -64,9 +65,17 @@ public class AlbumRepository {
                         WHERE lp.album_id = a.id AND lp.missing_since IS NULL
                     ))
                   )
-                  AND (? IS NULL OR a.normalized_title LIKE '%' || ? || '%' OR ar.normalized_name LIKE '%' || ? || '%')
-                ORDER BY ar.name, a.release_year, a.title
-                """;
+                  AND (
+                    ? IS NULL
+                    OR a.normalized_title LIKE '%' || ? || '%'
+                    OR EXISTS (
+                        SELECT 1 FROM album_artists aa_search
+                        JOIN artists ar_search ON ar_search.id = aa_search.artist_id
+                        WHERE aa_search.album_id = a.id
+                          AND ar_search.normalized_name LIKE '%' || ? || '%'
+                    )
+                  )
+                """);
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             String normalizedSearch = search == null || search.isBlank() ? null : Names.normalize(search);
@@ -97,13 +106,7 @@ public class AlbumRepository {
 
     public Optional<Album> find(long id) {
         LOG.tracef("Finding album id=%d", id);
-        String sql = """
-                SELECT a.id, a.artist_id, ar.name AS artist_name, a.title, a.release_year, a.release_date,
-                       a.checked, a.notes, a.created_at, a.updated_at
-                FROM albums a
-                JOIN artists ar ON ar.id = a.artist_id
-                WHERE a.id = ?
-                """;
+        String sql = selectAlbums("WHERE a.id = ?");
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, id);
@@ -115,63 +118,42 @@ public class AlbumRepository {
         }
     }
 
-    public Optional<Album> findDuplicate(long artistId, String title, Integer releaseYear) {
-        String sql = """
-                SELECT a.id, a.artist_id, ar.name AS artist_name, a.title, a.release_year, a.release_date,
-                       a.checked, a.notes, a.created_at, a.updated_at
-                FROM albums a
-                JOIN artists ar ON ar.id = a.artist_id
-                WHERE a.artist_id = ? AND a.normalized_title = ?
-                  AND coalesce(a.release_year, -1) = coalesce(?, -1)
-                """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, artistId);
-            statement.setString(2, Names.normalize(title));
-            setNullableInt(statement, 3, releaseYear);
-            try (ResultSet rs = statement.executeQuery()) {
-                return rs.next() ? Optional.of(mapAlbum(rs)) : Optional.empty();
-            }
+    public Optional<Album> findDuplicate(long artistId, String title, String releaseDate) {
+        try (Connection connection = dataSource.getConnection()) {
+            Optional<Long> id = findDuplicateId(connection, artistId, title, releaseDate);
+            return id.flatMap(this::find);
         } catch (Exception e) {
             throw new IllegalStateException("Unable to find album duplicate", e);
         }
     }
 
-    public Album create(long artistId, String title, Integer releaseYear, String releaseDate, boolean checked,
-            String notes) {
-        LOG.infof("Creating album artistId=%d title='%s' year=%s checked=%s",
-                artistId, title, releaseYear, checked);
-        String sql = """
-                INSERT INTO albums (artist_id, title, normalized_title, release_year, release_date, checked, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            statement.setLong(1, artistId);
-            statement.setString(2, title);
-            statement.setString(3, Names.normalize(title));
-            setNullableInt(statement, 4, releaseYear);
-            statement.setString(5, blankToNull(releaseDate));
-            statement.setInt(6, checked ? 1 : 0);
-            statement.setString(7, blankToNull(notes));
-            statement.executeUpdate();
-            try (ResultSet keys = statement.getGeneratedKeys()) {
-                if (keys.next()) {
-                    return find(keys.getLong(1)).orElseThrow();
-                }
+    public Album create(long artistId, String title, String releaseDate, boolean checked, String notes) {
+        LOG.infof("Creating album artistId=%d title='%s' releaseDate='%s' checked=%s",
+                artistId, title, releaseDate, checked);
+        try (Connection connection = dataSource.getConnection()) {
+            boolean autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try {
+                long albumId = insertAlbum(connection, title, releaseDate, checked, notes);
+                replaceArtists(connection, albumId, List.of(artistId));
+                connection.commit();
+                return find(albumId).orElseThrow();
+            } catch (Exception e) {
+                rollbackQuietly(connection);
+                throw e;
+            } finally {
+                connection.setAutoCommit(autoCommit);
             }
-            throw new IllegalStateException("Album insert returned no id");
         } catch (Exception e) {
             throw new IllegalStateException("Unable to create album " + title, e);
         }
     }
 
-    public Optional<Album> update(long id, String title, Integer releaseYear, String releaseDate, boolean checked,
-            String notes) {
-        LOG.infof("Updating album id=%d title='%s' year=%s checked=%s", id, title, releaseYear, checked);
+    public Optional<Album> update(long id, String title, String releaseDate, boolean checked, String notes) {
+        LOG.infof("Updating album id=%d title='%s' releaseDate='%s' checked=%s", id, title, releaseDate, checked);
         String sql = """
                 UPDATE albums
-                SET title = ?, normalized_title = ?, release_year = ?, release_date = ?,
+                SET title = ?, normalized_title = ?, release_date = ?,
                     checked = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """;
@@ -179,11 +161,10 @@ public class AlbumRepository {
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, title);
             statement.setString(2, Names.normalize(title));
-            setNullableInt(statement, 3, releaseYear);
-            statement.setString(4, blankToNull(releaseDate));
-            statement.setInt(5, checked ? 1 : 0);
-            statement.setString(6, blankToNull(notes));
-            statement.setLong(7, id);
+            statement.setString(3, blankToNull(releaseDate));
+            statement.setInt(4, checked ? 1 : 0);
+            statement.setString(5, blankToNull(notes));
+            statement.setLong(6, id);
             statement.executeUpdate();
             return find(id);
         } catch (Exception e) {
@@ -202,53 +183,58 @@ public class AlbumRepository {
         }
     }
 
-    public UpsertResult upsertScanned(long artistId, String title, Integer releaseYear, String relativePath,
+    public UpsertResult upsertScanned(long artistId, String title, String releaseDate, String relativePath,
             String collectionId) {
-        Optional<Album> existing = findDuplicate(artistId, title, releaseYear);
-        if (existing.isPresent()) {
-            if (!existing.get().checked()) {
-                markChecked(existing.get().id());
-            }
-            upsertLocalPath(existing.get().id(), collectionId, relativePath);
-            return new UpsertResult(existing.get().id(), false);
+        return upsertScanned(List.of(artistId), title, releaseDate, relativePath, collectionId);
+    }
+
+    public UpsertResult upsertScanned(List<Long> artistIds, String title, String releaseDate, String relativePath,
+            String collectionId) {
+        List<Long> normalizedArtistIds = uniqueArtistIds(artistIds);
+        if (normalizedArtistIds.isEmpty()) {
+            throw new IllegalArgumentException("At least one artist is required to upsert a scanned album");
         }
-        Album created = create(artistId, title, releaseYear, null, true, null);
-        upsertLocalPath(created.id(), collectionId, relativePath);
-        return new UpsertResult(created.id(), true);
+
+        try (Connection connection = dataSource.getConnection()) {
+            boolean autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try {
+                Optional<Long> localAlbumId = findAlbumIdByLocalPath(connection, collectionId, relativePath);
+                long albumId;
+                boolean created = false;
+                if (localAlbumId.isPresent()) {
+                    albumId = localAlbumId.get();
+                    updateScannedAlbum(connection, albumId, title, releaseDate);
+                } else {
+                    Optional<Long> duplicateAlbumId = findDuplicateId(connection, normalizedArtistIds, title, releaseDate);
+                    if (duplicateAlbumId.isPresent()) {
+                        albumId = duplicateAlbumId.get();
+                        updateScannedAlbum(connection, albumId, title, releaseDate);
+                    } else {
+                        albumId = insertAlbum(connection, title, releaseDate, true, null);
+                        created = true;
+                    }
+                }
+                replaceArtists(connection, albumId, normalizedArtistIds);
+                upsertLocalPath(connection, albumId, collectionId, relativePath);
+                connection.commit();
+                return new UpsertResult(albumId, created);
+            } catch (Exception e) {
+                rollbackQuietly(connection);
+                throw e;
+            } finally {
+                connection.setAutoCommit(autoCommit);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to upsert scanned album " + title, e);
+        }
     }
 
     public void upsertLocalPath(long albumId, String collectionId, String relativePath) {
-        String sql = """
-                INSERT INTO album_local_paths (album_id, collection_id, relative_path, last_seen_at, missing_since)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP, NULL)
-                ON CONFLICT(collection_id, relative_path) DO UPDATE SET
-                    album_id = excluded.album_id,
-                    last_seen_at = CURRENT_TIMESTAMP,
-                    missing_since = NULL
-                """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, albumId);
-            statement.setString(2, collectionId);
-            statement.setString(3, relativePath);
-            statement.executeUpdate();
+        try (Connection connection = dataSource.getConnection()) {
+            upsertLocalPath(connection, albumId, collectionId, relativePath);
         } catch (Exception e) {
             throw new IllegalStateException("Unable to upsert album local path", e);
-        }
-    }
-
-    private void markChecked(long albumId) {
-        String sql = """
-                UPDATE albums
-                SET checked = 1, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ? AND checked = 0
-                """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, albumId);
-            statement.executeUpdate();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to mark scanned album checked " + albumId, e);
         }
     }
 
@@ -286,6 +272,177 @@ public class AlbumRepository {
         }
     }
 
+    public void deleteOrphanAlbums() {
+        String sql = """
+                DELETE FROM albums
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM album_artists aa
+                    WHERE aa.album_id = albums.id
+                )
+                """;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.executeUpdate();
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to delete orphan albums", e);
+        }
+    }
+
+    private static String selectAlbums(String whereClause) {
+        return """
+                SELECT a.id,
+                       coalesce((
+                           SELECT group_concat(artist_id, ',') FROM (
+                               SELECT aa.artist_id AS artist_id
+                               FROM album_artists aa
+                               JOIN artists ar ON ar.id = aa.artist_id
+                               WHERE aa.album_id = a.id
+                               ORDER BY aa.position, ar.name
+                           )
+                       ), '') AS artist_ids,
+                       coalesce((
+                           SELECT group_concat(name, ', ') FROM (
+                               SELECT ar.name AS name
+                               FROM album_artists aa
+                               JOIN artists ar ON ar.id = aa.artist_id
+                               WHERE aa.album_id = a.id
+                               ORDER BY aa.position, ar.name
+                           )
+                       ), '') AS artist_name,
+                       a.title, a.release_date, a.checked, a.notes, a.created_at, a.updated_at
+                FROM albums a
+                """
+                + whereClause
+                + "\n"
+                + """
+                ORDER BY artist_name, a.release_date, a.title
+                """;
+    }
+
+    private long insertAlbum(Connection connection, String title, String releaseDate, boolean checked, String notes)
+            throws Exception {
+        String sql = """
+                INSERT INTO albums (title, normalized_title, release_date, checked, notes)
+                VALUES (?, ?, ?, ?, ?)
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            statement.setString(1, title);
+            statement.setString(2, Names.normalize(title));
+            statement.setString(3, blankToNull(releaseDate));
+            statement.setInt(4, checked ? 1 : 0);
+            statement.setString(5, blankToNull(notes));
+            statement.executeUpdate();
+            try (ResultSet keys = statement.getGeneratedKeys()) {
+                if (keys.next()) {
+                    return keys.getLong(1);
+                }
+            }
+            throw new IllegalStateException("Album insert returned no id");
+        }
+    }
+
+    private void updateScannedAlbum(Connection connection, long albumId, String title, String releaseDate)
+            throws Exception {
+        String sql = """
+                UPDATE albums
+                SET title = ?, normalized_title = ?, release_date = ?,
+                    checked = 1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, title);
+            statement.setString(2, Names.normalize(title));
+            statement.setString(3, blankToNull(releaseDate));
+            statement.setLong(4, albumId);
+            statement.executeUpdate();
+        }
+    }
+
+    private Optional<Long> findDuplicateId(Connection connection, List<Long> artistIds, String title, String releaseDate)
+            throws Exception {
+        for (long artistId : artistIds) {
+            Optional<Long> albumId = findDuplicateId(connection, artistId, title, releaseDate);
+            if (albumId.isPresent()) {
+                return albumId;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<Long> findDuplicateId(Connection connection, long artistId, String title, String releaseDate)
+            throws Exception {
+        String sql = """
+                SELECT a.id
+                FROM albums a
+                JOIN album_artists aa ON aa.album_id = a.id
+                WHERE aa.artist_id = ? AND a.normalized_title = ?
+                  AND coalesce(a.release_date, '') = coalesce(?, '')
+                ORDER BY a.id
+                LIMIT 1
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, artistId);
+            statement.setString(2, Names.normalize(title));
+            statement.setString(3, blankToNull(releaseDate));
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next() ? Optional.of(rs.getLong("id")) : Optional.empty();
+            }
+        }
+    }
+
+    private Optional<Long> findAlbumIdByLocalPath(Connection connection, String collectionId, String relativePath)
+            throws Exception {
+        String sql = """
+                SELECT album_id
+                FROM album_local_paths
+                WHERE collection_id = ? AND relative_path = ?
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, collectionId);
+            statement.setString(2, relativePath);
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next() ? Optional.of(rs.getLong("album_id")) : Optional.empty();
+            }
+        }
+    }
+
+    private void replaceArtists(Connection connection, long albumId, List<Long> artistIds) throws Exception {
+        try (PreparedStatement delete = connection.prepareStatement("DELETE FROM album_artists WHERE album_id = ?");
+                PreparedStatement insert = connection.prepareStatement("""
+                        INSERT OR REPLACE INTO album_artists (album_id, artist_id, position)
+                        VALUES (?, ?, ?)
+                        """)) {
+            delete.setLong(1, albumId);
+            delete.executeUpdate();
+            int position = 0;
+            for (long artistId : uniqueArtistIds(artistIds)) {
+                insert.setLong(1, albumId);
+                insert.setLong(2, artistId);
+                insert.setInt(3, position++);
+                insert.addBatch();
+            }
+            insert.executeBatch();
+        }
+    }
+
+    private void upsertLocalPath(Connection connection, long albumId, String collectionId, String relativePath)
+            throws Exception {
+        String sql = """
+                INSERT INTO album_local_paths (album_id, collection_id, relative_path, last_seen_at, missing_since)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP, NULL)
+                ON CONFLICT(collection_id, relative_path) DO UPDATE SET
+                    album_id = excluded.album_id,
+                    last_seen_at = CURRENT_TIMESTAMP,
+                    missing_since = NULL
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, albumId);
+            statement.setString(2, collectionId);
+            statement.setString(3, relativePath);
+            statement.executeUpdate();
+        }
+    }
+
     private Album mapAlbum(ResultSet rs) throws Exception {
         long albumId = rs.getLong("id");
         List<AlbumLocalPath> localPaths = listPaths(albumId);
@@ -293,10 +450,9 @@ public class AlbumRepository {
         boolean onDisk = localPaths.stream().anyMatch(path -> path.missingSince() == null && path.onDisk());
         return new Album(
                 albumId,
-                rs.getLong("artist_id"),
+                parseArtistIds(rs.getString("artist_ids")),
                 rs.getString("artist_name"),
                 rs.getString("title"),
-                (Integer) rs.getObject("release_year"),
                 rs.getString("release_date"),
                 rs.getInt("checked") == 1,
                 hasLocalPath,
@@ -357,6 +513,33 @@ public class AlbumRepository {
         }
     }
 
+    private static List<Long> parseArtistIds(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        List<Long> artistIds = new ArrayList<>();
+        for (String item : value.split(",")) {
+            String trimmed = item.trim();
+            if (!trimmed.isBlank()) {
+                artistIds.add(Long.parseLong(trimmed));
+            }
+        }
+        return artistIds;
+    }
+
+    private static List<Long> uniqueArtistIds(List<Long> artistIds) {
+        if (artistIds == null || artistIds.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> unique = new LinkedHashSet<>();
+        for (Long artistId : artistIds) {
+            if (artistId != null && artistId > 0) {
+                unique.add(artistId);
+            }
+        }
+        return new ArrayList<>(unique);
+    }
+
     private static void setNullableLong(PreparedStatement statement, int index, Long value) throws Exception {
         if (value == null) {
             statement.setObject(index, null);
@@ -373,15 +556,14 @@ public class AlbumRepository {
         }
     }
 
-    private static void setNullableInt(PreparedStatement statement, int index, Integer value) throws Exception {
-        if (value == null) {
-            statement.setObject(index, null);
-        } else {
-            statement.setInt(index, value);
-        }
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
+    private static void rollbackQuietly(Connection connection) {
+        try {
+            connection.rollback();
+        } catch (Exception ignored) {
+        }
     }
 }

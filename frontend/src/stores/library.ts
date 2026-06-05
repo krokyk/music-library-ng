@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { apiGet, apiSend } from '@/api'
+import { formatDateWithJavaPattern } from '@/dateFormat'
 import type {
   Album,
   Artist,
@@ -74,13 +75,13 @@ const defaultWorkspaceColumnDefaults = {
   },
   album: {
     name: 360,
-    year: 100,
+    releaseDate: 140,
     checked: 120,
   },
   title: {
     title: 460,
     artist: 220,
-    year: 90,
+    releaseDate: 150,
     status: 120,
   },
 }
@@ -110,6 +111,7 @@ export const useLibraryStore = defineStore('library', {
       collectionScanSpinnerEnabled: true,
       collectionScanProgressEnabled: true,
       statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
+      releaseDateDisplayFormat: 'yyyy-MM-dd',
       statusBarLocation: 'top',
       workspaceColumnDefaults: defaultWorkspaceColumnDefaults,
       defaults: {
@@ -118,6 +120,7 @@ export const useLibraryStore = defineStore('library', {
         collectionScanSpinnerEnabled: true,
         collectionScanProgressEnabled: true,
         statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
+        releaseDateDisplayFormat: 'yyyy-MM-dd',
         statusBarLocation: 'top',
         workspaceColumnDefaults: defaultWorkspaceColumnDefaults,
       },
@@ -127,6 +130,7 @@ export const useLibraryStore = defineStore('library', {
         collectionScanSpinnerEnabled: false,
         collectionScanProgressEnabled: false,
         statusHistoryDateFormat: false,
+        releaseDateDisplayFormat: false,
         statusBarLocation: false,
       },
     },
@@ -276,7 +280,7 @@ export const useLibraryStore = defineStore('library', {
         `/api/collections/${encodeURIComponent(this.selectedCollectionId)}/titles`,
       )
     },
-    async updateTitleItem(item: CollectionTitleItem, payload: { title: string; artistName?: string | null; year?: number | null }) {
+    async updateTitleItem(item: CollectionTitleItem, payload: { title: string; artistName?: string | null; releaseDate?: string | null; sortName?: string | null }) {
       const updated = await apiSend<CollectionTitleItem>(
         `/api/collections/${encodeURIComponent(item.collectionId)}/titles/${item.id}`,
         'PUT',
@@ -361,16 +365,14 @@ export const useLibraryStore = defineStore('library', {
       await this.refreshCollectionContext()
       return artist
     },
-    async addAlbum(artistId: number, title: string, releaseYear: number | null, checked: boolean) {
-      const album = await apiSend<Album>('/api/albums', 'POST', { artistId, title, releaseYear, checked })
+    async addAlbum(artistId: number, title: string, releaseDate: string | null, checked: boolean) {
+      const album = await apiSend<Album>('/api/albums', 'POST', { artistId, title, releaseDate, checked })
       this.albums = [album, ...this.albums.filter((item) => item.id !== album.id)]
       await this.refreshCollectionContext()
     },
     async updateAlbum(album: Album) {
       const updated = await apiSend<Album>(`/api/albums/${album.id}`, 'PUT', {
-        artistId: album.artistId,
         title: album.title,
-        releaseYear: album.releaseYear,
         releaseDate: album.releaseDate,
         checked: album.checked,
         notes: album.notes,
@@ -524,64 +526,4 @@ function providerSummaryState(summary: ProviderCheckSummary): StatusHistoryEntry
     return 'warning'
   }
   return 'done'
-}
-
-function formatDateWithJavaPattern(date: Date, pattern: string) {
-  const safePattern = pattern || 'yyyy-MM-dd HH:mm:ss.SSS'
-  let formatted = ''
-  let quoteOpen = false
-
-  for (let index = 0; index < safePattern.length;) {
-    const char = safePattern[index]
-    if (char === "'") {
-      if (safePattern[index + 1] === "'") {
-        formatted += "'"
-        index += 2
-      } else {
-        quoteOpen = !quoteOpen
-        index++
-      }
-      continue
-    }
-    if (quoteOpen) {
-      formatted += char
-      index++
-      continue
-    }
-
-    let end = index + 1
-    while (end < safePattern.length && safePattern[end] === char) {
-      end++
-    }
-    formatted += formatDateToken(date, char, end - index)
-    index = end
-  }
-
-  return formatted
-}
-
-function formatDateToken(date: Date, char: string, length: number) {
-  switch (char) {
-    case 'y':
-    case 'Y':
-      return length === 2 ? pad(date.getFullYear() % 100, 2) : pad(date.getFullYear(), length)
-    case 'M':
-      return pad(date.getMonth() + 1, length)
-    case 'd':
-      return pad(date.getDate(), length)
-    case 'H':
-      return pad(date.getHours(), length)
-    case 'm':
-      return pad(date.getMinutes(), length)
-    case 's':
-      return pad(date.getSeconds(), length)
-    case 'S':
-      return pad(date.getMilliseconds(), 3).slice(0, Math.max(1, Math.min(length, 3)))
-    default:
-      return char.repeat(length)
-  }
-}
-
-function pad(value: number, length: number) {
-  return String(value).padStart(length, '0')
 }
