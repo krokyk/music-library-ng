@@ -29,12 +29,20 @@ public class ScanJobService {
     }
 
     public ScanJobStatus start(String collectionId) {
+        return start("COLLECTION", collectionId, null);
+    }
+
+    public ScanJobStatus startLocalAlbums(String collectionId, Long artistId) {
+        return start("LOCAL_ALBUMS", collectionId, artistId);
+    }
+
+    private ScanJobStatus start(String kind, String collectionId, Long artistId) {
         ScanJob existing = currentJob.get();
         if (existing != null && existing.isRunning()) {
             return existing.status();
         }
 
-        ScanJob job = new ScanJob(UUID.randomUUID().toString(), blankToNull(collectionId));
+        ScanJob job = new ScanJob(UUID.randomUUID().toString(), kind, blankToNull(collectionId), artistId);
         currentJob.set(job);
         executor.submit(() -> run(job));
         return job.status();
@@ -73,13 +81,11 @@ public class ScanJobService {
                 }
             };
 
-            List<ScanSummary> summaries = job.requestedCollectionId == null
-                    ? scanService.scanAllEnabled(progress)
-                    : List.of(scanService.scan(job.requestedCollectionId, progress));
+            List<ScanSummary> summaries = runScan(job, progress);
             if (job.cancelRequested.get()) {
                 job.finish("CANCELLED", "Scan cancelled.");
             } else {
-                job.finish("DONE", summarize(summaries), summaries);
+                job.finish("DONE", summarize(job.kind, summaries), summaries);
             }
         } catch (Exception e) {
             if (job.cancelRequested.get()) {
@@ -90,11 +96,25 @@ public class ScanJobService {
         }
     }
 
-    private static String summarize(List<ScanSummary> summaries) {
+    private List<ScanSummary> runScan(ScanJob job, ScanService.ProgressListener progress) {
+        if ("LOCAL_ALBUMS".equals(job.kind)) {
+            return List.of(scanService.scanLocalAlbums(job.requestedCollectionId, job.requestedArtistId, progress));
+        }
+        return job.requestedCollectionId == null
+                ? scanService.scanAllEnabled(progress)
+                : List.of(scanService.scan(job.requestedCollectionId, progress));
+    }
+
+    private static String summarize(String kind, List<ScanSummary> summaries) {
         int parsed = summaries.stream().mapToInt(ScanSummary::parsedCount).sum();
         int created = summaries.stream().mapToInt(ScanSummary::createdCount).sum();
         int updated = summaries.stream().mapToInt(ScanSummary::updatedCount).sum();
         int skipped = summaries.stream().mapToInt(ScanSummary::skippedCount).sum();
+        int missing = summaries.stream().mapToInt(ScanSummary::missingCount).sum();
+        if ("LOCAL_ALBUMS".equals(kind)) {
+            return "Local album scan complete: " + parsed + " albums, " + created + " new, "
+                    + updated + " existing, " + missing + " missing, " + skipped + " skipped.";
+        }
         return "Scan complete: " + parsed + " parsed, " + created + " created, "
                 + updated + " updated, " + skipped + " skipped.";
     }
@@ -104,12 +124,14 @@ public class ScanJobService {
     }
 
     private static ScanJobStatus idleStatus() {
-        return new ScanJobStatus("", "IDLE", null, null, 0, 0, 0, 0, 0, false, null);
+        return new ScanJobStatus("", "IDLE", "COLLECTION", null, null, null, 0, 0, 0, 0, 0, false, null);
     }
 
     private static class ScanJob {
         private final String id;
+        private final String kind;
         private final String requestedCollectionId;
+        private final Long requestedArtistId;
         private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
         private String status = "RUNNING";
         private String activeCollectionId;
@@ -120,9 +142,11 @@ public class ScanJobService {
         private int skippedCount;
         private String message = "Scan starting.";
 
-        private ScanJob(String id, String requestedCollectionId) {
+        private ScanJob(String id, String kind, String requestedCollectionId, Long requestedArtistId) {
             this.id = id;
+            this.kind = kind;
             this.requestedCollectionId = requestedCollectionId;
+            this.requestedArtistId = requestedArtistId;
         }
 
         synchronized boolean isRunning() {
@@ -133,7 +157,9 @@ public class ScanJobService {
             this.activeCollectionId = collectionId;
             this.itemTotal = itemTotal;
             this.itemProcessed = 0;
-            this.message = "Scanning " + collectionId + ".";
+            this.message = "LOCAL_ALBUMS".equals(kind)
+                    ? "Scanning local albums for " + (requestedArtistId == null ? collectionId : "artist " + requestedArtistId)
+                    : "Scanning " + collectionId + ".";
         }
 
         synchronized void itemProcessed(String collectionId, int itemProcessed) {
@@ -163,7 +189,9 @@ public class ScanJobService {
             return new ScanJobStatus(
                     id,
                     status,
+                    kind,
                     requestedCollectionId,
+                    requestedArtistId,
                     activeCollectionId,
                     itemTotal,
                     itemProcessed,

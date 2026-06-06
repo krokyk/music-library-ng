@@ -53,6 +53,27 @@ public class ArtistProviderLinkRepository {
         }
     }
 
+    public List<ArtistProviderLink> listEnabledByCollection(String collectionId) {
+        String sql = baseSelect() + """
+                 JOIN artist_collections ac ON ac.artist_id = apl.artist_id
+                 WHERE apl.enabled = 1 AND ac.collection_id = ?
+                 ORDER BY ar.name, apl.provider_id
+                """;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, collectionId);
+            try (ResultSet rs = statement.executeQuery()) {
+                List<ArtistProviderLink> links = new ArrayList<>();
+                while (rs.next()) {
+                    links.add(map(rs));
+                }
+                return links;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to list enabled provider links for collection " + collectionId, e);
+        }
+    }
+
     public Optional<ArtistProviderLink> find(long id) {
         String sql = baseSelect() + " WHERE apl.id = ?";
         try (Connection connection = dataSource.getConnection();

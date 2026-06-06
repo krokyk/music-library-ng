@@ -262,6 +262,7 @@ $metricsJs = @'
       artistsPane: box('.artists-pane'),
       artistsGrid: box('.artists-pane .workspace-grid'),
       albumsPane: box('.albums-pane'),
+      albumsGrid: box('.albums-pane .workspace-grid'),
       titlesPane: box('.titles-pane'),
       titlesGrid: box('.titles-pane .workspace-grid')
     }
@@ -311,6 +312,15 @@ try {
     $artistPath = Join-Path $OutputDir "musiclib-artist-collection.png"
     Save-Screenshot $socket $artistPath
 
+    Eval-Js $socket "(() => { const row = document.querySelector('.artists-pane .workspace-row'); if (!row) return false; row.click(); return true; })()" | Out-Null
+    if (-not (Wait-ForJs $socket "(() => { const meta = document.querySelector('.albums-pane .pane-header__meta'); if (!meta || !meta.textContent.trim()) return false; return !!(document.querySelector('.albums-pane .workspace-grid') || Array.from(document.querySelectorAll('.albums-pane .pane-empty')).find((node) => !node.textContent.includes('Select an artist'))); })()" 8000)) {
+        throw "$ArtistCollection album pane did not render after selecting an artist."
+    }
+    Start-Sleep -Milliseconds 500
+    $album = Eval-Js $socket $metricsJs
+    $albumPath = Join-Path $OutputDir "musiclib-album-selection.png"
+    Save-Screenshot $socket $albumPath
+
     Eval-Js $socket "(() => { const row = Array.from(document.querySelectorAll('.nav-row')).find((node) => node.textContent.includes('$TitleCollection')); if (!row) return false; row.click(); return true; })()" | Out-Null
     if (-not (Wait-ForJs $socket "document.querySelectorAll('.titles-pane .workspace-row').length > 0" 8000)) {
         throw "$TitleCollection titles did not render."
@@ -325,10 +335,12 @@ try {
         screenshots = @{
             initial = $initialPath
             artist = $artistPath
+            album = $albumPath
             title = $titlePath
         }
         initial = $initial
         artist = $artist
+        album = $album
         title = $title
     } | ConvertTo-Json -Depth 30
 } finally {

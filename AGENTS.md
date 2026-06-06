@@ -88,6 +88,7 @@ Document behavior that a maintainer or user needs to know.
 
 - Collection filesystem scan should be lazy and fast.
 - Artist-centric collection scans populate artists only. Do not populate albums during artist-centric collection scans.
+- Artist-centric local album scans are explicit maintenance actions. They may populate albums and local paths, but must not run merely because an artist row was clicked.
 - Title-centric collection scans populate title items, and also populate artist/album/local-path rows when the title parser has a credible artist value.
 - Comma-separated title artists, such as `Max Richter, Lorne Balfe`, must populate separate artist rows and link the same album to each artist. Do not create a single composite artist for that string.
 - Artists discovered from folders should be created in readable title case, not all caps.

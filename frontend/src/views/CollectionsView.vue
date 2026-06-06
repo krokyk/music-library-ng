@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 import { formatDateWithJavaPattern } from '@/dateFormat'
@@ -37,6 +37,7 @@ const {
   selectedCollectionId,
   selectedArtistId,
   providerLinks,
+  providerStatus,
   scanJob,
   uiSettings,
   error,
@@ -52,6 +53,10 @@ const refreshingArtistId = ref<number | null>(null)
 const savingArtist = ref(false)
 const collectionEditOpenId = ref<string | null>(null)
 const threePaneElement = ref<HTMLElement | null>(null)
+const collectionsPaneElement = ref<unknown>(null)
+const artistsPaneElement = ref<unknown>(null)
+const albumsPaneElement = ref<unknown>(null)
+const titlesPaneElement = ref<unknown>(null)
 const addCollectionAnchor = ref<HTMLElement | null>(null)
 const addCollectionDropdown = ref<HTMLElement | null>(null)
 const panePercents = ref([27, 30, 43])
@@ -60,6 +65,14 @@ const paneNames = ['collections', 'artists', 'albums'] as const
 const titleItemDialog = ref(false)
 const titleItemSaving = ref(false)
 const titleItemToEdit = ref<CollectionTitleItem | null>(null)
+let paneWidthObserver: ResizeObserver | null = null
+
+const paneWidths = reactive({
+  collections: 0,
+  artists: 0,
+  albums: 0,
+  titles: 0,
+})
 
 const collectionEditForm = reactive({
   name: '',
@@ -81,6 +94,7 @@ const albumColumnWidths = reactive({
   name: 360,
   releaseDate: 140,
   checked: 120,
+  action: 122,
 })
 
 const titleColumnWidths = reactive({
@@ -88,6 +102,7 @@ const titleColumnWidths = reactive({
   artist: 220,
   releaseDate: 150,
   status: 120,
+  action: 178,
 })
 
 const artistSort = reactive<{ key: ArtistSortKey; direction: SortDirection }>({
@@ -106,12 +121,25 @@ const titleSort = reactive<{ key: TitleSortKey; direction: SortDirection }>({
 })
 
 const titleSortMode = ref<TitleSortMode>('sortName')
+const suppressHeaderSortUntil = ref(0)
 
 const columnWidthSaveTimers = new Map<string, number>()
 const columnWidthPreferenceKeys = {
   artist: 'collections.columns.artist',
   album: 'collections.columns.album',
   title: 'collections.columns.title',
+} as const
+
+const actionColumnWidths = {
+  artist: { icon: 116, labeled: 260 },
+  album: { icon: 52, labeled: 122 },
+  title: { icon: 84, labeled: 178 },
+} as const
+
+const tableColumnOrders = {
+  artist: ['name'],
+  album: ['name', 'releaseDate', 'checked', 'action'],
+  title: ['title', 'artist', 'releaseDate', 'status', 'action'],
 } as const
 
 const artistForm = reactive<ArtistForm>({
@@ -139,6 +167,7 @@ const selectedCollection = computed(() =>
 )
 
 const selectedCollectionIsTitle = computed(() => selectedCollection.value?.type === 'TITLE')
+const selectedCollectionIsArtist = computed(() => selectedCollection.value?.type === 'ARTIST')
 
 const selectedArtist = computed(() =>
   collectionArtists.value.find((artist) => artist.id === selectedArtistId.value) ?? null,
@@ -149,6 +178,9 @@ const collectionOptions = computed(() =>
 )
 
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
+const collectionScanIsRunning = computed(() => scanIsRunning.value && scanJob.value?.kind !== 'LOCAL_ALBUMS')
+const localAlbumScanIsRunning = computed(() => scanIsRunning.value && scanJob.value?.kind === 'LOCAL_ALBUMS')
+const providerIsRunning = computed(() => providerStatus.value.running)
 const paneLayoutPreferenceKey = 'collections.paneLayout'
 
 const sortedCollectionArtists = computed(() =>
@@ -286,6 +318,41 @@ function toggleTitleSortMode() {
   titleSort.direction = 'asc'
 }
 
+function handleAlbumHeaderClick(key: AlbumSortKey, event: MouseEvent) {
+  if (shouldSuppressHeaderSort(event)) {
+    return
+  }
+  toggleAlbumSort(key)
+}
+
+function handleTitleHeaderClick(key: TitleSortKey, event: MouseEvent) {
+  if (shouldSuppressHeaderSort(event)) {
+    return
+  }
+  toggleTitleSort(key)
+}
+
+function shouldSuppressHeaderSort(event: MouseEvent) {
+  if (Date.now() < suppressHeaderSortUntil.value) {
+    event.preventDefault()
+    event.stopPropagation()
+    return true
+  }
+  const target = event.target
+  if (target instanceof Element && target.closest('.column-resize-handle')) {
+    event.preventDefault()
+    event.stopPropagation()
+    return true
+  }
+  return false
+}
+
+function suppressHeaderSortClick(event?: Event) {
+  event?.preventDefault()
+  event?.stopPropagation()
+  suppressHeaderSortUntil.value = Date.now() + 250
+}
+
 function oppositeDirection(direction: SortDirection) {
   return direction === 'asc' ? 'desc' : 'asc'
 }
@@ -320,8 +387,70 @@ function collectionTypeLabel(collection: MusicCollection) {
   return collection.type === 'TITLE' ? 'Title collection' : 'Artist collection'
 }
 
+function showActionLabels(pane: keyof typeof paneWidths) {
+  return paneWidths[pane] >= uiSettings.value.actionLabelThresholds[pane]
+}
+
+function showCollectionAddLabel() {
+  return paneWidths.collections >= 260
+}
+
+function actionLabelClass(pane: keyof typeof paneWidths) {
+  return actionLabelClassFor(showActionLabels(pane))
+}
+
+function gridActionLabelClass(table: keyof typeof columnWidthPreferenceKeys) {
+  return actionLabelClassFor(showGridActionLabels(table))
+}
+
+function actionLabelClassFor(showLabels: boolean) {
+  return {
+    'action-button--labeled': showLabels,
+    'action-button--icon-only': !showLabels,
+  }
+}
+
+function setupPaneWidthObserver() {
+  paneWidthObserver?.disconnect()
+  paneWidthObserver = new ResizeObserver((entries) => {
+    entries.forEach((entry) => {
+      const pane = (entry.target as HTMLElement).dataset.paneKey as keyof typeof paneWidths | undefined
+      if (pane) {
+        paneWidths[pane] = Math.round(entry.contentRect.width)
+      }
+    })
+  })
+  observePaneWidth('collections', collectionsPaneElement.value)
+  observePaneWidth('artists', artistsPaneElement.value)
+  observePaneWidth('albums', albumsPaneElement.value)
+  observePaneWidth('titles', titlesPaneElement.value)
+}
+
+function observePaneWidth(pane: keyof typeof paneWidths, paneRef: unknown) {
+  const element = resolveElement(paneRef)
+  if (!element || !paneWidthObserver) {
+    return
+  }
+  element.dataset.paneKey = pane
+  paneWidths[pane] = Math.round(element.getBoundingClientRect().width)
+  paneWidthObserver.observe(element)
+}
+
+function resolveElement(value: unknown) {
+  if (value instanceof HTMLElement) {
+    return value
+  }
+  if (value && typeof value === 'object' && '$el' in value) {
+    const candidate = (value as { $el?: unknown }).$el
+    if (candidate instanceof HTMLElement) {
+      return candidate
+    }
+  }
+  return null
+}
+
 function scanProgress(collection: MusicCollection) {
-  if (!uiSettings.value.collectionScanProgressEnabled || !scanIsRunning.value || scanJob.value?.activeCollectionId !== collection.id) {
+  if (!uiSettings.value.collectionScanProgressEnabled || !collectionScanIsRunning.value || scanJob.value?.activeCollectionId !== collection.id) {
     return 0
   }
   if (scanJob.value.itemTotal <= 0) {
@@ -396,7 +525,7 @@ async function startScan(collectionId: string) {
 }
 
 function collectionIsScanning(collection: MusicCollection) {
-  return scanIsRunning.value && scanJob.value?.activeCollectionId === collection.id
+  return collectionScanIsRunning.value && scanJob.value?.activeCollectionId === collection.id
 }
 
 function selectCollection(collection: MusicCollection) {
@@ -437,14 +566,34 @@ function startPaneResize(index: number, event: PointerEvent) {
   const startX = event.clientX
   const startPercents = [...panePercents.value]
   const paneAreaWidth = Math.max(1, threePaneElement.value.clientWidth - 20)
-  const minimums = [320, 280, 380]
+  const minimums = paneMinimums()
 
   function move(pointerEvent: PointerEvent) {
     const deltaPercent = ((pointerEvent.clientX - startX) / paneAreaWidth) * 100
+
+    if (selectedCollectionIsTitle.value && index === 0) {
+      const leftMinimum = (minimums[0] / paneAreaWidth) * 100
+      const rightMinimum = (minimumGridWidth('title') / paneAreaWidth) * 100
+      const leftMaximum = Math.max(leftMinimum, 100 - rightMinimum)
+      const left = Math.min(Math.max(leftMinimum, startPercents[0] + deltaPercent), leftMaximum)
+      const right = 100 - left
+      const previousRight = startPercents[1] + startPercents[2]
+      const artistsShare = previousRight > 0 ? startPercents[1] / previousRight : 0.5
+
+      panePercents.value = normalizePanePercents([
+        left,
+        right * artistsShare,
+        right * (1 - artistsShare),
+      ])
+      schedulePaneLayoutSave()
+      return
+    }
+
     const combined = startPercents[index] + startPercents[index + 1]
     const leftMinimum = (minimums[index] / paneAreaWidth) * 100
     const rightMinimum = (minimums[index + 1] / paneAreaWidth) * 100
-    const left = Math.min(Math.max(leftMinimum, startPercents[index] + deltaPercent), combined - rightMinimum)
+    const leftMaximum = Math.max(leftMinimum, combined - rightMinimum)
+    const left = Math.min(Math.max(leftMinimum, startPercents[index] + deltaPercent), leftMaximum)
     const right = combined - left
 
     panePercents.value = normalizePanePercents(
@@ -465,6 +614,14 @@ function startPaneResize(index: number, event: PointerEvent) {
 
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', stop)
+}
+
+function paneMinimums() {
+  return [
+    180,
+    260,
+    selectedCollectionIsTitle.value ? minimumGridWidth('title') : minimumGridWidth('album'),
+  ]
 }
 
 async function loadPaneLayout() {
@@ -577,27 +734,137 @@ function columnWidthState(table: keyof typeof columnWidthPreferenceKeys) {
 }
 
 function columnGridStyle(table: keyof typeof columnWidthPreferenceKeys) {
-  const widths = columnWidthState(table)
-  const dataWidth = Object.values(widths).reduce((sum, width) => sum + width, 0)
-  return {
-    '--workspace-grid-columns': `${Object.values(widths).map((width) => `${width}px`).join(' ')} minmax(76px, 1fr)`,
-    '--workspace-grid-min-width': `${dataWidth + 76}px`,
+  if (table === 'artist') {
+    return {
+      '--workspace-grid-columns': `minmax(0, 1fr) ${showActionLabels('artists') ? actionColumnWidths.artist.labeled : actionColumnWidths.artist.icon}px`,
+      '--workspace-grid-min-width': '100%',
+    }
   }
+  const rendered = renderedColumnWidths(table)
+  const columns = tableColumnKeys(table)
+    .map((key) => `${rendered[key]}px`)
+    .join(' ')
+  return {
+    '--workspace-grid-columns': columns,
+    '--workspace-grid-min-width': `${minimumGridWidth(table)}px`,
+  }
+}
+
+function tableColumnKeys(table: keyof typeof columnWidthPreferenceKeys) {
+  return tableColumnOrders[table] as readonly string[]
+}
+
+function showGridActionLabels(table: keyof typeof columnWidthPreferenceKeys) {
+  if (table === 'artist') {
+    return showActionLabels('artists')
+  }
+  return renderedColumnWidths(table).action >= actionColumnWidths[table].labeled
+}
+
+function renderedColumnWidths(table: keyof typeof columnWidthPreferenceKeys) {
+  const widths = columnWidthState(table)
+  const keys = tableColumnKeys(table)
+  const rendered = Object.fromEntries(
+    keys.map((key) => [key, Math.max(columnMinimumWidth(table, key), widths[key] ?? columnMinimumWidth(table, key))]),
+  ) as Record<string, number>
+  if (table === 'artist') {
+    return rendered
+  }
+
+  const available = tableAvailableWidth(table)
+  if (available <= 0) {
+    return rendered
+  }
+  const minimumTotal = minimumGridWidth(table)
+  const preferredTotal = keys.reduce((sum, key) => sum + rendered[key], 0)
+  if (preferredTotal <= available) {
+    rendered.action += available - preferredTotal
+    return rendered
+  }
+  if (available <= minimumTotal) {
+    keys.forEach((key) => {
+      rendered[key] = columnMinimumWidth(table, key)
+    })
+    return rendered
+  }
+
+  const shrinkableTotal = keys.reduce((sum, key) => sum + rendered[key] - columnMinimumWidth(table, key), 0)
+  if (shrinkableTotal <= 0) {
+    return rendered
+  }
+
+  const excess = preferredTotal - available
+  let used = 0
+  keys.forEach((key) => {
+    const minimum = columnMinimumWidth(table, key)
+    const shrinkable = rendered[key] - minimum
+    const shrink = (excess * shrinkable) / shrinkableTotal
+    rendered[key] = Math.max(minimum, Math.round(rendered[key] - shrink))
+    used += rendered[key]
+  })
+
+  let adjustment = Math.round(available - used)
+  for (const key of keys) {
+    if (adjustment === 0) {
+      break
+    }
+    const minimum = columnMinimumWidth(table, key)
+    const next = Math.max(minimum, rendered[key] + adjustment)
+    adjustment -= next - rendered[key]
+    rendered[key] = next
+  }
+  return rendered
+}
+
+function tableAvailableWidth(table: keyof typeof columnWidthPreferenceKeys) {
+  const pane = table === 'album' ? 'albums' : table === 'title' ? 'titles' : 'artists'
+  const paneWidth = paneWidths[pane]
+  return paneWidth > 0 ? Math.max(0, paneWidth - 20) : 0
+}
+
+function minimumGridWidth(table: keyof typeof columnWidthPreferenceKeys) {
+  return tableColumnKeys(table).reduce((sum, key) => sum + columnMinimumWidth(table, key), 0)
 }
 
 function startColumnResize(table: keyof typeof columnWidthPreferenceKeys, key: string, event: PointerEvent) {
   event.preventDefault()
   event.stopPropagation()
-  if (event.detail > 1) {
+  suppressHeaderSortClick(event)
+  const keys = tableColumnKeys(table)
+  const leftIndex = keys.indexOf(key)
+  if (leftIndex < 0 || leftIndex >= keys.length - 1) {
     return
   }
   const widths = columnWidthState(table)
-  const startWidth = widths[key]
+  const rendered = renderedColumnWidths(table)
+  const leftStart = rendered[key]
   const startX = event.clientX
   document.body.classList.add('is-column-resizing')
 
+  const beforeWidth = keys
+    .slice(0, leftIndex)
+    .reduce((sum, columnKey) => sum + rendered[columnKey], 0)
+  const rightDataBlockWidth = keys
+    .slice(leftIndex + 1, -1)
+    .reduce((sum, columnKey) => sum + rendered[columnKey], 0)
+  const leftMinimum = columnMinimumWidth(table, key)
+  const actionKey = keys[keys.length - 1]
+  const actionMinimum = columnMinimumWidth(table, actionKey)
+  const available = tableAvailableWidth(table)
+  const leftMaximum = available > 0
+    ? Math.max(leftMinimum, available - beforeWidth - rightDataBlockWidth - actionMinimum)
+    : Number.POSITIVE_INFINITY
+
   function move(pointerEvent: PointerEvent) {
-    widths[key] = Math.max(columnMinimumWidth(table, key), Math.round(startWidth + pointerEvent.clientX - startX))
+    const left = Math.min(
+      Math.max(leftMinimum, Math.round(leftStart + pointerEvent.clientX - startX)),
+      leftMaximum,
+    )
+    const action = available > 0
+      ? Math.max(actionMinimum, available - beforeWidth - left - rightDataBlockWidth)
+      : Math.max(actionMinimum, rendered[actionKey])
+    widths[key] = left
+    widths[actionKey] = action
     scheduleColumnWidthSave(table)
   }
 
@@ -606,46 +873,13 @@ function startColumnResize(table: keyof typeof columnWidthPreferenceKeys, key: s
     window.removeEventListener('pointerup', stop)
     window.removeEventListener('pointercancel', stop)
     document.body.classList.remove('is-column-resizing')
+    suppressHeaderSortClick()
     saveColumnWidths(table)
   }
 
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', stop)
   window.addEventListener('pointercancel', stop)
-}
-
-function autosizeColumn(table: keyof typeof columnWidthPreferenceKeys, key: string, event?: MouseEvent) {
-  event?.preventDefault()
-  event?.stopPropagation()
-  const cells = Array.from(document.querySelectorAll<HTMLElement>(`[data-column="${table}.${key}"]`))
-  const measured = measureColumnText(cells) + columnAutosizePadding(table, key)
-  columnWidthState(table)[key] = Math.max(columnMinimumWidth(table, key), measured)
-  saveColumnWidths(table)
-}
-
-function measureColumnText(cells: HTMLElement[]) {
-  const measurer = document.createElement('span')
-  measurer.className = 'column-autosize-measurer'
-  document.body.appendChild(measurer)
-  try {
-    return Math.ceil(cells.reduce((max, cell) => {
-      const text = (cell.textContent ?? '').replace(/\s+/g, ' ').trim()
-      if (!text) {
-        return max
-      }
-      measurer.style.font = window.getComputedStyle(cell).font
-      measurer.textContent = text
-      return Math.max(max, measurer.getBoundingClientRect().width)
-    }, 0))
-  } finally {
-    measurer.remove()
-  }
-}
-
-function columnAutosizePadding(table: keyof typeof columnWidthPreferenceKeys, key: string) {
-  if (table === 'title' && key === 'status') return 44
-  if (table === 'album' && key === 'checked') return 34
-  return 42
 }
 
 function scheduleColumnWidthSave(table: keyof typeof columnWidthPreferenceKeys) {
@@ -666,11 +900,10 @@ function saveColumnWidths(table: keyof typeof columnWidthPreferenceKeys) {
 }
 
 function columnMinimumWidth(table: keyof typeof columnWidthPreferenceKeys, key: string) {
-  if (table === 'title' && key === 'title') return 220
-  if (table === 'album' && key === 'name') return 180
-  if (key === 'releaseDate') return 120
-  if (key === 'checked' || key === 'status') return 95
-  return 140
+  if (key === 'action') {
+    return actionColumnWidths[table].icon
+  }
+  return Math.max(1, uiSettings.value.tableGridColumnMinWidth)
 }
 
 function handleDocumentPointerDown(event: PointerEvent) {
@@ -792,6 +1025,70 @@ async function refreshArtist(artist: Artist) {
   }
 }
 
+function localAlbumScanIsRunningForArtist(artist: Artist) {
+  return localAlbumScanIsRunning.value && scanJob.value?.requestedArtistId === artist.id
+}
+
+function localAlbumScanIsRunningForCollection() {
+  return localAlbumScanIsRunning.value
+    && scanJob.value?.requestedCollectionId === selectedCollectionId.value
+    && scanJob.value?.requestedArtistId == null
+}
+
+function providerScanIsRunningForArtist(artist: Artist) {
+  if (!providerIsRunning.value) {
+    return false
+  }
+  if (refreshingArtistId.value !== null) {
+    return refreshingArtistId.value === artist.id
+  }
+  return selectedCollectionIsArtist.value
+    && selectedCollectionId.value !== null
+    && artist.providerLinkCount > 0
+}
+
+function artistScanIsRunning(artist: Artist) {
+  if (!uiSettings.value.artistScanSpinnerEnabled) {
+    return false
+  }
+  return localAlbumScanIsRunningForArtist(artist)
+    || localAlbumScanIsRunningForCollection()
+    || providerScanIsRunningForArtist(artist)
+}
+
+async function scanLocalAlbumsForArtist(artist: Artist) {
+  if (!selectedCollectionId.value) {
+    return
+  }
+  try {
+    await store.runLocalAlbumScanJob(selectedCollectionId.value, artist.id)
+  } catch (error) {
+    store.error = error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function scanLocalAlbumsForCollection() {
+  if (!selectedCollectionId.value) {
+    return
+  }
+  try {
+    await store.runLocalAlbumScanJob(selectedCollectionId.value)
+  } catch (error) {
+    store.error = error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function refreshCollectionProviders() {
+  if (!selectedCollectionId.value) {
+    return
+  }
+  try {
+    await store.checkCollectionProviders(selectedCollectionId.value)
+  } catch (error) {
+    store.error = error instanceof Error ? error.message : String(error)
+  }
+}
+
 async function updateAlbumChecked(album: Album, checked: boolean) {
   await store.updateAlbum({ ...album, checked })
 }
@@ -838,6 +1135,14 @@ async function saveTitleItem() {
   }
 }
 
+async function deleteTitleLocalPath(item: CollectionTitleItem) {
+  try {
+    await store.deleteTitleLocalPath(item)
+  } catch (error) {
+    store.error = error instanceof Error ? error.message : String(error)
+  }
+}
+
 onMounted(async () => {
   document.addEventListener('pointerdown', handleDocumentPointerDown)
   document.addEventListener('keydown', handleDocumentKeyDown)
@@ -850,16 +1155,24 @@ onMounted(async () => {
   if (scanIsRunning.value) {
     store.startScanJobPolling()
   }
+  await nextTick()
+  setupPaneWidthObserver()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
   document.removeEventListener('keydown', handleDocumentKeyDown)
+  paneWidthObserver?.disconnect()
+  paneWidthObserver = null
   if (paneLayoutSaveTimer.value !== null) {
     savePaneLayout()
   }
   columnWidthSaveTimers.forEach((timer) => window.clearTimeout(timer))
   columnWidthSaveTimers.clear()
+})
+
+watch(selectedCollectionIsTitle, () => {
+  void nextTick(setupPaneWidthObserver)
 })
 </script>
 
@@ -868,12 +1181,19 @@ onBeforeUnmount(() => {
     <v-alert v-if="error" type="error" variant="tonal" class="mb-3">{{ error }}</v-alert>
 
     <div ref="threePaneElement" class="three-pane">
-      <v-sheet class="pane collections-pane" :style="paneStyle(0)">
+      <v-sheet ref="collectionsPaneElement" class="pane collections-pane" :style="paneStyle(0)">
         <div class="pane-header">
           <span>Collections</span>
           <div ref="addCollectionAnchor" class="pane-header__actions">
-            <v-btn prepend-icon="mdi-plus" size="small" variant="flat" color="primary" @click="toggleAddCollectionDropdown">
-              Add
+            <v-btn
+              prepend-icon="mdi-plus"
+              size="small"
+              variant="flat"
+              color="primary"
+              :class="actionLabelClassFor(showCollectionAddLabel())"
+              @click="toggleAddCollectionDropdown"
+            >
+              <span v-if="showCollectionAddLabel()">Add</span>
             </v-btn>
           </div>
         </div>
@@ -948,12 +1268,16 @@ onBeforeUnmount(() => {
                     <template #activator="{ props: tooltipProps }">
                       <v-btn
                         v-bind="{ ...props, ...tooltipProps }"
-                        icon="mdi-pencil"
+                        prepend-icon="mdi-pencil"
                         size="x-small"
                         variant="text"
+                        color="primary"
+                        :class="actionLabelClass('collections')"
                         :disabled="collectionIsScanning(collection)"
                         @click.stop="openCollectionEdit(collection)"
-                      ></v-btn>
+                      >
+                        <span v-if="showActionLabels('collections')">Edit</span>
+                      </v-btn>
                     </template>
                   </v-tooltip>
                 </template>
@@ -977,6 +1301,7 @@ onBeforeUnmount(() => {
                       v-model="collectionEditForm.type"
                       mandatory
                       density="compact"
+                      color="primary"
                       class="collection-type-toggle"
                     >
                       <v-btn value="ARTIST">
@@ -1009,25 +1334,32 @@ onBeforeUnmount(() => {
                 <template #activator="{ props }">
                   <v-btn
                     v-bind="props"
-                    icon="mdi-refresh"
+                    prepend-icon="mdi-refresh"
                     size="x-small"
                     variant="text"
+                    color="primary"
+                    :class="actionLabelClass('collections')"
                     :disabled="scanIsRunning"
                     @click.stop="startScan(collection.id)"
-                  ></v-btn>
+                  >
+                    <span v-if="showActionLabels('collections')">Scan</span>
+                  </v-btn>
                 </template>
               </v-tooltip>
               <v-tooltip text="Delete collection" location="top">
                 <template #activator="{ props }">
                   <v-btn
                     v-bind="props"
-                    icon="mdi-trash-can-outline"
+                    prepend-icon="mdi-trash-can-outline"
                     size="x-small"
                     variant="text"
                     color="error"
+                    :class="actionLabelClass('collections')"
                     :disabled="collectionIsScanning(collection)"
                     @click.stop="askDeleteCollection(collection)"
-                  ></v-btn>
+                  >
+                    <span v-if="showActionLabels('collections')">Delete</span>
+                  </v-btn>
                 </template>
               </v-tooltip>
             </span>
@@ -1038,7 +1370,7 @@ onBeforeUnmount(() => {
       <div class="pane-resizer" @pointerdown="startPaneResize(0, $event)"></div>
 
       <template v-if="selectedCollectionIsTitle">
-        <v-sheet class="pane titles-pane" :style="titlePaneStyle()">
+        <v-sheet ref="titlesPaneElement" class="pane titles-pane" :style="titlePaneStyle()">
           <div class="pane-header">
             <span>Titles</span>
             <span v-if="selectedCollection" class="pane-header__meta">{{ selectedCollection.name }}</span>
@@ -1050,7 +1382,7 @@ onBeforeUnmount(() => {
               <div
                 class="workspace-grid__cell workspace-grid__header-cell sortable-header"
                 data-column="title.title"
-                @click="toggleTitleSort('title')"
+                @click="handleTitleHeaderClick('title', $event)"
               >
                 <span class="sortable-header__label">Title</span>
                 <v-tooltip :text="titleSortModeTooltip()" location="top">
@@ -1075,13 +1407,13 @@ onBeforeUnmount(() => {
                   <span
                     class="column-resize-handle"
                     @pointerdown="startColumnResize('title', 'title', $event)"
-                    @dblclick="autosizeColumn('title', 'title', $event)"
+                    @click="suppressHeaderSortClick($event)"
                   ></span>
               </div>
               <div
                 class="workspace-grid__cell workspace-grid__header-cell sortable-header"
                 data-column="title.artist"
-                @click="toggleTitleSort('artist')"
+                @click="handleTitleHeaderClick('artist', $event)"
               >
                 <span class="sortable-header__label">Artist</span>
                 <v-icon
@@ -1093,13 +1425,13 @@ onBeforeUnmount(() => {
                   <span
                     class="column-resize-handle"
                     @pointerdown="startColumnResize('title', 'artist', $event)"
-                    @dblclick="autosizeColumn('title', 'artist', $event)"
+                    @click="suppressHeaderSortClick($event)"
                   ></span>
               </div>
               <div
                 class="workspace-grid__cell workspace-grid__header-cell sortable-header"
                 data-column="title.releaseDate"
-                @click="toggleTitleSort('releaseDate')"
+                @click="handleTitleHeaderClick('releaseDate', $event)"
               >
                 <span class="sortable-header__label">Release date</span>
                 <v-icon
@@ -1111,13 +1443,13 @@ onBeforeUnmount(() => {
                   <span
                     class="column-resize-handle"
                     @pointerdown="startColumnResize('title', 'releaseDate', $event)"
-                    @dblclick="autosizeColumn('title', 'releaseDate', $event)"
+                    @click="suppressHeaderSortClick($event)"
                   ></span>
               </div>
               <div
                 class="workspace-grid__cell workspace-grid__header-cell sortable-header"
                 data-column="title.status"
-                @click="toggleTitleSort('status')"
+                @click="handleTitleHeaderClick('status', $event)"
               >
                 <span class="sortable-header__label">Status</span>
                 <v-icon
@@ -1129,7 +1461,7 @@ onBeforeUnmount(() => {
                   <span
                     class="column-resize-handle"
                     @pointerdown="startColumnResize('title', 'status', $event)"
-                    @dblclick="autosizeColumn('title', 'status', $event)"
+                    @click="suppressHeaderSortClick($event)"
                   ></span>
               </div>
             </div>
@@ -1137,7 +1469,9 @@ onBeforeUnmount(() => {
                 <div data-column="title.title" class="workspace-grid__cell truncate-cell">
                   <span class="cell-strong">{{ item.title }}</span>
                 </div>
-                <div data-column="title.artist" class="workspace-grid__cell truncate-cell">{{ item.artistName ?? '' }}</div>
+                <div data-column="title.artist" class="workspace-grid__cell truncate-cell">
+                  <span>{{ item.artistName ?? '' }}</span>
+                </div>
                 <div data-column="title.releaseDate" class="workspace-grid__cell cell-muted">
                   <v-tooltip v-if="releaseDateTooltip(item.releaseDate)" :text="releaseDateTooltip(item.releaseDate)" location="top">
                     <template #activator="{ props }">
@@ -1155,13 +1489,32 @@ onBeforeUnmount(() => {
                   <div class="row-actions">
                     <v-tooltip text="Edit title metadata" location="top">
                       <template #activator="{ props }">
-                        <v-btn
-                          v-bind="props"
-                          icon="mdi-pencil"
+                      <v-btn
+                        v-bind="props"
+                          prepend-icon="mdi-pencil"
                           size="x-small"
                           variant="text"
+                          color="primary"
+                          :class="gridActionLabelClass('title')"
                           @click.stop="openTitleItemDialog(item)"
-                        ></v-btn>
+                        >
+                          <span v-if="showGridActionLabels('title')">Edit</span>
+                        </v-btn>
+                      </template>
+                    </v-tooltip>
+                    <v-tooltip text="Remove local title path" location="top">
+                      <template #activator="{ props }">
+                        <v-btn
+                          v-bind="props"
+                          prepend-icon="mdi-trash-can-outline"
+                          size="x-small"
+                          variant="text"
+                          color="error"
+                          :class="gridActionLabelClass('title')"
+                          @click.stop="deleteTitleLocalPath(item)"
+                        >
+                          <span v-if="showGridActionLabels('title')">Delete</span>
+                        </v-btn>
                       </template>
                     </v-tooltip>
                   </div>
@@ -1172,32 +1525,74 @@ onBeforeUnmount(() => {
       </template>
 
       <template v-else>
-      <v-sheet class="pane artists-pane" :style="paneStyle(1)">
+      <v-sheet ref="artistsPaneElement" class="pane artists-pane" :style="paneStyle(1)">
         <div class="pane-header">
           <span>Artists</span>
           <div class="pane-header__actions">
+            <v-tooltip text="Scan local albums" location="top">
+              <template #activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  prepend-icon="mdi-folder-refresh"
+                  size="small"
+                  variant="text"
+                  color="primary"
+                  :class="actionLabelClass('artists')"
+                  :loading="localAlbumScanIsRunningForCollection()"
+                  :disabled="!selectedCollectionIsArtist || collectionArtists.length === 0 || scanIsRunning || providerIsRunning"
+                  @click="scanLocalAlbumsForCollection"
+                >
+                  <span v-if="showActionLabels('artists')">Local</span>
+                </v-btn>
+              </template>
+            </v-tooltip>
+            <v-tooltip text="Scan providers" location="top">
+              <template #activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  prepend-icon="mdi-cloud-refresh"
+                  size="small"
+                  variant="text"
+                  color="primary"
+                  :class="actionLabelClass('artists')"
+                  :loading="providerIsRunning && refreshingArtistId === null"
+                  :disabled="!selectedCollectionIsArtist || collectionArtists.length === 0 || scanIsRunning || providerIsRunning"
+                  @click="refreshCollectionProviders"
+                >
+                  <span v-if="showActionLabels('artists')">Provider</span>
+                </v-btn>
+              </template>
+            </v-tooltip>
             <v-tooltip text="Sort artists" location="top">
               <template #activator="{ props }">
                 <v-btn
                   v-bind="props"
-                  :icon="artistSort.direction === 'asc' ? 'mdi-sort-alphabetical-ascending' : 'mdi-sort-alphabetical-descending'"
+                  :prepend-icon="artistSort.direction === 'asc' ? 'mdi-sort-alphabetical-ascending' : 'mdi-sort-alphabetical-descending'"
                   size="small"
                   variant="text"
+                  color="primary"
+                  :class="actionLabelClass('artists')"
                   :disabled="!selectedCollectionId"
                   @click="toggleArtistSort('name')"
-                ></v-btn>
+                >
+                  <span v-if="showActionLabels('artists')">Sort</span>
+                </v-btn>
               </template>
             </v-tooltip>
             <v-tooltip text="Add artist" location="top">
               <template #activator="{ props }">
                 <v-btn
                   v-bind="props"
-                  icon="mdi-account-plus"
+                  prepend-icon="mdi-account-plus"
                   size="small"
                   variant="text"
+                  color="primary"
+                  :class="actionLabelClass('artists')"
                   :disabled="!selectedCollectionId"
                   @click="openArtistDialog()"
-                ></v-btn>
+                >
+                  <span v-if="showActionLabels('artists')">Add</span>
+                </v-btn>
               </template>
             </v-tooltip>
           </div>
@@ -1214,6 +1609,13 @@ onBeforeUnmount(() => {
           >
               <div data-column="artist.name" class="workspace-grid__cell">
                 <div class="artist-cell">
+                  <v-progress-circular
+                    v-if="artistScanIsRunning(artist)"
+                    indeterminate
+                    size="14"
+                    width="2"
+                    class="artist-cell__spinner"
+                  ></v-progress-circular>
                   <span class="cell-strong">{{ artist.name }}</span>
                   <v-chip
                     v-if="artistIssueLabel(artist)"
@@ -1221,33 +1623,60 @@ onBeforeUnmount(() => {
                     size="x-small"
                     variant="tonal"
                   >
-                    {{ artistIssueLabel(artist) }}
+                        {{ artistIssueLabel(artist) }}
                   </v-chip>
                 </div>
               </div>
               <div class="workspace-grid__cell row-action-cell">
                 <div class="row-actions">
+                  <v-tooltip text="Scan local albums" location="top">
+                    <template #activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        prepend-icon="mdi-folder-refresh"
+                        size="x-small"
+                        variant="text"
+                        color="primary"
+                        :class="actionLabelClass('artists')"
+                        :loading="localAlbumScanIsRunningForArtist(artist)"
+                        :disabled="scanIsRunning || providerIsRunning"
+                        @click.stop="scanLocalAlbumsForArtist(artist)"
+                      >
+                        <span v-if="showActionLabels('artists')">Local</span>
+                      </v-btn>
+                    </template>
+                  </v-tooltip>
+                  <v-tooltip text="Scan providers" location="top">
+                    <template #activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        prepend-icon="mdi-cloud-refresh"
+                        size="x-small"
+                        variant="text"
+                        color="primary"
+                        :class="actionLabelClass('artists')"
+                        :loading="refreshingArtistId === artist.id"
+                        :disabled="scanIsRunning || providerIsRunning"
+                        @click.stop="refreshArtist(artist)"
+                      >
+                        <span v-if="showActionLabels('artists')">Provider</span>
+                      </v-btn>
+                    </template>
+                  </v-tooltip>
                   <v-tooltip text="Edit artist" location="top">
                     <template #activator="{ props }">
                       <v-btn
                         v-bind="props"
-                        icon="mdi-pencil"
+                        prepend-icon="mdi-pencil"
                         size="x-small"
                         variant="text"
+                        color="primary"
+                        :class="actionLabelClass('artists')"
+                        :disabled="scanIsRunning || providerIsRunning"
                         @click.stop="openArtistDialog(artist)"
-                      ></v-btn>
-                    </template>
-                  </v-tooltip>
-                  <v-tooltip text="Refresh discography" location="top">
-                    <template #activator="{ props }">
-                      <v-btn
-                        v-bind="props"
-                        icon="mdi-refresh"
-                        size="x-small"
-                        variant="text"
-                        :loading="refreshingArtistId === artist.id"
-                        @click.stop="refreshArtist(artist)"
-                      ></v-btn>
+                      >
+                        <span v-if="showActionLabels('artists')">Edit</span>
+                      </v-btn>
                     </template>
                   </v-tooltip>
                 </div>
@@ -1258,19 +1687,44 @@ onBeforeUnmount(() => {
 
       <div class="pane-resizer" @pointerdown="startPaneResize(1, $event)"></div>
 
-      <v-sheet class="pane albums-pane" :style="paneStyle(2)">
+      <v-sheet ref="albumsPaneElement" class="pane albums-pane" :style="paneStyle(2)">
         <div class="pane-header">
           <span>Albums</span>
           <span v-if="selectedArtist" class="pane-header__meta">{{ selectedArtist.name }}</span>
         </div>
 
         <div v-if="!selectedArtist" class="pane-empty">Select an artist.</div>
+        <div v-else-if="sortedCollectionAlbums.length === 0" class="pane-empty pane-empty--action">
+          <span>No albums loaded for this artist.</span>
+          <div class="pane-empty__actions">
+            <v-btn
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-folder-refresh"
+              :loading="localAlbumScanIsRunningForArtist(selectedArtist)"
+              :disabled="scanIsRunning || providerIsRunning"
+              @click="scanLocalAlbumsForArtist(selectedArtist)"
+            >
+              Scan local albums
+            </v-btn>
+            <v-btn
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-cloud-refresh"
+              :loading="refreshingArtistId === selectedArtist.id"
+              :disabled="scanIsRunning || providerIsRunning"
+              @click="refreshArtist(selectedArtist)"
+            >
+              Scan providers
+            </v-btn>
+          </div>
+        </div>
         <div v-else class="workspace-grid" :style="columnGridStyle('album')">
           <div class="workspace-grid__row workspace-grid__header">
             <div
               class="workspace-grid__cell workspace-grid__header-cell sortable-header"
               data-column="album.name"
-              @click="toggleAlbumSort('name')"
+              @click="handleAlbumHeaderClick('name', $event)"
             >
               <span class="sortable-header__label">Name</span>
               <v-icon
@@ -1282,13 +1736,13 @@ onBeforeUnmount(() => {
                 <span
                   class="column-resize-handle"
                   @pointerdown="startColumnResize('album', 'name', $event)"
-                  @dblclick="autosizeColumn('album', 'name', $event)"
+                  @click="suppressHeaderSortClick($event)"
                 ></span>
             </div>
             <div
               class="workspace-grid__cell workspace-grid__header-cell sortable-header"
               data-column="album.releaseDate"
-              @click="toggleAlbumSort('releaseDate')"
+              @click="handleAlbumHeaderClick('releaseDate', $event)"
             >
               <span class="sortable-header__label">Release date</span>
               <v-icon
@@ -1300,15 +1754,15 @@ onBeforeUnmount(() => {
                 <span
                   class="column-resize-handle"
                   @pointerdown="startColumnResize('album', 'releaseDate', $event)"
-                  @dblclick="autosizeColumn('album', 'releaseDate', $event)"
+                  @click="suppressHeaderSortClick($event)"
                 ></span>
             </div>
             <div class="workspace-grid__cell workspace-grid__header-cell" data-column="album.checked">
-              Checked
+              <span class="sortable-header__label">Checked</span>
                 <span
                   class="column-resize-handle"
                   @pointerdown="startColumnResize('album', 'checked', $event)"
-                  @dblclick="autosizeColumn('album', 'checked', $event)"
+                  @click="suppressHeaderSortClick($event)"
                 ></span>
             </div>
           </div>
@@ -1321,9 +1775,10 @@ onBeforeUnmount(() => {
                       <v-icon
                         v-if="album.onDisk || album.hasLocalPath"
                         v-bind="props"
-                        :icon="album.onDisk ? 'mdi-harddisk' : 'mdi-folder-alert'"
+                        :icon="album.onDisk ? 'mdi-folder-check-outline' : 'mdi-folder-alert-outline'"
                         :color="album.onDisk ? 'success' : 'warning'"
-                        size="16"
+                        size="18"
+                        class="album-cell__disk-icon"
                       ></v-icon>
                     </template>
                   </v-tooltip>
@@ -1340,6 +1795,7 @@ onBeforeUnmount(() => {
               <div data-column="album.checked" class="workspace-grid__cell">
                 <v-checkbox
                   :model-value="album.checked"
+                  color="primary"
                   density="compact"
                   hide-details
                   @click.stop
@@ -1352,12 +1808,15 @@ onBeforeUnmount(() => {
                     <template #activator="{ props }">
                       <v-btn
                         v-bind="props"
-                        icon="mdi-trash-can-outline"
+                        prepend-icon="mdi-trash-can-outline"
                         size="x-small"
                         variant="text"
                         color="error"
+                        :class="gridActionLabelClass('album')"
                         @click.stop="askDeleteAlbum(album)"
-                      ></v-btn>
+                      >
+                        <span v-if="showGridActionLabels('album')">Delete</span>
+                      </v-btn>
                     </template>
                   </v-tooltip>
                 </div>
@@ -1412,8 +1871,8 @@ onBeforeUnmount(() => {
                 hide-details
               ></v-select>
               <v-text-field v-model="link.providerUrl" label="URL" hide-details></v-text-field>
-              <v-checkbox v-model="link.enabled" label="Enabled" density="compact" hide-details></v-checkbox>
-              <v-btn icon="mdi-content-save" size="small" variant="text" @click="saveProviderLink(link)"></v-btn>
+              <v-checkbox v-model="link.enabled" label="Enabled" color="primary" density="compact" hide-details></v-checkbox>
+              <v-btn icon="mdi-content-save" size="small" color="primary" variant="text" @click="saveProviderLink(link)"></v-btn>
               <v-btn
                 icon="mdi-trash-can-outline"
                 size="small"
@@ -1436,7 +1895,7 @@ onBeforeUnmount(() => {
                 hide-details
                 @keyup.enter="addProviderLink"
               ></v-text-field>
-              <v-checkbox v-model="newProviderLink.enabled" label="Enabled" density="compact" hide-details></v-checkbox>
+              <v-checkbox v-model="newProviderLink.enabled" label="Enabled" color="primary" density="compact" hide-details></v-checkbox>
               <v-btn icon="mdi-plus" size="small" color="primary" variant="text" @click="addProviderLink"></v-btn>
               <span></span>
             </div>

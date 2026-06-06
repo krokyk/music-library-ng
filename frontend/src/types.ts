@@ -111,7 +111,9 @@ export interface ScanRun {
 export interface ScanJobStatus {
   id: string
   status: string
+  kind: 'COLLECTION' | 'LOCAL_ALBUMS'
   requestedCollectionId?: string | null
+  requestedArtistId?: number | null
   activeCollectionId?: string | null
   itemTotal: number
   itemProcessed: number
@@ -126,16 +128,48 @@ export interface UiSettingsValues {
   statusCompleteVisibleMs: number
   scanPollIntervalMs: number
   collectionScanSpinnerEnabled: boolean
+  artistScanSpinnerEnabled: boolean
   collectionScanProgressEnabled: boolean
   statusHistoryDateFormat: string
   releaseDateDisplayFormat: string
   statusBarLocation: 'top' | 'bottom'
+  actionLabelThresholds: ActionLabelThresholds
   workspaceColumnDefaults: WorkspaceColumnWidths
+  tableGridColumnMinWidth: number
 }
 
 export interface UiSettings extends UiSettingsValues {
   defaults: UiSettingsValues
-  overrides: Record<Exclude<keyof UiSettingsValues, 'workspaceColumnDefaults'>, boolean>
+  actionLabelThresholdConstraints: ActionLabelThresholdConstraints
+  overrides: UiSettingOverrides
+}
+
+export interface ActionLabelThresholds {
+  collections: number
+  artists: number
+  albums: number
+  titles: number
+}
+
+export interface ActionLabelThresholdConstraints {
+  min: ActionLabelThresholds
+  max: number
+  step: number
+}
+
+export interface UiSettingOverrides {
+  statusCompleteVisibleMs: boolean
+  scanPollIntervalMs: boolean
+  collectionScanSpinnerEnabled: boolean
+  artistScanSpinnerEnabled: boolean
+  collectionScanProgressEnabled: boolean
+  statusHistoryDateFormat: boolean
+  releaseDateDisplayFormat: boolean
+  statusBarLocation: boolean
+  collectionActionLabelThreshold: boolean
+  artistActionLabelThreshold: boolean
+  albumActionLabelThreshold: boolean
+  titleActionLabelThreshold: boolean
 }
 
 export interface WorkspaceColumnWidths {
@@ -146,12 +180,14 @@ export interface WorkspaceColumnWidths {
     name: number
     releaseDate: number
     checked: number
+    action: number
   }
   title: {
     title: number
     artist: number
     releaseDate: number
     status: number
+    action: number
   }
 }
 

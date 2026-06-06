@@ -59,6 +59,10 @@ public interface MusicLibraryConfig {
         @WithDefault("true")
         boolean defaultCollectionScanSpinnerEnabled();
 
+        @WithName("default-artist-scan-spinner-enabled")
+        @WithDefault("true")
+        boolean defaultArtistScanSpinnerEnabled();
+
         @WithName("default-collection-scan-progress-enabled")
         @WithDefault("true")
         boolean defaultCollectionScanProgressEnabled();
@@ -71,8 +75,40 @@ public interface MusicLibraryConfig {
         @WithDefault("top")
         String defaultStatusBarLocation();
 
+        @WithName("default-action-label-thresholds")
+        ActionLabelThresholds defaultActionLabelThresholds();
+
+        @WithName("action-label-threshold-min")
+        ActionLabelThresholds actionLabelThresholdMin();
+
+        @WithName("action-label-threshold-max")
+        @WithDefault("2000")
+        int actionLabelThresholdMax();
+
+        @WithName("action-label-threshold-step")
+        @WithDefault("50")
+        int actionLabelThresholdStep();
+
+        @WithName("table-grid-column-min-width")
+        @WithDefault("40")
+        int tableGridColumnMinWidth();
+
         @WithName("default-workspace-column-widths")
         WorkspaceColumnWidths defaultWorkspaceColumnWidths();
+    }
+
+    interface ActionLabelThresholds {
+        @WithDefault("600")
+        int collections();
+
+        @WithDefault("900")
+        int artists();
+
+        @WithDefault("600")
+        int albums();
+
+        @WithDefault("1000")
+        int titles();
     }
 
     interface WorkspaceColumnWidths {
@@ -97,6 +133,9 @@ public interface MusicLibraryConfig {
 
         @WithDefault("120")
         int checked();
+
+        @WithDefault("122")
+        int action();
     }
 
     interface TitleColumns {
@@ -111,5 +150,8 @@ public interface MusicLibraryConfig {
 
         @WithDefault("120")
         int status();
+
+        @WithDefault("178")
+        int action();
     }
 }

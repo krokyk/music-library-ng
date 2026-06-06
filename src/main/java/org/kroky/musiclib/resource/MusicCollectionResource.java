@@ -120,6 +120,17 @@ public class MusicCollectionResource {
         }
     }
 
+    @DELETE
+    @Path("/{id}/titles/{titleItemId}")
+    public Response deleteTitleLocalPath(
+            @PathParam("id") String id,
+            @PathParam("titleItemId") long titleItemId) {
+        LOG.infof("Delete title local path request collection=%s id=%d", id, titleItemId);
+        CollectionTitleItem item = titleItems.markMissing(id, titleItemId).orElseThrow(NotFoundException::new);
+        albums.markLocalPathMissing(id, item.relativePath());
+        return Response.noContent().build();
+    }
+
     @PUT
     @Path("/{id}")
     public MusicCollection update(@PathParam("id") String id, MusicCollectionRequest request) {

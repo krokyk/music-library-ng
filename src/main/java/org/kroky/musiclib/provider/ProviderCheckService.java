@@ -4,9 +4,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.kroky.musiclib.model.ArtistProviderLink;
+import org.kroky.musiclib.model.MusicCollection;
 import org.kroky.musiclib.model.ProviderCheckSummary;
 import org.kroky.musiclib.repository.AlbumRepository;
+import org.kroky.musiclib.repository.ArtistRepository;
 import org.kroky.musiclib.repository.ArtistProviderLinkRepository;
+import org.kroky.musiclib.repository.MusicCollectionRepository;
 import org.kroky.musiclib.repository.ProviderCheckRunRepository;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -17,6 +20,12 @@ public class ProviderCheckService {
 
     @Inject
     ArtistProviderLinkRepository providerLinks;
+
+    @Inject
+    ArtistRepository artists;
+
+    @Inject
+    MusicCollectionRepository collections;
 
     @Inject
     AlbumRepository albums;
@@ -31,7 +40,7 @@ public class ProviderCheckService {
         ArtistProviderLink link = providerLinks.find(linkId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown provider link: " + linkId));
         long runId = runs.start(link.artistId(), link.id());
-        return checkLinks(runId, List.of(link));
+        return checkLinks(runId, List.of(link), 0);
     }
 
     public ProviderCheckSummary checkArtist(long artistId) {
@@ -39,17 +48,28 @@ public class ProviderCheckService {
                 .filter(ArtistProviderLink::enabled)
                 .toList();
         long runId = runs.start(artistId, null);
-        return checkLinks(runId, links);
+        int skippedArtists = links.isEmpty() ? 1 : 0;
+        return checkLinks(runId, links, skippedArtists);
+    }
+
+    public ProviderCheckSummary checkCollection(String collectionId) {
+        MusicCollection collection = collections.find(collectionId)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown collection: " + collectionId));
+        List<ArtistProviderLink> links = providerLinks.listEnabledByCollection(collection.id());
+        int artistCount = artists.list(null, collection.id()).size();
+        int linkedArtistCount = (int) links.stream().map(ArtistProviderLink::artistId).distinct().count();
+        int skippedArtists = Math.max(0, artistCount - linkedArtistCount);
+        long runId = runs.start(null, null);
+        return checkLinks(runId, links, skippedArtists);
     }
 
     public ProviderCheckSummary checkAll() {
         long runId = runs.start(null, null);
-        return checkLinks(runId, providerLinks.listEnabled());
+        return checkLinks(runId, providerLinks.listEnabled(), 0);
     }
 
-    private ProviderCheckSummary checkLinks(long runId, List<ArtistProviderLink> links) {
+    private ProviderCheckSummary checkLinks(long runId, List<ArtistProviderLink> links, int skippedArtists) {
         int processedArtists = 0;
-        int skippedArtists = 0;
         int foundAlbums = 0;
         int newAlbums = 0;
         int existingAlbums = 0;
@@ -57,10 +77,12 @@ public class ProviderCheckService {
         List<String> messages = new ArrayList<>();
 
         if (links.isEmpty()) {
-            String message = "No enabled provider links found.";
+            String message = skippedArtists > 0
+                    ? "No enabled provider links found; skipped " + skippedArtists + " artists."
+                    : "No enabled provider links found.";
             runs.event(runId, null, null, "WARN", message);
             runs.finish(runId, "SKIPPED", 0, 0, 0, 0, 0, message);
-            return new ProviderCheckSummary(runId, 0, 0, 0, 0, 0, 0, List.of(message));
+            return new ProviderCheckSummary(runId, 0, skippedArtists, 0, 0, 0, 0, List.of(message));
         }
 
         for (ArtistProviderLink link : links) {
@@ -93,7 +115,8 @@ public class ProviderCheckService {
 
         String status = errors == 0 ? "DONE" : "FAILED";
         String message = "Checked " + processedArtists + " provider links, found " + foundAlbums
-                + " albums, added " + newAlbums + " new unchecked albums.";
+                + " albums, added " + newAlbums + " new unchecked albums"
+                + (skippedArtists > 0 ? ", skipped " + skippedArtists + " artists without enabled links." : ".");
         runs.finish(runId, status, processedArtists, foundAlbums, newAlbums, existingAlbums, errors, message);
         messages.add(message);
         return new ProviderCheckSummary(runId, processedArtists, skippedArtists, foundAlbums, newAlbums,

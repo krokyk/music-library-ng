@@ -276,24 +276,49 @@ Status/progress defaults:
 music-library.ui.default-status-complete-visible-ms=10000
 music-library.ui.default-scan-poll-interval-ms=200
 music-library.ui.default-collection-scan-spinner-enabled=true
+music-library.ui.default-artist-scan-spinner-enabled=true
 music-library.ui.default-collection-scan-progress-enabled=true
 music-library.ui.default-status-history-date-format=yyyy-MM-dd HH:mm:ss.SSS
 music-library.release.date.display.format=yyyy-MM-dd
 music-library.ui.default-status-bar-location=top
 ```
 
+Workspace action labels are shown when the pane reaches the configured width in
+CSS pixels. Values can be changed at runtime in Settings; min/max/step remain
+property-only constraints.
+
+```properties
+music-library.ui.default-action-label-thresholds.collections=400
+music-library.ui.default-action-label-thresholds.artists=500
+music-library.ui.default-action-label-thresholds.albums=400
+music-library.ui.default-action-label-thresholds.titles=600
+music-library.ui.action-label-threshold-min.collections=300
+music-library.ui.action-label-threshold-min.artists=400
+music-library.ui.action-label-threshold-min.albums=300
+music-library.ui.action-label-threshold-min.titles=500
+music-library.ui.action-label-threshold-max=2000
+music-library.ui.action-label-threshold-step=50
+```
+
 Workspace column width defaults:
 
 ```properties
+music-library.ui.table-grid-column-min-width=40
 music-library.ui.default-workspace-column-widths.artist.name=280
 music-library.ui.default-workspace-column-widths.album.name=360
-music-library.ui.default-workspace-column-widths.album.release-date=140
+music-library.ui.default-workspace-column-widths.album.release-date=145
 music-library.ui.default-workspace-column-widths.album.checked=120
+music-library.ui.default-workspace-column-widths.album.action=122
 music-library.ui.default-workspace-column-widths.title.title=460
 music-library.ui.default-workspace-column-widths.title.artist=220
-music-library.ui.default-workspace-column-widths.title.release-date=150
+music-library.ui.default-workspace-column-widths.title.release-date=145
 music-library.ui.default-workspace-column-widths.title.status=120
+music-library.ui.default-workspace-column-widths.title.action=178
 ```
+
+`music-library.ui.table-grid-column-min-width` is the shared hard minimum for
+table data columns. Action columns are the exception; their minimum is based on
+the icon controls they must display.
 
 Release date columns display the year in the table. Fuller values, such as
 `2006-03-13`, are shown in a tooltip using
@@ -402,6 +427,18 @@ Dark Tranquillity - 2007 - Fiction
 Only the artist part is inserted during the collection scan. Album data is
 handled later by artist/provider/album workflows.
 
+Artist-centric album maintenance is explicit:
+
+- `Scan local albums` parses local album folders in the selected collection and
+  upserts albums plus local paths.
+- Row-level `Scan local albums` is scoped to one artist.
+- Title-bar `Scan local albums` is scoped to the selected collection.
+- `Scan providers` checks online provider links and adds remote albums as
+  unchecked.
+
+Clicking an artist only selects it and loads known albums. It does not scan or
+modify data.
+
 Title-centric collections store one row per direct child folder and use these
 parser rules in order:
 
@@ -457,6 +494,25 @@ curl http://localhost:8795/api/artists
 curl 'http://localhost:8795/api/artists?collectionId=melodeath'
 curl http://localhost:8795/api/albums
 curl 'http://localhost:8795/api/albums?collectionId=melodeath&artistId=1'
+```
+
+Start local album scans:
+
+```bash
+curl -X POST 'http://localhost:8795/api/scan/jobs/local-albums?collectionId=melodeath'
+curl -X POST 'http://localhost:8795/api/scan/jobs/local-albums?collectionId=melodeath&artistId=1'
+```
+
+Check provider links for the selected collection scope:
+
+```bash
+curl -X POST http://localhost:8795/api/provider-checks/collection/melodeath
+```
+
+Remove a title-centric local path while keeping the linked library album:
+
+```bash
+curl -X DELETE http://localhost:8795/api/collections/soundtracks/titles/1
 ```
 
 Create an artist and assign it to a collection:

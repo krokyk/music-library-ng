@@ -77,13 +77,33 @@ const defaultWorkspaceColumnDefaults = {
     name: 360,
     releaseDate: 140,
     checked: 120,
+    action: 122,
   },
   title: {
     title: 460,
     artist: 220,
     releaseDate: 150,
     status: 120,
+    action: 178,
   },
+}
+
+const defaultActionLabelThresholds = {
+  collections: 600,
+  artists: 900,
+  albums: 600,
+  titles: 1000,
+}
+
+const defaultActionLabelThresholdConstraints = {
+  min: {
+    collections: 400,
+    artists: 700,
+    albums: 400,
+    titles: 800,
+  },
+  max: 2000,
+  step: 50,
 }
 
 let scanJobPoller: number | null = null
@@ -109,29 +129,41 @@ export const useLibraryStore = defineStore('library', {
       statusCompleteVisibleMs: 10000,
       scanPollIntervalMs: 200,
       collectionScanSpinnerEnabled: true,
+      artistScanSpinnerEnabled: true,
       collectionScanProgressEnabled: true,
       statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
       releaseDateDisplayFormat: 'yyyy-MM-dd',
       statusBarLocation: 'top',
+      actionLabelThresholds: defaultActionLabelThresholds,
       workspaceColumnDefaults: defaultWorkspaceColumnDefaults,
+      tableGridColumnMinWidth: 40,
+      actionLabelThresholdConstraints: defaultActionLabelThresholdConstraints,
       defaults: {
         statusCompleteVisibleMs: 10000,
         scanPollIntervalMs: 200,
         collectionScanSpinnerEnabled: true,
+        artistScanSpinnerEnabled: true,
         collectionScanProgressEnabled: true,
         statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
         releaseDateDisplayFormat: 'yyyy-MM-dd',
         statusBarLocation: 'top',
+        actionLabelThresholds: defaultActionLabelThresholds,
         workspaceColumnDefaults: defaultWorkspaceColumnDefaults,
+        tableGridColumnMinWidth: 40,
       },
       overrides: {
         statusCompleteVisibleMs: false,
         scanPollIntervalMs: false,
         collectionScanSpinnerEnabled: false,
+        artistScanSpinnerEnabled: false,
         collectionScanProgressEnabled: false,
         statusHistoryDateFormat: false,
         releaseDateDisplayFormat: false,
         statusBarLocation: false,
+        collectionActionLabelThreshold: false,
+        artistActionLabelThreshold: false,
+        albumActionLabelThreshold: false,
+        titleActionLabelThreshold: false,
       },
     },
     statusHistory: [],
@@ -289,6 +321,10 @@ export const useLibraryStore = defineStore('library', {
       this.collectionTitleItems = this.collectionTitleItems.map((current) => (current.id === updated.id ? updated : current))
       return updated
     },
+    async deleteTitleLocalPath(item: CollectionTitleItem) {
+      await apiSend(`/api/collections/${encodeURIComponent(item.collectionId)}/titles/${item.id}`, 'DELETE')
+      this.collectionTitleItems = this.collectionTitleItems.filter((current) => current.id !== item.id)
+    },
     async loadArtistsForSelectedCollection() {
       if (!this.selectedCollectionId) {
         this.collectionArtists = []
@@ -410,7 +446,11 @@ export const useLibraryStore = defineStore('library', {
           if (!status || status.status !== 'RUNNING') {
             this.stopScanJobPolling()
             await this.loadSettings()
-            await this.refreshCollectionArtistsOnly(true)
+            if (status?.kind === 'LOCAL_ALBUMS') {
+              await this.refreshCollectionContext()
+            } else {
+              await this.refreshCollectionArtistsOnly(true)
+            }
           }
         } catch (error) {
           this.stopScanJobPolling()
@@ -429,6 +469,12 @@ export const useLibraryStore = defineStore('library', {
     async startScanJob(collectionId?: string) {
       const query = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : ''
       this.scanJob = await apiSend<ScanJobStatus>(`/api/scan/jobs${query}`, 'POST')
+      return this.scanJob
+    },
+    async runLocalAlbumScanJob(collectionId: string, artistId?: number) {
+      const query = withQuery('/api/scan/jobs/local-albums', { collectionId, artistId })
+      this.scanJob = await apiSend<ScanJobStatus>(query, 'POST')
+      this.startScanJobPolling()
       return this.scanJob
     },
     async loadScanJob() {
@@ -486,6 +532,28 @@ export const useLibraryStore = defineStore('library', {
       this.providerStatus = { running: true, message: `Checking provider links for ${artistName}`, state: 'running' }
       try {
         const summary = await apiSend<ProviderCheckSummary>(`/api/provider-checks/artist/${artistId}`, 'POST')
+        this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
+        await this.loadArtists()
+        await this.refreshCollectionContext()
+        const detail = summary.messages.join(' ').trim()
+        const message = detail || `Provider check complete: ${summary.newAlbumCount} new albums`
+        this.providerStatus = { running: false, message, state: providerSummaryState(summary) }
+        return summary
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.providerStatus = { running: false, message: `Provider check failed: ${message}`, state: 'failed' }
+        throw error
+      }
+    },
+    async checkCollectionProviders(collectionId: string) {
+      const collection = this.collections.find((item) => item.id === collectionId)
+      const collectionName = collection?.name ?? collectionId
+      this.providerStatus = { running: true, message: `Checking provider links for ${collectionName}`, state: 'running' }
+      try {
+        const summary = await apiSend<ProviderCheckSummary>(
+          `/api/provider-checks/collection/${encodeURIComponent(collectionId)}`,
+          'POST',
+        )
         this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
         await this.loadArtists()
         await this.refreshCollectionContext()

@@ -347,18 +347,26 @@ body,
 
 .settings-matrix {
   align-items: center;
-  column-gap: 18px;
+  column-gap: 14px;
   display: grid;
   grid-template-columns:
-    max-content 220px
-    max-content 220px;
+    max-content 200px
+    max-content 200px
+    max-content 200px;
   row-gap: 10px;
-  width: fit-content;
-  max-width: 100%;
+  width: max-content;
 }
 
-.settings-matrix > .settings-cell:nth-child(4n + 3) {
-  margin-left: 54px;
+.settings-matrix > .settings-cell:nth-child(6n + 3),
+.settings-matrix > .settings-cell:nth-child(6n + 5) {
+  margin-left: 36px;
+}
+
+.settings-matrix--workspace {
+  grid-template-columns:
+    max-content 88px
+    max-content 200px
+    max-content 200px;
 }
 
 .settings-cell {
@@ -370,6 +378,10 @@ body,
   font-size: 0.78rem;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.settings-cell--label[title] {
+  cursor: help;
 }
 
 .settings-cell--control {
@@ -385,7 +397,7 @@ body,
   align-items: center;
   display: flex;
   gap: 10px;
-  width: 220px;
+  width: 200px;
 }
 
 .settings-slider {
@@ -394,7 +406,7 @@ body,
 
 .settings-readonly-value {
   color: rgba(255, 255, 255, 0.9);
-  flex: 0 0 70px;
+  flex: 0 0 66px;
   font-size: 0.82rem;
   font-weight: 700;
   text-align: right;
@@ -411,31 +423,6 @@ body,
 
 .settings-table-wrap {
   overflow: auto;
-}
-
-@container (max-width: 880px) {
-  .settings-matrix {
-    grid-template-columns: max-content 220px;
-  }
-
-  .settings-matrix > .settings-cell:nth-child(4n + 3) {
-    margin-left: 0;
-  }
-}
-
-@container (max-width: 620px) {
-  .settings-matrix {
-    grid-template-columns: minmax(0, 1fr);
-    width: 100%;
-  }
-
-  .settings-cell--label {
-    white-space: normal;
-  }
-
-  .settings-slider-control {
-    width: 100%;
-  }
 }
 
 .panel {
@@ -590,6 +577,7 @@ body,
   align-items: center;
   display: flex;
   gap: 2px;
+  min-width: 0;
 }
 
 .pane-header__meta {
@@ -769,6 +757,14 @@ body,
   min-width: 0;
   overflow: hidden;
   padding: 0 12px;
+  white-space: nowrap;
+}
+
+.workspace-grid__cell > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workspace-grid__header-cell {
@@ -848,15 +844,6 @@ body.is-column-resizing {
   background: rgba(0, 213, 255, 0.72);
 }
 
-.column-autosize-measurer {
-  left: -10000px;
-  pointer-events: none;
-  position: fixed;
-  top: -10000px;
-  visibility: hidden;
-  white-space: nowrap;
-}
-
 .workspace-row {
   cursor: pointer;
 }
@@ -873,22 +860,39 @@ body.is-column-resizing {
   min-width: 0;
 }
 
+.album-cell {
+  width: 100%;
+}
+
+.album-cell__disk-icon {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.artist-cell__spinner {
+  color: rgb(var(--v-theme-primary));
+  flex: 0 0 auto;
+}
+
+.artist-cell > .cell-strong,
 .artist-cell > span:first-child,
 .album-cell > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .row-action-cell {
-  bottom: 0;
   justify-content: flex-end;
   padding: 0 8px;
-  position: absolute;
-  right: 0;
-  top: 0;
-  width: 76px;
   z-index: 2;
+}
+
+.albums-pane .row-action-cell,
+.titles-pane .row-action-cell {
+  justify-content: flex-start;
 }
 
 .truncate-cell {
@@ -902,9 +906,33 @@ body.is-column-resizing {
   display: flex;
   gap: 2px;
   justify-content: flex-end;
+  min-width: 0;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
+}
+
+.albums-pane .row-actions,
+.titles-pane .row-actions {
+  justify-content: flex-start;
+}
+
+.action-button--labeled {
+  min-width: 0;
+}
+
+.action-button--labeled .v-btn__content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.action-button--icon-only {
+  min-width: 30px;
+  padding-inline: 0;
+}
+
+.action-button--icon-only .v-btn__prepend {
+  margin-inline: 0;
 }
 
 .workspace-row:hover .row-actions,
@@ -924,6 +952,20 @@ body.is-column-resizing {
 
 .pane-empty--compact {
   min-height: 220px;
+}
+
+.pane-empty--action {
+  flex-direction: column;
+  gap: 12px;
+  text-align: center;
+}
+
+.pane-empty__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
 }
 
 .folder-candidate-list {

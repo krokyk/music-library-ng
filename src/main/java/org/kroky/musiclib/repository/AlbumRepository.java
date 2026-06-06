@@ -95,7 +95,7 @@ public class AlbumRepository {
             try (ResultSet rs = statement.executeQuery()) {
                 List<Album> albums = new ArrayList<>();
                 while (rs.next()) {
-                    albums.add(mapAlbum(rs));
+                    albums.add(mapAlbum(connection, rs));
                 }
                 return albums;
             }
@@ -111,7 +111,7 @@ public class AlbumRepository {
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, id);
             try (ResultSet rs = statement.executeQuery()) {
-                return rs.next() ? Optional.of(mapAlbum(rs)) : Optional.empty();
+                return rs.next() ? Optional.of(mapAlbum(connection, rs)) : Optional.empty();
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to find album " + id, e);
@@ -239,11 +239,41 @@ public class AlbumRepository {
     }
 
     public int markMissingPaths(String collectionId, Set<String> seenPaths) {
+        return markMissingPaths(collectionId, null, seenPaths);
+    }
+
+    public int markMissingPathsForArtist(String collectionId, long artistId, Set<String> seenPaths) {
+        return markMissingPaths(collectionId, artistId, seenPaths);
+    }
+
+    public int markLocalPathMissing(String collectionId, String relativePath) {
+        String sql = """
+                UPDATE album_local_paths
+                SET missing_since = CURRENT_TIMESTAMP
+                WHERE collection_id = ? AND relative_path = ? AND missing_since IS NULL
+                """;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, collectionId);
+            statement.setString(2, relativePath);
+            return statement.executeUpdate();
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to mark album local path missing", e);
+        }
+    }
+
+    private int markMissingPaths(String collectionId, Long artistId, Set<String> seenPaths) {
         Set<String> normalizedSeen = new HashSet<>(seenPaths);
         String select = """
                 SELECT relative_path
                 FROM album_local_paths
                 WHERE collection_id = ? AND missing_since IS NULL
+                  AND (? IS NULL OR EXISTS (
+                      SELECT 1
+                      FROM album_artists aa
+                      WHERE aa.album_id = album_local_paths.album_id
+                        AND aa.artist_id = ?
+                  ))
                 """;
         String update = """
                 UPDATE album_local_paths
@@ -255,6 +285,8 @@ public class AlbumRepository {
                 PreparedStatement selectStatement = connection.prepareStatement(select);
                 PreparedStatement updateStatement = connection.prepareStatement(update)) {
             selectStatement.setString(1, collectionId);
+            setNullableLong(selectStatement, 2, artistId);
+            setNullableLong(selectStatement, 3, artistId);
             try (ResultSet rs = selectStatement.executeQuery()) {
                 while (rs.next()) {
                     String relativePath = rs.getString("relative_path");
@@ -443,9 +475,9 @@ public class AlbumRepository {
         }
     }
 
-    private Album mapAlbum(ResultSet rs) throws Exception {
+    private Album mapAlbum(Connection connection, ResultSet rs) throws Exception {
         long albumId = rs.getLong("id");
-        List<AlbumLocalPath> localPaths = listPaths(albumId);
+        List<AlbumLocalPath> localPaths = listPaths(connection, albumId);
         boolean hasLocalPath = localPaths.stream().anyMatch(path -> path.missingSince() == null);
         boolean onDisk = localPaths.stream().anyMatch(path -> path.missingSince() == null && path.onDisk());
         return new Album(
@@ -463,7 +495,7 @@ public class AlbumRepository {
                 rs.getString("updated_at"));
     }
 
-    private List<AlbumLocalPath> listPaths(long albumId) {
+    private List<AlbumLocalPath> listPaths(Connection connection, long albumId) {
         String sql = """
                 SELECT lp.id, lp.album_id, lp.collection_id, c.name AS collection_name, c.relative_path AS collection_relative_path,
                        lp.relative_path, lp.first_seen_at, lp.last_seen_at, lp.missing_since
@@ -472,8 +504,7 @@ public class AlbumRepository {
                 WHERE lp.album_id = ?
                 ORDER BY c.name, lp.relative_path
                 """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, albumId);
             try (ResultSet rs = statement.executeQuery()) {
                 List<AlbumLocalPath> paths = new ArrayList<>();

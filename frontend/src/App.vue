@@ -26,9 +26,13 @@ const scanCollectionType = computed(() => {
 })
 
 const scanEntityName = computed(() => (scanCollectionType.value === 'TITLE' ? 'titles' : 'artists'))
+const scanIsLocalAlbums = computed(() => scanJob.value?.kind === 'LOCAL_ALBUMS')
 
 const activeStatusMessage = computed(() => {
   if (scanJob.value?.status === 'RUNNING') {
+    if (scanIsLocalAlbums.value) {
+      return `${scanJob.value.message ?? `Scanning local albums for ${scanCollectionName.value}`}: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} dirs scanned`
+    }
     return `Scanning collection ${scanCollectionName.value}: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} dirs scanned`
   }
   if (providerStatus.value.running && providerStatus.value.message) {
@@ -117,14 +121,21 @@ watch(
   (status, previousStatus) => {
     if (status === 'RUNNING' && previousStatus !== 'RUNNING') {
       scanStartedAt.value = Date.now()
-      store.addStatusHistory(`Scanning collection ${scanCollectionName.value}`, 'running')
+      store.addStatusHistory(
+        scanIsLocalAlbums.value
+          ? (scanJob.value?.message ?? `Scanning local albums for ${scanCollectionName.value}`)
+          : `Scanning collection ${scanCollectionName.value}`,
+        'running',
+      )
       completedStatus.value = ''
     }
     if (previousStatus === 'RUNNING' && status !== 'RUNNING' && scanJob.value) {
       const elapsed = formatElapsed(scanStartedAt.value)
       scanStartedAt.value = null
       if (status === 'DONE') {
-        const message = `${scanCollectionName.value} scan complete: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} dirs scanned, ${scanJob.value.parsedCount} ${scanEntityName.value}, ${scanJob.value.createdCount} new`
+        const message = scanIsLocalAlbums.value
+          ? (scanJob.value.message ?? `${scanCollectionName.value} local album scan complete: ${scanJob.value.parsedCount} albums, ${scanJob.value.createdCount} new`)
+          : `${scanCollectionName.value} scan complete: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} dirs scanned, ${scanJob.value.parsedCount} ${scanEntityName.value}, ${scanJob.value.createdCount} new`
         completeStatus(
           message,
           'done',

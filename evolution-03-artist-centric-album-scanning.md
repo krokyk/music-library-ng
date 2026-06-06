@@ -71,8 +71,24 @@ It should not scan track files.
 
 The row action scans one artist in the selected collection.
 
-The title-bar action scans all loaded artists in the selected collection,
-sequentially, using the same job/status/history path.
+The title-bar action is collection-scoped on the backend. It scans direct child
+folders for the selected collection and upserts matching artists/albums/local
+paths. The frontend must not decide the complete artist set from its current
+filtered or loaded rows.
+
+Local scan API:
+
+```text
+POST /api/scan/jobs/local-albums?collectionId=<collection-id>
+POST /api/scan/jobs/local-albums?collectionId=<collection-id>&artistId=<artist-id>
+```
+
+When `artistId` is supplied, only folders whose parsed artist matches the
+selected artist are processed. Missing local paths are marked missing only for
+that artist.
+
+When `artistId` is omitted, all matching folders in the selected collection are
+processed. Missing local paths are marked missing for the whole collection.
 
 ## Provider Scan
 
@@ -86,13 +102,22 @@ provider links.
 Provider-created albums are unchecked by default and are linked to the artist
 through `album_artists`.
 
+Provider collection API:
+
+```text
+POST /api/provider-checks/collection/<collection-id>
+```
+
+Artists without enabled provider links are skipped and reported in the provider
+summary.
+
 ## Empty Albums Pane
 
 When an artist is selected and no known albums are loaded, the Albums pane should
-offer an explicit local scan action:
+offer explicit selected-artist actions:
 
 ```text
-No albums loaded for this artist. [Scan local albums]
+No albums loaded for this artist. [Scan local albums] [Scan providers]
 ```
 
 This keeps the action available without making artist selection perform a scan.
@@ -141,4 +166,3 @@ Provider scan should follow the same consistency rule.
 5. Add Artists pane title-bar buttons in the agreed order.
 6. Ensure status bar/history/busy indicators match existing scan behavior.
 7. Add parser and repository tests for local album upsert/link behavior.
-

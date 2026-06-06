@@ -44,6 +44,7 @@ public class CollectionTitleItemRepository {
                 SELECT %s
                 FROM collection_title_items
                 WHERE collection_id = ?
+                  AND missing_since IS NULL
                 ORDER BY normalized_sort_name, release_date, normalized_title
                 """.formatted(SELECT_COLUMNS);
         try (Connection connection = dataSource.getConnection();
@@ -221,6 +222,30 @@ public class CollectionTitleItemRepository {
             return missing;
         } catch (Exception e) {
             throw new IllegalStateException("Unable to mark missing title paths for " + collectionId, e);
+        }
+    }
+
+    public Optional<CollectionTitleItem> markMissing(String collectionId, long id) {
+        Optional<CollectionTitleItem> existing = find(id)
+                .filter(item -> item.collectionId().equals(collectionId))
+                .filter(item -> item.missingSince() == null);
+        if (existing.isEmpty()) {
+            return Optional.empty();
+        }
+        String sql = """
+                UPDATE collection_title_items
+                SET missing_since = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND collection_id = ? AND missing_since IS NULL
+                """;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, id);
+            statement.setString(2, collectionId);
+            statement.executeUpdate();
+            return existing;
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to mark title item missing " + id, e);
         }
     }
 

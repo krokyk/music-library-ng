@@ -31,6 +31,12 @@ public class ProviderCheckResource {
     }
 
     @POST
+    @Path("/collection/{collectionId}")
+    public ProviderCheckSummary checkCollection(@PathParam("collectionId") String collectionId) {
+        return checks.checkCollection(collectionId);
+    }
+
+    @POST
     @Path("/provider-link/{linkId}")
     public ProviderCheckSummary checkProviderLink(@PathParam("linkId") long linkId) {
         return checks.checkLink(linkId);
