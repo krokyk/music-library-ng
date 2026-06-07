@@ -259,6 +259,7 @@ $metricsJs = @'
       threePane: box('.three-pane'),
       collectionsPane: box('.collections-pane'),
       collectionList: box('.collection-list'),
+      collectionEditCard: box('.collection-edit-card'),
       artistsPane: box('.artists-pane'),
       artistsGrid: box('.artists-pane .workspace-grid'),
       albumsPane: box('.albums-pane'),
@@ -303,6 +304,29 @@ try {
     $initialPath = Join-Path $OutputDir "musiclib-initial.png"
     Save-Screenshot $socket $initialPath
 
+    Eval-Js $socket @"
+(() => {
+  const row = Array.from(document.querySelectorAll('.nav-row'))
+    .find((node) => node.textContent.includes('$TitleCollection'));
+  if (!row) return false;
+  row.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+  const editButton = row.querySelector('.nav-row__actions button');
+  if (!editButton) return false;
+  editButton.click();
+  return true;
+})()
+"@ | Out-Null
+    if (-not (Wait-ForJs $socket "document.querySelector('.collection-edit-card') !== null" 5000)) {
+        throw "Collection edit overlay did not render."
+    }
+    Start-Sleep -Milliseconds 500
+    $collectionEdit = Eval-Js $socket $metricsJs
+    $collectionEditPath = Join-Path $OutputDir "musiclib-collection-edit.png"
+    Save-Screenshot $socket $collectionEditPath
+
+    Eval-Js $socket "(() => { const cancel = Array.from(document.querySelectorAll('.collection-edit-card button')).find((node) => node.textContent.trim().toLowerCase() === 'cancel'); if (!cancel) return false; cancel.click(); return true; })()" | Out-Null
+    Wait-ForJs $socket "document.querySelector('.collection-edit-card') === null" 3000 | Out-Null
+
     Eval-Js $socket "(() => { const row = Array.from(document.querySelectorAll('.nav-row')).find((node) => node.textContent.includes('$ArtistCollection')); if (!row) return false; row.click(); return true; })()" | Out-Null
     if (-not (Wait-ForJs $socket "document.querySelectorAll('.artists-pane .workspace-row').length > 0" 8000)) {
         throw "$ArtistCollection artists did not render."
@@ -334,11 +358,13 @@ try {
         appUrl = $AppUrl
         screenshots = @{
             initial = $initialPath
+            collectionEdit = $collectionEditPath
             artist = $artistPath
             album = $albumPath
             title = $titlePath
         }
         initial = $initial
+        collectionEdit = $collectionEdit
         artist = $artist
         album = $album
         title = $title

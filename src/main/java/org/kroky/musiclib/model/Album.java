@@ -8,6 +8,8 @@ public record Album(
         String artistName,
         String title,
         String releaseDate,
+        String sortName,
+        MetadataSource sortNameSource,
         boolean checked,
         boolean hasLocalPath,
         boolean onDisk,

@@ -12,5 +12,6 @@ public record ScanRun(
         int updatedCount,
         int missingCount,
         int skippedCount,
-        String message) {
+        String message,
+        String reportPath) {
 }

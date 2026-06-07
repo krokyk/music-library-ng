@@ -40,16 +40,23 @@ public class ProviderCheckService {
         ArtistProviderLink link = providerLinks.find(linkId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown provider link: " + linkId));
         long runId = runs.start(link.artistId(), link.id());
-        return checkLinks(runId, List.of(link), 0);
+        return checkLinks(runId, List.of(link), 0, null);
     }
 
     public ProviderCheckSummary checkArtist(long artistId) {
+        return checkArtist(artistId, null);
+    }
+
+    public ProviderCheckSummary checkArtist(long artistId, String collectionId) {
+        if (collectionId != null && collections.find(collectionId).isEmpty()) {
+            throw new IllegalArgumentException("Unknown collection: " + collectionId);
+        }
         List<ArtistProviderLink> links = providerLinks.listByArtist(artistId).stream()
                 .filter(ArtistProviderLink::enabled)
                 .toList();
         long runId = runs.start(artistId, null);
         int skippedArtists = links.isEmpty() ? 1 : 0;
-        return checkLinks(runId, links, skippedArtists);
+        return checkLinks(runId, links, skippedArtists, collectionId);
     }
 
     public ProviderCheckSummary checkCollection(String collectionId) {
@@ -60,15 +67,16 @@ public class ProviderCheckService {
         int linkedArtistCount = (int) links.stream().map(ArtistProviderLink::artistId).distinct().count();
         int skippedArtists = Math.max(0, artistCount - linkedArtistCount);
         long runId = runs.start(null, null);
-        return checkLinks(runId, links, skippedArtists);
+        return checkLinks(runId, links, skippedArtists, collection.id());
     }
 
     public ProviderCheckSummary checkAll() {
         long runId = runs.start(null, null);
-        return checkLinks(runId, providerLinks.listEnabled(), 0);
+        return checkLinks(runId, providerLinks.listEnabled(), 0, null);
     }
 
-    private ProviderCheckSummary checkLinks(long runId, List<ArtistProviderLink> links, int skippedArtists) {
+    private ProviderCheckSummary checkLinks(long runId, List<ArtistProviderLink> links, int skippedArtists,
+            String collectionId) {
         int processedArtists = 0;
         int foundAlbums = 0;
         int newAlbums = 0;
@@ -94,11 +102,15 @@ public class ProviderCheckService {
                 runs.event(runId, link.artistId(), link.id(), "INFO",
                         "Found " + remoteAlbums.size() + " albums for " + link.artistName());
                 for (RemoteAlbum remoteAlbum : remoteAlbums) {
-                    if (albums.findDuplicate(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseDate()).isPresent()) {
+                    var existing = albums.findDuplicate(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseDate());
+                    if (existing.isPresent()) {
+                        if (collectionId != null) {
+                            albums.assignToCollection(existing.get().id(), collectionId);
+                        }
                         existingAlbums++;
                         continue;
                     }
-                    albums.create(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseDate(), false, null);
+                    albums.create(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseDate(), false, null, collectionId);
                     newAlbums++;
                     runs.event(runId, link.artistId(), link.id(), "INFO",
                             "Added unchecked album: " + remoteAlbum.title());

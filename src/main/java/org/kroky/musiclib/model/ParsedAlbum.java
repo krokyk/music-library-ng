@@ -6,6 +6,7 @@ public record ParsedAlbum(
         String artistName,
         String title,
         String releaseDate,
+        String sortName,
         Path relativePath,
         String collectionId) {
 }

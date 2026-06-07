@@ -26,8 +26,10 @@ public class ProviderCheckResource {
 
     @POST
     @Path("/artist/{artistId}")
-    public ProviderCheckSummary checkArtist(@PathParam("artistId") long artistId) {
-        return checks.checkArtist(artistId);
+    public ProviderCheckSummary checkArtist(
+            @PathParam("artistId") long artistId,
+            @QueryParam("collectionId") String collectionId) {
+        return checks.checkArtist(artistId, collectionId);
     }
 
     @POST

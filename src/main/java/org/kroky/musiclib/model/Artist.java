@@ -8,6 +8,7 @@ public record Artist(
         String sortName,
         String notes,
         List<String> collectionIds,
+        List<String> localCollectionIds,
         int albumCount,
         int checkedAlbumCount,
         int uncheckedAlbumCount,

@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.kroky.musiclib.model.ScanJobStatus;
 import org.kroky.musiclib.model.ScanSummary;
+import org.kroky.musiclib.repository.MusicCollectionRepository;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -22,6 +23,9 @@ public class ScanJobService {
 
     @Inject
     ScanService scanService;
+
+    @Inject
+    MusicCollectionRepository collectionRepository;
 
     @PreDestroy
     void shutdown() {
@@ -42,7 +46,9 @@ public class ScanJobService {
             return existing.status();
         }
 
-        ScanJob job = new ScanJob(UUID.randomUUID().toString(), kind, blankToNull(collectionId), artistId);
+        String normalizedCollectionId = blankToNull(collectionId);
+        ScanJob job = new ScanJob(UUID.randomUUID().toString(), kind, normalizedCollectionId,
+                collectionName(normalizedCollectionId), artistId);
         currentJob.set(job);
         executor.submit(() -> run(job));
         return job.status();
@@ -85,7 +91,7 @@ public class ScanJobService {
             if (job.cancelRequested.get()) {
                 job.finish("CANCELLED", "Scan cancelled.");
             } else {
-                job.finish("DONE", summarize(job.kind, summaries), summaries);
+                job.finish("DONE", summarize(job, summaries), summaries);
             }
         } catch (Exception e) {
             if (job.cancelRequested.get()) {
@@ -105,18 +111,28 @@ public class ScanJobService {
                 : List.of(scanService.scan(job.requestedCollectionId, progress));
     }
 
-    private static String summarize(String kind, List<ScanSummary> summaries) {
+    private static String summarize(ScanJob job, List<ScanSummary> summaries) {
         int parsed = summaries.stream().mapToInt(ScanSummary::parsedCount).sum();
         int created = summaries.stream().mapToInt(ScanSummary::createdCount).sum();
         int updated = summaries.stream().mapToInt(ScanSummary::updatedCount).sum();
         int skipped = summaries.stream().mapToInt(ScanSummary::skippedCount).sum();
         int missing = summaries.stream().mapToInt(ScanSummary::missingCount).sum();
-        if ("LOCAL_ALBUMS".equals(kind)) {
-            return "Local album scan complete: " + parsed + " albums, " + created + " new, "
+        String collectionName = job.collectionLabel();
+        if ("LOCAL_ALBUMS".equals(job.kind)) {
+            return collectionName + " local album scan complete: " + parsed + " albums, " + created + " new, "
                     + updated + " existing, " + missing + " missing, " + skipped + " skipped.";
         }
-        return "Scan complete: " + parsed + " parsed, " + created + " created, "
+        return collectionName + " scan complete: " + parsed + " parsed, " + created + " created, "
                 + updated + " updated, " + skipped + " skipped.";
+    }
+
+    private String collectionName(String collectionId) {
+        if (collectionId == null) {
+            return "all collections";
+        }
+        return collectionRepository.find(collectionId)
+                .map(collection -> collection.name())
+                .orElse(collectionId);
     }
 
     private static String blankToNull(String value) {
@@ -124,29 +140,37 @@ public class ScanJobService {
     }
 
     private static ScanJobStatus idleStatus() {
-        return new ScanJobStatus("", "IDLE", "COLLECTION", null, null, null, 0, 0, 0, 0, 0, false, null);
+        return new ScanJobStatus("", "IDLE", "COLLECTION", null, null, null, null, null, 0, 0, 0, 0, 0, false,
+                null,
+                List.of());
     }
 
-    private static class ScanJob {
+    private class ScanJob {
         private final String id;
         private final String kind;
         private final String requestedCollectionId;
+        private final String requestedCollectionName;
         private final Long requestedArtistId;
         private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
         private String status = "RUNNING";
         private String activeCollectionId;
+        private String activeCollectionName;
         private int itemTotal;
         private int itemProcessed;
         private int parsedCount;
         private int createdCount;
         private int skippedCount;
-        private String message = "Scan starting.";
+        private String message;
+        private List<Long> runIds = List.of();
 
-        private ScanJob(String id, String kind, String requestedCollectionId, Long requestedArtistId) {
+        private ScanJob(String id, String kind, String requestedCollectionId, String requestedCollectionName,
+                Long requestedArtistId) {
             this.id = id;
             this.kind = kind;
             this.requestedCollectionId = requestedCollectionId;
+            this.requestedCollectionName = requestedCollectionName;
             this.requestedArtistId = requestedArtistId;
+            this.message = runningMessage(collectionLabel());
         }
 
         synchronized boolean isRunning() {
@@ -155,11 +179,10 @@ public class ScanJobService {
 
         synchronized void collectionStarted(String collectionId, int itemTotal) {
             this.activeCollectionId = collectionId;
+            this.activeCollectionName = collectionName(collectionId);
             this.itemTotal = itemTotal;
             this.itemProcessed = 0;
-            this.message = "LOCAL_ALBUMS".equals(kind)
-                    ? "Scanning local albums for " + (requestedArtistId == null ? collectionId : "artist " + requestedArtistId)
-                    : "Scanning " + collectionId + ".";
+            this.message = runningMessage(activeCollectionName);
         }
 
         synchronized void itemProcessed(String collectionId, int itemProcessed) {
@@ -182,6 +205,7 @@ public class ScanJobService {
             this.parsedCount = summaries.stream().mapToInt(ScanSummary::parsedCount).sum();
             this.createdCount = summaries.stream().mapToInt(ScanSummary::createdCount).sum();
             this.skippedCount = summaries.stream().mapToInt(ScanSummary::skippedCount).sum();
+            this.runIds = summaries.stream().map(ScanSummary::runId).toList();
             finish(status, message);
         }
 
@@ -191,15 +215,34 @@ public class ScanJobService {
                     status,
                     kind,
                     requestedCollectionId,
+                    requestedCollectionName,
                     requestedArtistId,
                     activeCollectionId,
+                    activeCollectionName,
                     itemTotal,
                     itemProcessed,
                     parsedCount,
                     createdCount,
                     skippedCount,
                     cancelRequested.get(),
-                    message);
+                    message,
+                    runIds);
+        }
+
+        private String collectionLabel() {
+            if (activeCollectionName != null) {
+                return activeCollectionName;
+            }
+            return requestedCollectionName == null ? "all collections" : requestedCollectionName;
+        }
+
+        private String runningMessage(String collectionName) {
+            if ("LOCAL_ALBUMS".equals(kind)) {
+                return requestedArtistId == null
+                        ? "Scanning local albums for " + collectionName + "."
+                        : "Scanning local albums in " + collectionName + " for artist " + requestedArtistId + ".";
+            }
+            return "Scanning collection " + collectionName + ".";
         }
     }
 }

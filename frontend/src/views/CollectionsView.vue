@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 import { formatDateWithJavaPattern } from '@/dateFormat'
-import type { Album, Artist, CollectionFolderCandidate, CollectionTitleItem, MusicCollection } from '@/types'
+import type { Album, Artist, CollectionFolderCandidate, MusicCollection } from '@/types'
 import type { CSSProperties } from 'vue'
 
 interface ArtistForm {
@@ -26,6 +26,7 @@ type ArtistSortKey = 'name'
 type AlbumSortKey = 'name' | 'releaseDate'
 type TitleSortKey = 'title' | 'artist' | 'releaseDate' | 'status'
 type TitleSortMode = 'title' | 'sortName'
+type PresenceFilter = 'local' | 'nonLocal'
 
 const store = useLibraryStore()
 const {
@@ -34,6 +35,8 @@ const {
   collectionArtists,
   collectionAlbums,
   collectionTitleItems,
+  collectionMetadata,
+  collectionMetadataLoading,
   selectedCollectionId,
   selectedArtistId,
   providerLinks,
@@ -52,6 +55,7 @@ const collectionToDelete = ref<MusicCollection | null>(null)
 const refreshingArtistId = ref<number | null>(null)
 const savingArtist = ref(false)
 const collectionEditOpenId = ref<string | null>(null)
+const collectionEditTarget = ref<HTMLElement | undefined>(undefined)
 const threePaneElement = ref<HTMLElement | null>(null)
 const collectionsPaneElement = ref<unknown>(null)
 const artistsPaneElement = ref<unknown>(null)
@@ -64,7 +68,10 @@ const paneLayoutSaveTimer = ref<number | null>(null)
 const paneNames = ['collections', 'artists', 'albums'] as const
 const titleItemDialog = ref(false)
 const titleItemSaving = ref(false)
-const titleItemToEdit = ref<CollectionTitleItem | null>(null)
+const titleItemToEdit = ref<Album | null>(null)
+const albumEditDialog = ref(false)
+const albumEditSaving = ref(false)
+const albumToEdit = ref<Album | null>(null)
 let paneWidthObserver: ResizeObserver | null = null
 
 const paneWidths = reactive({
@@ -84,6 +91,10 @@ const titleItemForm = reactive({
   artistName: '',
   releaseDate: '',
   sortName: '',
+})
+
+const albumEditForm = reactive({
+  title: '',
 })
 
 const artistColumnWidths = reactive({
@@ -121,6 +132,9 @@ const titleSort = reactive<{ key: TitleSortKey; direction: SortDirection }>({
 })
 
 const titleSortMode = ref<TitleSortMode>('sortName')
+const artistPresence = ref<PresenceFilter[]>(['local', 'nonLocal'])
+const titlePresence = ref<PresenceFilter[]>(['local'])
+let presencePreferencesLoaded = false
 const suppressHeaderSortUntil = ref(0)
 
 const columnWidthSaveTimers = new Map<string, number>()
@@ -130,9 +144,21 @@ const columnWidthPreferenceKeys = {
   title: 'collections.columns.title',
 } as const
 
+const presencePreferenceKeys = {
+  artist: 'collections.presence.artist',
+  title: 'collections.presence.title',
+} as const
+
+const paneHeaderMinimumWidths = {
+  collections: 250,
+  artists: 380,
+  albums: 220,
+  titles: 430,
+} as const
+
 const actionColumnWidths = {
   artist: { icon: 116, labeled: 260 },
-  album: { icon: 52, labeled: 122 },
+  album: { icon: 116, labeled: 286 },
   title: { icon: 84, labeled: 178 },
 } as const
 
@@ -166,6 +192,19 @@ const selectedCollection = computed(() =>
   collections.value.find((collection) => collection.id === selectedCollectionId.value) ?? null,
 )
 
+const collectionToEdit = computed(() =>
+  collections.value.find((collection) => collection.id === collectionEditOpenId.value) ?? null,
+)
+
+const collectionEditDialogOpen = computed({
+  get: () => collectionEditOpenId.value !== null,
+  set: (open: boolean) => {
+    if (!open) {
+      closeCollectionEdit()
+    }
+  },
+})
+
 const selectedCollectionIsTitle = computed(() => selectedCollection.value?.type === 'TITLE')
 const selectedCollectionIsArtist = computed(() => selectedCollection.value?.type === 'ARTIST')
 
@@ -184,7 +223,9 @@ const providerIsRunning = computed(() => providerStatus.value.running)
 const paneLayoutPreferenceKey = 'collections.paneLayout'
 
 const sortedCollectionArtists = computed(() =>
-  [...collectionArtists.value].sort((left, right) => applyDirection(compareText(left.name, right.name), artistSort.direction)),
+  collectionArtists.value
+    .filter((artist) => matchesPresenceFilter(artistIsLocalToSelectedCollection(artist), artistPresence.value))
+    .sort((left, right) => applyDirection(compareText(left.name, right.name), artistSort.direction)),
 )
 
 const sortedCollectionAlbums = computed(() =>
@@ -206,8 +247,14 @@ const sortedCollectionAlbums = computed(() =>
   }),
 )
 
+const visibleCollectionTitleItems = computed(() => {
+  return collectionTitleItems.value.filter((item) =>
+    matchesPresenceFilter(albumIsLocalToSelectedCollection(item), titlePresence.value),
+  )
+})
+
 const sortedCollectionTitleItems = computed(() =>
-  [...collectionTitleItems.value].sort((left, right) => {
+  [...visibleCollectionTitleItems.value].sort((left, right) => {
     let result = 0
     if (titleSort.key === 'title') {
       result = titleSortMode.value === 'sortName'
@@ -222,7 +269,7 @@ const sortedCollectionTitleItems = computed(() =>
         titleSort.direction,
       )
     } else {
-      result = compareText(left.parseStatus, right.parseStatus)
+      result = Number(left.checked) - Number(right.checked)
     }
     return titleSort.key === 'releaseDate'
       ? result || compareText(left.sortName, right.sortName) || compareText(left.title, right.title)
@@ -373,10 +420,52 @@ function titleSortModeTooltip() {
 
 function albumDiskTitle(album: Album) {
   const activePaths = album.localPaths.filter((path) => !path.missingSince)
-  if (activePaths.length === 0) {
-    return 'No local folder'
+  if (activePaths.length > 0) {
+    return activePaths.map((path) => path.resolvedPath ?? path.relativePath).join('\n')
   }
-  return activePaths.map((path) => path.resolvedPath ?? path.relativePath).join('\n')
+  const missingPaths = album.localPaths.filter((path) => path.missingSince)
+  if (missingPaths.length > 0) {
+    return missingPaths
+      .map((path) => `Missing: ${path.resolvedPath ?? path.relativePath}`)
+      .join('\n')
+  }
+  return 'No local folder'
+}
+
+function albumIsLocalToSelectedCollection(album: Album) {
+  if (!selectedCollectionId.value) {
+    return false
+  }
+  return album.localPaths.some((path) =>
+    path.collectionId === selectedCollectionId.value
+    && !path.missingSince
+    && path.onDisk,
+  )
+}
+
+function artistIsLocalToSelectedCollection(artist: Artist) {
+  return Boolean(
+    selectedCollectionId.value
+    && (artist.localCollectionIds ?? []).includes(selectedCollectionId.value),
+  )
+}
+
+function matchesPresenceFilter(isLocal: boolean, filter: PresenceFilter[]) {
+  return (isLocal && filter.includes('local'))
+    || (!isLocal && filter.includes('nonLocal'))
+}
+
+function includeNonLocal(filter: { value: PresenceFilter[] }) {
+  if (!filter.value.includes('nonLocal')) {
+    filter.value = [...filter.value, 'nonLocal']
+  }
+}
+
+function albumPresenceClass(album: Album) {
+  return {
+    'album-presence-text--local': albumIsLocalToSelectedCollection(album),
+    'album-presence-text--nonlocal-unchecked': !albumIsLocalToSelectedCollection(album) && !album.checked,
+  }
 }
 
 function collectionTypeIcon(collection: MusicCollection) {
@@ -385,6 +474,38 @@ function collectionTypeIcon(collection: MusicCollection) {
 
 function collectionTypeLabel(collection: MusicCollection) {
   return collection.type === 'TITLE' ? 'Title collection' : 'Artist collection'
+}
+
+function loadCollectionInfo(collection: MusicCollection, open: boolean) {
+  if (open) {
+    void store.loadCollectionMetadata(collection.id)
+  }
+}
+
+function collectionInfoPath(collection: MusicCollection) {
+  return collection.resolvedPath ?? collection.relativePath
+}
+
+function collectionInfoLines(collection: MusicCollection) {
+  const metadata = collectionMetadata.value[collection.id]
+  if (!metadata) {
+    return []
+  }
+  if (collection.type === 'TITLE') {
+    return [
+      `Path: ${collectionInfoPath(collection)}`,
+      `Artists: ${metadata.contributorArtistCount}`,
+      `Local titles: ${metadata.localAlbumCount}`,
+      `Checked titles: ${metadata.checkedAlbumCount}`,
+    ]
+  }
+  return [
+    `Path: ${collectionInfoPath(collection)}`,
+    `Artists: ${metadata.artistCount}`,
+    `Local albums: ${metadata.localAlbumCount}`,
+    `Known albums: ${metadata.knownAlbumCount}`,
+    `Unchecked albums: ${metadata.uncheckedAlbumCount}`,
+  ]
 }
 
 function showActionLabels(pane: keyof typeof paneWidths) {
@@ -401,6 +522,14 @@ function actionLabelClass(pane: keyof typeof paneWidths) {
 
 function gridActionLabelClass(table: keyof typeof columnWidthPreferenceKeys) {
   return actionLabelClassFor(showGridActionLabels(table))
+}
+
+function rowActionClass(pane: keyof typeof paneWidths) {
+  return [actionLabelClass(pane), 'workspace-row-action']
+}
+
+function gridRowActionClass(table: keyof typeof columnWidthPreferenceKeys) {
+  return [gridActionLabelClass(table), 'workspace-row-action']
 }
 
 function actionLabelClassFor(showLabels: boolean) {
@@ -490,12 +619,13 @@ function closeAddCollectionDropdown() {
   addCollectionDropdownOpen.value = false
 }
 
-function openCollectionEdit(collection: MusicCollection) {
+function openCollectionEdit(collection: MusicCollection, event?: MouseEvent) {
   collectionEditForm.name = collection.name
   collectionEditForm.type = collection.type
+  collectionEditTarget.value = event?.currentTarget instanceof HTMLElement ? event.currentTarget : undefined
   collectionEditOpenId.value = collection.id
   void nextTick(() => {
-    const input = document.querySelector<HTMLInputElement>('.collection-edit-popover input')
+    const input = document.querySelector<HTMLInputElement>('.collection-edit-card input')
     input?.focus()
     input?.select()
   })
@@ -516,8 +646,16 @@ async function saveCollectionEdit(collection: MusicCollection) {
   })
 }
 
+async function saveOpenCollectionEdit() {
+  if (!collectionToEdit.value) {
+    return
+  }
+  await saveCollectionEdit(collectionToEdit.value)
+}
+
 function closeCollectionEdit() {
   collectionEditOpenId.value = null
+  collectionEditTarget.value = undefined
 }
 
 async function startScan(collectionId: string) {
@@ -571,19 +709,22 @@ function startPaneResize(index: number, event: PointerEvent) {
   function move(pointerEvent: PointerEvent) {
     const deltaPercent = ((pointerEvent.clientX - startX) / paneAreaWidth) * 100
 
-    if (selectedCollectionIsTitle.value && index === 0) {
+    if (index === 0) {
       const leftMinimum = (minimums[0] / paneAreaWidth) * 100
-      const rightMinimum = (minimumGridWidth('title') / paneAreaWidth) * 100
+      const rightMinimumPixels = selectedCollectionIsTitle.value
+        ? titlePaneMinimumWidth()
+        : minimums[1] + minimums[2]
+      const rightMinimum = (rightMinimumPixels / paneAreaWidth) * 100
       const leftMaximum = Math.max(leftMinimum, 100 - rightMinimum)
       const left = Math.min(Math.max(leftMinimum, startPercents[0] + deltaPercent), leftMaximum)
       const right = 100 - left
       const previousRight = startPercents[1] + startPercents[2]
-      const artistsShare = previousRight > 0 ? startPercents[1] / previousRight : 0.5
+      const middleShare = previousRight > 0 ? startPercents[1] / previousRight : 0.5
 
       panePercents.value = normalizePanePercents([
         left,
-        right * artistsShare,
-        right * (1 - artistsShare),
+        right * middleShare,
+        right * (1 - middleShare),
       ])
       schedulePaneLayoutSave()
       return
@@ -618,10 +759,14 @@ function startPaneResize(index: number, event: PointerEvent) {
 
 function paneMinimums() {
   return [
-    180,
-    260,
-    selectedCollectionIsTitle.value ? minimumGridWidth('title') : minimumGridWidth('album'),
+    paneHeaderMinimumWidths.collections,
+    paneHeaderMinimumWidths.artists,
+    selectedCollectionIsTitle.value ? titlePaneMinimumWidth() : Math.max(paneHeaderMinimumWidths.albums, minimumGridWidth('album')),
   ]
+}
+
+function titlePaneMinimumWidth() {
+  return Math.max(paneHeaderMinimumWidths.titles, minimumGridWidth('title'))
 }
 
 async function loadPaneLayout() {
@@ -704,6 +849,51 @@ async function loadColumnWidths() {
     loadColumnWidthPreference('album'),
     loadColumnWidthPreference('title'),
   ])
+}
+
+async function loadPresenceFilters() {
+  await Promise.all([
+    loadPresencePreference('artist', artistPresence),
+    loadPresencePreference('title', titlePresence),
+  ])
+  presencePreferencesLoaded = true
+}
+
+async function loadPresencePreference(scope: keyof typeof presencePreferenceKeys, target: { value: PresenceFilter[] }) {
+  const preference = await store.loadPreference(presencePreferenceKeys[scope])
+  if (!preference?.value) {
+    return
+  }
+  try {
+    const parsed = JSON.parse(preference.value)
+    const normalized = normalizePresenceFilter(parsed)
+    if (normalized) {
+      target.value = normalized
+    }
+  } catch (error) {
+    // Ignore invalid stored UI state and keep the default filter.
+  }
+}
+
+function normalizePresenceFilter(value: unknown) {
+  if (!Array.isArray(value)) {
+    return null
+  }
+  const normalized: PresenceFilter[] = []
+  value.forEach((item) => {
+    if ((item === 'local' || item === 'nonLocal') && !normalized.includes(item)) {
+      normalized.push(item)
+    }
+  })
+  return normalized
+}
+
+function savePresenceFilter(scope: keyof typeof presencePreferenceKeys, value: PresenceFilter[]) {
+  if (!presencePreferencesLoaded) {
+    return
+  }
+  const normalized = normalizePresenceFilter(value) ?? []
+  void store.savePreference(presencePreferenceKeys[scope], JSON.stringify(normalized))
 }
 
 async function loadColumnWidthPreference(table: keyof typeof columnWidthPreferenceKeys) {
@@ -974,6 +1164,9 @@ async function saveArtistDetails() {
     })
     artistForm.id = artist.id
     if (wasNew && selectedCollectionId.value && artist.collectionIds.includes(selectedCollectionId.value)) {
+      if (!artistIsLocalToSelectedCollection(artist)) {
+        includeNonLocal(artistPresence)
+      }
       await store.selectArtist(artist.id)
     }
     await reloadProviderLinkForms(artist.id)
@@ -1093,6 +1286,50 @@ async function updateAlbumChecked(album: Album, checked: boolean) {
   await store.updateAlbum({ ...album, checked })
 }
 
+function albumHasMissingLocalPath(album: Album) {
+  return album.localPaths.some((path) => path.missingSince)
+}
+
+function openAlbumEditDialog(album: Album) {
+  albumToEdit.value = album
+  albumEditForm.title = album.title
+  albumEditDialog.value = true
+  void nextTick(() => {
+    const input = document.querySelector<HTMLInputElement>('.album-edit-dialog input')
+    input?.select()
+  })
+}
+
+async function saveAlbumTitle() {
+  if (!albumToEdit.value || !albumEditForm.title.trim()) {
+    return
+  }
+  albumEditSaving.value = true
+  try {
+    await store.updateAlbum({
+      ...albumToEdit.value,
+      title: albumEditForm.title.trim(),
+    })
+    albumEditDialog.value = false
+    albumToEdit.value = null
+  } catch (error) {
+    store.error = error instanceof Error ? error.message : String(error)
+  } finally {
+    albumEditSaving.value = false
+  }
+}
+
+async function untrackMissingAlbumLocalPaths(album: Album) {
+  if (!selectedCollectionId.value) {
+    return
+  }
+  try {
+    await store.untrackMissingAlbumLocalPaths(album.id, selectedCollectionId.value)
+  } catch (error) {
+    store.error = error instanceof Error ? error.message : String(error)
+  }
+}
+
 function askDeleteAlbum(album: Album) {
   albumToDelete.value = album
   deleteDialog.value = true
@@ -1107,27 +1344,33 @@ async function deleteAlbum() {
   albumToDelete.value = null
 }
 
-function openTitleItemDialog(item: CollectionTitleItem) {
-  titleItemToEdit.value = item
-  titleItemForm.title = item.title
-  titleItemForm.artistName = item.artistName ?? ''
-  titleItemForm.releaseDate = item.releaseDate ?? ''
-  titleItemForm.sortName = item.sortName
+function openTitleItemDialog(item?: Album) {
+  titleItemToEdit.value = item ?? null
+  titleItemForm.title = item?.title ?? ''
+  titleItemForm.artistName = item?.artistName ?? ''
+  titleItemForm.releaseDate = item?.releaseDate ?? ''
+  titleItemForm.sortName = item?.sortName ?? ''
   titleItemDialog.value = true
 }
 
 async function saveTitleItem() {
-  if (!titleItemToEdit.value || !titleItemForm.title.trim()) {
+  if (!titleItemForm.title.trim() || !selectedCollectionId.value) {
     return
   }
   titleItemSaving.value = true
   try {
-    await store.updateTitleItem(titleItemToEdit.value, {
+    const payload = {
       title: titleItemForm.title.trim(),
       artistName: titleItemForm.artistName.trim() || null,
       releaseDate: titleItemForm.releaseDate.trim() || null,
       sortName: titleItemForm.sortName.trim() || null,
-    })
+    }
+    if (titleItemToEdit.value) {
+      await store.updateTitleItem(titleItemToEdit.value, payload)
+    } else {
+      await store.createTitleItem(selectedCollectionId.value, payload)
+      includeNonLocal(titlePresence)
+    }
     titleItemDialog.value = false
     titleItemToEdit.value = null
   } finally {
@@ -1135,7 +1378,7 @@ async function saveTitleItem() {
   }
 }
 
-async function deleteTitleLocalPath(item: CollectionTitleItem) {
+async function deleteTitleLocalPath(item: Album) {
   try {
     await store.deleteTitleLocalPath(item)
   } catch (error) {
@@ -1149,6 +1392,7 @@ onMounted(async () => {
   await store.loadUiSettings()
   applyColumnWidthDefaults()
   await loadColumnWidths()
+  await loadPresenceFilters()
   await loadPaneLayout()
   await store.loadCollections()
   await store.loadScanJob()
@@ -1174,6 +1418,14 @@ onBeforeUnmount(() => {
 watch(selectedCollectionIsTitle, () => {
   void nextTick(setupPaneWidthObserver)
 })
+
+watch(artistPresence, (value) => {
+  savePresenceFilter('artist', value)
+}, { deep: true })
+
+watch(titlePresence, (value) => {
+  savePresenceFilter('title', value)
+}, { deep: true })
 </script>
 
 <template>
@@ -1183,14 +1435,16 @@ watch(selectedCollectionIsTitle, () => {
     <div ref="threePaneElement" class="three-pane">
       <v-sheet ref="collectionsPaneElement" class="pane collections-pane" :style="paneStyle(0)">
         <div class="pane-header">
-          <span>Collections</span>
+          <div class="pane-header__primary">
+            <span class="pane-header__title">Collections</span>
+          </div>
           <div ref="addCollectionAnchor" class="pane-header__actions">
             <v-btn
               prepend-icon="mdi-plus"
               size="small"
-              variant="flat"
+              :variant="addCollectionDropdownOpen ? 'tonal' : 'text'"
               color="primary"
-              :class="actionLabelClassFor(showCollectionAddLabel())"
+              :class="[actionLabelClassFor(showCollectionAddLabel()), 'app-toolbar-button']"
               @click="toggleAddCollectionDropdown"
             >
               <span v-if="showCollectionAddLabel()">Add</span>
@@ -1256,80 +1510,48 @@ watch(selectedCollectionIsTitle, () => {
               </v-tooltip>
               <span>{{ collection.name }}</span>
             </span>
-            <span class="nav-row__actions">
-              <v-menu
-                :model-value="collectionEditOpenId === collection.id"
-                location="end"
-                :close-on-content-click="false"
-                @update:model-value="(value) => value ? openCollectionEdit(collection) : closeCollectionEdit()"
-              >
+            <span class="nav-row__info" @click.stop>
+              <v-tooltip location="end" :open-on-hover="true" @update:model-value="(open) => loadCollectionInfo(collection, open)">
                 <template #activator="{ props }">
-                  <v-tooltip text="Edit collection" location="top">
-                    <template #activator="{ props: tooltipProps }">
-                      <v-btn
-                        v-bind="{ ...props, ...tooltipProps }"
-                        prepend-icon="mdi-pencil"
-                        size="x-small"
-                        variant="text"
-                        color="primary"
-                        :class="actionLabelClass('collections')"
-                        :disabled="collectionIsScanning(collection)"
-                        @click.stop="openCollectionEdit(collection)"
-                      >
-                        <span v-if="showActionLabels('collections')">Edit</span>
-                      </v-btn>
-                    </template>
-                  </v-tooltip>
+                  <v-icon
+                    v-bind="props"
+                    icon="mdi-information-outline"
+                    size="16"
+                    class="collection-info-icon"
+                  ></v-icon>
                 </template>
-                <v-sheet class="collection-edit-popover">
-                  <div class="collection-edit-popover__location">
-                    <span class="collection-edit-popover__label">Folder</span>
-                    <span class="collection-edit-popover__path">{{ collection.relativePath }}</span>
+                <div class="collection-info-tooltip">
+                  <div
+                    v-if="collectionMetadataLoading[collection.id] && !collectionMetadata[collection.id]"
+                    class="collection-info-tooltip__loading"
+                  >
+                    <v-progress-circular indeterminate size="14" width="2"></v-progress-circular>
+                    <span>Loading info</span>
                   </div>
-                  <v-text-field
-                    v-model="collectionEditForm.name"
-                    label="Name"
-                    class="collection-edit-popover__name"
-                    density="compact"
-                    hide-details
-                    @click.stop
-                    @keydown.enter.stop="saveCollectionEdit(collection)"
-                  ></v-text-field>
-                  <div class="collection-edit-popover__type">
-                    <div class="collection-edit-popover__label">Type</div>
-                    <v-btn-toggle
-                      v-model="collectionEditForm.type"
-                      mandatory
-                      density="compact"
-                      color="primary"
-                      class="collection-type-toggle"
-                    >
-                      <v-btn value="ARTIST">
-                        <v-icon
-                          icon="mdi-account-music"
-                          size="16"
-                          class="collection-type-icon collection-type-icon--artist"
-                        ></v-icon>
-                        <span>Artist</span>
-                      </v-btn>
-                      <v-btn value="TITLE">
-                        <v-icon
-                          icon="mdi-album"
-                          size="16"
-                          class="collection-type-icon collection-type-icon--title"
-                        ></v-icon>
-                        <span>Title</span>
-                      </v-btn>
-                    </v-btn-toggle>
-                  </div>
-                  <div class="collection-edit-popover__actions">
-                    <v-btn size="small" variant="text" @click.stop="closeCollectionEdit">Cancel</v-btn>
-                    <v-btn size="small" color="primary" variant="flat" @click.stop="saveCollectionEdit(collection)">
-                      Save
-                    </v-btn>
-                  </div>
-                </v-sheet>
-              </v-menu>
+                  <template v-else-if="collectionMetadata[collection.id]">
+                    <div v-for="line in collectionInfoLines(collection)" :key="line">{{ line }}</div>
+                  </template>
+                  <div v-else>Info not loaded</div>
+                </div>
+              </v-tooltip>
+            </span>
+            <span class="nav-row__actions">
+              <v-tooltip text="Edit collection" location="top">
+                <template #activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    prepend-icon="mdi-pencil"
+                    size="x-small"
+                    variant="text"
+                    color="primary"
+                    :class="rowActionClass('collections')"
+                    :disabled="collectionIsScanning(collection)"
+                    @click.stop="openCollectionEdit(collection, $event)"
+                  >
+                    <span v-if="showActionLabels('collections')">Edit</span>
+                  </v-btn>
+                </template>
+              </v-tooltip>
               <v-tooltip text="Scan collection" location="top">
                 <template #activator="{ props }">
                   <v-btn
@@ -1338,7 +1560,7 @@ watch(selectedCollectionIsTitle, () => {
                     size="x-small"
                     variant="text"
                     color="primary"
-                    :class="actionLabelClass('collections')"
+                    :class="rowActionClass('collections')"
                     :disabled="scanIsRunning"
                     @click.stop="startScan(collection.id)"
                   >
@@ -1354,7 +1576,7 @@ watch(selectedCollectionIsTitle, () => {
                     size="x-small"
                     variant="text"
                     color="error"
-                    :class="actionLabelClass('collections')"
+                    :class="rowActionClass('collections')"
                     :disabled="collectionIsScanning(collection)"
                     @click.stop="askDeleteCollection(collection)"
                   >
@@ -1367,13 +1589,119 @@ watch(selectedCollectionIsTitle, () => {
         </div>
       </v-sheet>
 
+      <v-overlay
+        v-model="collectionEditDialogOpen"
+        :target="collectionEditTarget"
+        location="end"
+        location-strategy="connected"
+        scroll-strategy="reposition"
+        :scrim="false"
+        :offset="8"
+        content-class="collection-edit-overlay__content"
+        @click:outside="closeCollectionEdit"
+      >
+        <v-card v-if="collectionToEdit" class="dialog-card collection-edit-card">
+          <v-card-title>Edit Collection</v-card-title>
+          <v-card-text class="edit-form collection-edit-form">
+            <v-row dense class="edit-form__grid">
+              <v-col cols="12">
+                <v-text-field
+                  v-model="collectionEditForm.name"
+                  label="Name"
+                  hide-details="auto"
+                  @keydown.enter.stop="saveOpenCollectionEdit"
+                ></v-text-field>
+              </v-col>
+            </v-row>
+
+            <div class="collection-edit-row">
+              <span class="modal-section-title collection-edit-row__label">Type</span>
+              <v-btn-toggle
+                v-model="collectionEditForm.type"
+                mandatory
+                density="compact"
+                color="primary"
+                class="app-toolbar-toggle collection-type-toggle"
+              >
+                <v-btn value="ARTIST" size="small">
+                  <v-icon
+                    icon="mdi-account-music"
+                    size="16"
+                    class="collection-type-icon collection-type-icon--artist"
+                  ></v-icon>
+                  <span>Artist</span>
+                </v-btn>
+                <v-btn value="TITLE" size="small">
+                  <v-icon
+                    icon="mdi-album"
+                    size="16"
+                    class="collection-type-icon collection-type-icon--title"
+                  ></v-icon>
+                  <span>Title</span>
+                </v-btn>
+              </v-btn-toggle>
+            </div>
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer></v-spacer>
+            <v-btn size="small" variant="text" class="app-toolbar-button" @click.stop="closeCollectionEdit">Cancel</v-btn>
+            <v-btn
+              size="small"
+              color="primary"
+              variant="flat"
+              class="app-toolbar-button"
+              :disabled="!collectionEditForm.name.trim()"
+              @click.stop="saveOpenCollectionEdit"
+            >
+              Save
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-overlay>
+
       <div class="pane-resizer" @pointerdown="startPaneResize(0, $event)"></div>
 
       <template v-if="selectedCollectionIsTitle">
         <v-sheet ref="titlesPaneElement" class="pane titles-pane" :style="titlePaneStyle()">
           <div class="pane-header">
-            <span>Titles</span>
-            <span v-if="selectedCollection" class="pane-header__meta">{{ selectedCollection.name }}</span>
+            <div class="pane-header__primary">
+              <span class="pane-header__title">Titles</span>
+            </div>
+            <div class="pane-header__actions">
+              <v-tooltip text="Add title" location="top">
+                <template #activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    prepend-icon="mdi-plus"
+                    size="small"
+                    variant="text"
+                    color="primary"
+                    :class="[actionLabelClass('titles'), 'app-toolbar-button']"
+                    :disabled="!selectedCollectionId"
+                    @click="openTitleItemDialog()"
+                  >
+                    <span v-if="showActionLabels('titles')">Add</span>
+                  </v-btn>
+                </template>
+              </v-tooltip>
+            </div>
+          </div>
+          <div class="pane-filter-bar">
+            <span class="pane-filter-bar__label">Filter</span>
+            <v-btn-toggle
+              v-model="titlePresence"
+              multiple
+              density="compact"
+              color="primary"
+              class="app-toolbar-toggle presence-filter-toggle"
+            >
+              <v-btn value="local" size="small" title="Local" prepend-icon="mdi-folder-outline">
+                Local
+              </v-btn>
+              <v-btn value="nonLocal" size="small" title="Non-local" prepend-icon="mdi-cloud-outline">
+                Non-local
+              </v-btn>
+            </v-btn-toggle>
           </div>
 
           <div v-if="!selectedCollection" class="pane-empty">Select a collection.</div>
@@ -1451,7 +1779,7 @@ watch(selectedCollectionIsTitle, () => {
                 data-column="title.status"
                 @click="handleTitleHeaderClick('status', $event)"
               >
-                <span class="sortable-header__label">Status</span>
+                <span class="sortable-header__label">Checked</span>
                 <v-icon
                   v-if="titleSort.key === 'status'"
                   :icon="sortIcon(titleSort.direction)"
@@ -1467,7 +1795,7 @@ watch(selectedCollectionIsTitle, () => {
             </div>
             <div v-for="item in sortedCollectionTitleItems" :key="item.id" class="workspace-grid__row workspace-row">
                 <div data-column="title.title" class="workspace-grid__cell truncate-cell">
-                  <span class="cell-strong">{{ item.title }}</span>
+                  <span :class="albumPresenceClass(item)">{{ item.title }}</span>
                 </div>
                 <div data-column="title.artist" class="workspace-grid__cell truncate-cell">
                   <span>{{ item.artistName ?? '' }}</span>
@@ -1481,9 +1809,14 @@ watch(selectedCollectionIsTitle, () => {
                   <span v-else>{{ releaseDateYearLabel(item.releaseDate) }}</span>
                 </div>
                 <div data-column="title.status" class="workspace-grid__cell">
-                  <v-chip size="x-small" :color="item.parseStatus === 'MANUAL' ? 'primary' : 'default'" variant="tonal">
-                    {{ item.parseStatus.toLowerCase().replace('_', ' ') }}
-                  </v-chip>
+                  <v-checkbox
+                    :model-value="item.checked"
+                    color="primary"
+                    density="compact"
+                    hide-details
+                    @click.stop
+                    @update:model-value="(value) => updateAlbumChecked(item, Boolean(value))"
+                  ></v-checkbox>
                 </div>
                 <div class="workspace-grid__cell row-action-cell">
                   <div class="row-actions">
@@ -1495,7 +1828,7 @@ watch(selectedCollectionIsTitle, () => {
                           size="x-small"
                           variant="text"
                           color="primary"
-                          :class="gridActionLabelClass('title')"
+                          :class="gridRowActionClass('title')"
                           @click.stop="openTitleItemDialog(item)"
                         >
                           <span v-if="showGridActionLabels('title')">Edit</span>
@@ -1510,7 +1843,8 @@ watch(selectedCollectionIsTitle, () => {
                           size="x-small"
                           variant="text"
                           color="error"
-                          :class="gridActionLabelClass('title')"
+                          :class="gridRowActionClass('title')"
+                          :disabled="!item.hasLocalPath"
                           @click.stop="deleteTitleLocalPath(item)"
                         >
                           <span v-if="showGridActionLabels('title')">Delete</span>
@@ -1527,17 +1861,19 @@ watch(selectedCollectionIsTitle, () => {
       <template v-else>
       <v-sheet ref="artistsPaneElement" class="pane artists-pane" :style="paneStyle(1)">
         <div class="pane-header">
-          <span>Artists</span>
+          <div class="pane-header__primary">
+            <span class="pane-header__title">Artists</span>
+          </div>
           <div class="pane-header__actions">
             <v-tooltip text="Scan local albums" location="top">
               <template #activator="{ props }">
                 <v-btn
                   v-bind="props"
-                  prepend-icon="mdi-folder-refresh"
                   size="small"
                   variant="text"
                   color="primary"
-                  :class="actionLabelClass('artists')"
+                  prepend-icon="mdi-folder-sync-outline"
+                  :class="[actionLabelClass('artists'), 'app-toolbar-button']"
                   :loading="localAlbumScanIsRunningForCollection()"
                   :disabled="!selectedCollectionIsArtist || collectionArtists.length === 0 || scanIsRunning || providerIsRunning"
                   @click="scanLocalAlbumsForCollection"
@@ -1550,11 +1886,11 @@ watch(selectedCollectionIsTitle, () => {
               <template #activator="{ props }">
                 <v-btn
                   v-bind="props"
-                  prepend-icon="mdi-cloud-refresh"
                   size="small"
                   variant="text"
                   color="primary"
-                  :class="actionLabelClass('artists')"
+                  prepend-icon="mdi-cloud-sync-outline"
+                  :class="[actionLabelClass('artists'), 'app-toolbar-button']"
                   :loading="providerIsRunning && refreshingArtistId === null"
                   :disabled="!selectedCollectionIsArtist || collectionArtists.length === 0 || scanIsRunning || providerIsRunning"
                   @click="refreshCollectionProviders"
@@ -1571,7 +1907,7 @@ watch(selectedCollectionIsTitle, () => {
                   size="small"
                   variant="text"
                   color="primary"
-                  :class="actionLabelClass('artists')"
+                  :class="[actionLabelClass('artists'), 'app-toolbar-button']"
                   :disabled="!selectedCollectionId"
                   @click="toggleArtistSort('name')"
                 >
@@ -1587,7 +1923,7 @@ watch(selectedCollectionIsTitle, () => {
                   size="small"
                   variant="text"
                   color="primary"
-                  :class="actionLabelClass('artists')"
+                  :class="[actionLabelClass('artists'), 'app-toolbar-button']"
                   :disabled="!selectedCollectionId"
                   @click="openArtistDialog()"
                 >
@@ -1596,6 +1932,23 @@ watch(selectedCollectionIsTitle, () => {
               </template>
             </v-tooltip>
           </div>
+        </div>
+        <div class="pane-filter-bar">
+          <span class="pane-filter-bar__label">Filter</span>
+          <v-btn-toggle
+            v-model="artistPresence"
+            multiple
+            density="compact"
+            color="primary"
+            class="app-toolbar-toggle presence-filter-toggle"
+          >
+            <v-btn value="local" size="small" title="Local" prepend-icon="mdi-folder-outline">
+              Local
+            </v-btn>
+            <v-btn value="nonLocal" size="small" title="Non-local" prepend-icon="mdi-cloud-outline">
+              Non-local
+            </v-btn>
+          </v-btn-toggle>
         </div>
 
         <div v-if="!selectedCollection" class="pane-empty">Select a collection.</div>
@@ -1633,11 +1986,11 @@ watch(selectedCollectionIsTitle, () => {
                     <template #activator="{ props }">
                       <v-btn
                         v-bind="props"
-                        prepend-icon="mdi-folder-refresh"
+                        prepend-icon="mdi-folder-sync-outline"
                         size="x-small"
                         variant="text"
                         color="primary"
-                        :class="actionLabelClass('artists')"
+                        :class="rowActionClass('artists')"
                         :loading="localAlbumScanIsRunningForArtist(artist)"
                         :disabled="scanIsRunning || providerIsRunning"
                         @click.stop="scanLocalAlbumsForArtist(artist)"
@@ -1650,11 +2003,11 @@ watch(selectedCollectionIsTitle, () => {
                     <template #activator="{ props }">
                       <v-btn
                         v-bind="props"
-                        prepend-icon="mdi-cloud-refresh"
+                        prepend-icon="mdi-cloud-sync-outline"
                         size="x-small"
                         variant="text"
                         color="primary"
-                        :class="actionLabelClass('artists')"
+                        :class="rowActionClass('artists')"
                         :loading="refreshingArtistId === artist.id"
                         :disabled="scanIsRunning || providerIsRunning"
                         @click.stop="refreshArtist(artist)"
@@ -1671,7 +2024,7 @@ watch(selectedCollectionIsTitle, () => {
                         size="x-small"
                         variant="text"
                         color="primary"
-                        :class="actionLabelClass('artists')"
+                        :class="rowActionClass('artists')"
                         :disabled="scanIsRunning || providerIsRunning"
                         @click.stop="openArtistDialog(artist)"
                       >
@@ -1689,8 +2042,10 @@ watch(selectedCollectionIsTitle, () => {
 
       <v-sheet ref="albumsPaneElement" class="pane albums-pane" :style="paneStyle(2)">
         <div class="pane-header">
-          <span>Albums</span>
-          <span v-if="selectedArtist" class="pane-header__meta">{{ selectedArtist.name }}</span>
+          <div class="pane-header__primary">
+            <span class="pane-header__title">Albums</span>
+            <span v-if="selectedArtist" class="pane-header__meta">{{ selectedArtist.name }}</span>
+          </div>
         </div>
 
         <div v-if="!selectedArtist" class="pane-empty">Select an artist.</div>
@@ -1700,7 +2055,7 @@ watch(selectedCollectionIsTitle, () => {
             <v-btn
               color="primary"
               variant="tonal"
-              prepend-icon="mdi-folder-refresh"
+              prepend-icon="mdi-folder-sync-outline"
               :loading="localAlbumScanIsRunningForArtist(selectedArtist)"
               :disabled="scanIsRunning || providerIsRunning"
               @click="scanLocalAlbumsForArtist(selectedArtist)"
@@ -1710,7 +2065,7 @@ watch(selectedCollectionIsTitle, () => {
             <v-btn
               color="primary"
               variant="tonal"
-              prepend-icon="mdi-cloud-refresh"
+              prepend-icon="mdi-cloud-sync-outline"
               :loading="refreshingArtistId === selectedArtist.id"
               :disabled="scanIsRunning || providerIsRunning"
               @click="refreshArtist(selectedArtist)"
@@ -1769,7 +2124,7 @@ watch(selectedCollectionIsTitle, () => {
           <div v-for="album in sortedCollectionAlbums" :key="album.id" class="workspace-grid__row workspace-row">
               <div data-column="album.name" class="workspace-grid__cell truncate-cell">
                 <div class="album-cell">
-                  <span>{{ album.title }}</span>
+                  <span :class="albumPresenceClass(album)">{{ album.title }}</span>
                   <v-tooltip :text="albumDiskTitle(album)" location="top">
                     <template #activator="{ props }">
                       <v-icon
@@ -1804,6 +2159,36 @@ watch(selectedCollectionIsTitle, () => {
               </div>
               <div class="workspace-grid__cell row-action-cell">
                 <div class="row-actions">
+                  <v-tooltip text="Edit album title" location="top">
+                    <template #activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        prepend-icon="mdi-pencil-outline"
+                        size="x-small"
+                        variant="text"
+                        color="primary"
+                        :class="gridRowActionClass('album')"
+                        @click.stop="openAlbumEditDialog(album)"
+                      >
+                        <span v-if="showGridActionLabels('album')">Edit</span>
+                      </v-btn>
+                    </template>
+                  </v-tooltip>
+                  <v-tooltip v-if="albumHasMissingLocalPath(album)" text="Forget missing local folder" location="top">
+                    <template #activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        prepend-icon="mdi-folder-remove-outline"
+                        size="x-small"
+                        variant="text"
+                        color="warning"
+                        :class="gridRowActionClass('album')"
+                        @click.stop="untrackMissingAlbumLocalPaths(album)"
+                      >
+                        <span v-if="showGridActionLabels('album')">Untrack</span>
+                      </v-btn>
+                    </template>
+                  </v-tooltip>
                   <v-tooltip text="Delete album" location="top">
                     <template #activator="{ props }">
                       <v-btn
@@ -1812,7 +2197,7 @@ watch(selectedCollectionIsTitle, () => {
                         size="x-small"
                         variant="text"
                         color="error"
-                        :class="gridActionLabelClass('album')"
+                        :class="gridRowActionClass('album')"
                         @click.stop="askDeleteAlbum(album)"
                       >
                         <span v-if="showGridActionLabels('album')">Delete</span>
@@ -1830,8 +2215,8 @@ watch(selectedCollectionIsTitle, () => {
     <v-dialog v-model="artistDialog" max-width="860">
       <v-card class="dialog-card">
         <v-card-title>{{ artistForm.id ? 'Artist Details' : 'Add Artist' }}</v-card-title>
-        <v-card-text>
-          <v-row dense>
+        <v-card-text class="edit-form">
+          <v-row dense class="edit-form__grid">
             <v-col cols="12" md="6">
               <v-text-field v-model="artistForm.name" label="Name" hide-details="auto"></v-text-field>
             </v-col>
@@ -1860,44 +2245,46 @@ watch(selectedCollectionIsTitle, () => {
             </v-col>
           </v-row>
 
-          <div class="modal-section-title">Provider Links</div>
-          <div v-if="!artistForm.id" class="cell-muted mb-3">Save the artist before adding provider links.</div>
-          <div v-else class="provider-editor">
-            <div v-for="link in providerLinkForms" :key="link.id" class="provider-editor-row">
-              <v-select
-                v-model="link.providerId"
-                :items="providerIds"
-                label="Provider"
-                hide-details
-              ></v-select>
-              <v-text-field v-model="link.providerUrl" label="URL" hide-details></v-text-field>
-              <v-checkbox v-model="link.enabled" label="Enabled" color="primary" density="compact" hide-details></v-checkbox>
-              <v-btn icon="mdi-content-save" size="small" color="primary" variant="text" @click="saveProviderLink(link)"></v-btn>
-              <v-btn
-                icon="mdi-trash-can-outline"
-                size="small"
-                variant="text"
-                color="error"
-                @click="deleteProviderLink(link)"
-              ></v-btn>
-            </div>
+          <div class="edit-form__section">
+            <div class="modal-section-title">Provider Links</div>
+            <div v-if="!artistForm.id" class="cell-muted">Save the artist before adding provider links.</div>
+            <div v-else class="provider-editor">
+              <div v-for="link in providerLinkForms" :key="link.id" class="provider-editor-row">
+                <v-select
+                  v-model="link.providerId"
+                  :items="providerIds"
+                  label="Provider"
+                  hide-details
+                ></v-select>
+                <v-text-field v-model="link.providerUrl" label="URL" hide-details></v-text-field>
+                <v-checkbox v-model="link.enabled" label="Enabled" color="primary" density="compact" hide-details></v-checkbox>
+                <v-btn icon="mdi-content-save" size="small" color="primary" variant="text" @click="saveProviderLink(link)"></v-btn>
+                <v-btn
+                  icon="mdi-trash-can-outline"
+                  size="small"
+                  variant="text"
+                  color="error"
+                  @click="deleteProviderLink(link)"
+                ></v-btn>
+              </div>
 
-            <div class="provider-editor-row provider-editor-row--new">
-              <v-select
-                v-model="newProviderLink.providerId"
-                :items="providerIds"
-                label="Provider"
-                hide-details
-              ></v-select>
-              <v-text-field
-                v-model="newProviderLink.providerUrl"
-                label="URL"
-                hide-details
-                @keyup.enter="addProviderLink"
-              ></v-text-field>
-              <v-checkbox v-model="newProviderLink.enabled" label="Enabled" color="primary" density="compact" hide-details></v-checkbox>
-              <v-btn icon="mdi-plus" size="small" color="primary" variant="text" @click="addProviderLink"></v-btn>
-              <span></span>
+              <div class="provider-editor-row provider-editor-row--new">
+                <v-select
+                  v-model="newProviderLink.providerId"
+                  :items="providerIds"
+                  label="Provider"
+                  hide-details
+                ></v-select>
+                <v-text-field
+                  v-model="newProviderLink.providerUrl"
+                  label="URL"
+                  hide-details
+                  @keyup.enter="addProviderLink"
+                ></v-text-field>
+                <v-checkbox v-model="newProviderLink.enabled" label="Enabled" color="primary" density="compact" hide-details></v-checkbox>
+                <v-btn icon="mdi-plus" size="small" color="primary" variant="text" @click="addProviderLink"></v-btn>
+                <span></span>
+              </div>
             </div>
           </div>
         </v-card-text>
@@ -1911,10 +2298,12 @@ watch(selectedCollectionIsTitle, () => {
 
     <v-dialog v-model="titleItemDialog" max-width="640">
       <v-card class="dialog-card">
-        <v-card-title>Title Metadata</v-card-title>
-        <v-card-text>
-          <div class="cell-muted mb-3">{{ titleItemToEdit?.relativePath }}</div>
-          <v-row dense>
+        <v-card-title>{{ titleItemToEdit ? 'Title Metadata' : 'Add Title' }}</v-card-title>
+        <v-card-text class="edit-form">
+          <div v-if="titleItemToEdit?.localPaths.length" class="cell-muted edit-form__meta">
+            {{ titleItemToEdit.localPaths.find((path) => !path.missingSince)?.relativePath ?? titleItemToEdit.localPaths[0]?.relativePath }}
+          </div>
+          <v-row dense class="edit-form__grid">
             <v-col cols="12">
               <v-text-field v-model="titleItemForm.title" label="Title" hide-details="auto"></v-text-field>
             </v-col>
@@ -1947,6 +2336,32 @@ watch(selectedCollectionIsTitle, () => {
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="deleteCollectionDialog = false">Cancel</v-btn>
           <v-btn color="error" @click="deleteCollection">Delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="albumEditDialog" max-width="460">
+      <v-card class="dialog-card album-edit-dialog">
+        <v-card-title>Edit Album</v-card-title>
+        <v-card-text class="edit-form">
+          <div v-if="albumToEdit?.localPaths.length" class="cell-muted edit-form__meta">
+            {{ albumToEdit.localPaths.find((path) => !path.missingSince)?.relativePath ?? albumToEdit.localPaths[0]?.relativePath }}
+          </div>
+          <v-text-field
+            v-model="albumEditForm.title"
+            label="Title"
+            variant="outlined"
+            density="compact"
+            autofocus
+            @keydown.enter.prevent="saveAlbumTitle"
+          ></v-text-field>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="albumEditDialog = false">Cancel</v-btn>
+          <v-btn color="primary" :loading="albumEditSaving" :disabled="!albumEditForm.title.trim()" @click="saveAlbumTitle">
+            Save
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

@@ -16,6 +16,10 @@ public interface MusicLibraryConfig {
     @WithName("backup.directory")
     String backupDirectory();
 
+    @WithName("report.directory")
+    @WithDefault("data/reports")
+    String reportDirectory();
+
     @WithName("music-root")
     Optional<String> musicRoot();
 

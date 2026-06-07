@@ -4,6 +4,7 @@ export interface Artist {
   sortName?: string | null
   notes?: string | null
   collectionIds: string[]
+  localCollectionIds: string[]
   albumCount: number
   checkedAlbumCount: number
   uncheckedAlbumCount: number
@@ -32,6 +33,8 @@ export interface Album {
   artistName: string
   title: string
   releaseDate?: string | null
+  sortName?: string | null
+  sortNameSource: 'AUTO' | 'MANUAL'
   checked: boolean
   hasLocalPath: boolean
   onDisk: boolean
@@ -54,28 +57,20 @@ export interface MusicCollection {
   lastScanMessage?: string | null
 }
 
-export interface CollectionTitleItem {
-  id: number
-  collectionId: string
-  rawFolderName: string
-  relativePath: string
-  title: string
-  artistName?: string | null
-  releaseDate?: string | null
-  sortName: string
-  sortNameSource: 'AUTO' | 'MANUAL'
-  parseStatus: 'EXACT' | 'PARTIAL' | 'TITLE_ONLY' | 'MANUAL'
-  firstSeenAt: string
-  lastSeenAt: string
-  missingSince?: string | null
-  createdAt: string
-  updatedAt: string
-}
-
 export interface CollectionFolderCandidate {
   folderName: string
   relativePath: string
   collectionName: string
+}
+
+export interface CollectionMetadata {
+  collectionId: string
+  artistCount: number
+  contributorArtistCount: number
+  localAlbumCount: number
+  knownAlbumCount: number
+  uncheckedAlbumCount: number
+  checkedAlbumCount: number
 }
 
 export interface RootCandidate {
@@ -106,6 +101,7 @@ export interface ScanRun {
   missingCount: number
   skippedCount: number
   message?: string | null
+  reportPath?: string | null
 }
 
 export interface ScanJobStatus {
@@ -113,8 +109,10 @@ export interface ScanJobStatus {
   status: string
   kind: 'COLLECTION' | 'LOCAL_ALBUMS'
   requestedCollectionId?: string | null
+  requestedCollectionName?: string | null
   requestedArtistId?: number | null
   activeCollectionId?: string | null
+  activeCollectionName?: string | null
   itemTotal: number
   itemProcessed: number
   parsedCount: number
@@ -122,6 +120,7 @@ export interface ScanJobStatus {
   skippedCount: number
   cancelRequested: boolean
   message?: string | null
+  runIds: number[]
 }
 
 export interface UiSettingsValues {
@@ -196,6 +195,7 @@ export interface StatusHistoryEntry {
   createdAt: string
   message: string
   state: 'running' | 'done' | 'warning' | 'failed' | 'info'
+  scanRunIds?: number[]
 }
 
 export interface UserPreference {

@@ -165,10 +165,12 @@ $env:GRAALVM_HOME = "<graalvm-jdk-21>"
 
 ### Developer Shell
 
-Open a 64-bit Visual Studio developer PowerShell before running the native
-build. Either use the Visual Studio installer's developer shell shortcut, or
-create a shortcut that imports the Visual Studio developer shell module and
-selects the 64-bit toolchain:
+The native build helper tries to load the Visual Studio amd64 developer
+environment automatically through `vswhere`. If that does not work, open a
+64-bit Visual Studio developer PowerShell before running the native build.
+Either use the Visual Studio installer's developer shell shortcut, or create a
+shortcut that imports the Visual Studio developer shell module and selects the
+64-bit toolchain:
 
 ```text
 powershell.exe -noe -c "&{Import-Module '<vs-build-tools-root>\Common7\Tools\Microsoft.VisualStudio.DevShell.dll'; Enter-VsDevShell <instance-id> -DevCmdArguments '-arch=amd64 -host_arch=amd64'}"
@@ -183,27 +185,36 @@ install directory:
 
 ### Build
 
-From the 64-bit developer PowerShell:
+From Windows, run the root build helper:
 
 ```powershell
-$env:GRAALVM_HOME = "<graalvm-jdk-21>"
-$env:JAVA_HOME = $env:GRAALVM_HOME
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
-
-java -version
 cd <project-root>
-.\gradlew build "-Dquarkus.native.enabled=true" "-Dquarkus.package.jar.enabled=false"
+.\build-native-exe.bat
 ```
 
-If the frontend assets were already built in WSL and `frontend/dist` is current,
-the native build can skip the npm steps:
+`build-native-exe.bat` is a Total Commander-friendly wrapper for
+`scripts/build-native-exe.ps1`. The BAT sets the local GraalVM path before
+calling PowerShell, and skips frontend tasks by default because frontend assets
+are expected to be built in WSL. The PowerShell script loads the Visual Studio
+amd64 build environment when it can find Visual Studio Build Tools, sets
+`JAVA_HOME` from `GRAALVM_HOME`, runs the Quarkus native build, and checks the
+expected executable name from `application.properties`.
+
+If you run the PowerShell helper directly, pass `-SkipFrontend` when
+`frontend/dist` is already current:
 
 ```powershell
-.\gradlew build "-Dquarkus.native.enabled=true" "-Dquarkus.package.jar.enabled=false" -x frontendInstall -x frontendBuild
+.\scripts\build-native-exe.ps1 -SkipFrontend
 ```
 
-Do not skip those tasks when frontend changes need to be included in the native
-executable.
+Do not build the native executable until `frontend/dist` contains the frontend
+changes that need to be included.
+
+The expected native executable is:
+
+```text
+build\music-library-ng.exe
+```
 
 ### External Config
 
@@ -211,7 +222,7 @@ For a native app distribution, prefer this layout:
 
 ```text
 <app-directory>
-  music-library-ng-runner.exe
+  music-library-ng.exe
   config/application.properties
   data/
 ```
@@ -221,7 +232,7 @@ working directory. If you want `application.properties` directly next to the
 `.exe`, launch the executable with:
 
 ```powershell
-.\music-library-ng-runner.exe "-Dquarkus.config.locations=file:./application.properties"
+.\music-library-ng.exe "-Dquarkus.config.locations=file:./application.properties"
 ```
 
 ### Console Colors

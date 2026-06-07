@@ -12,6 +12,7 @@ import javax.sql.DataSource;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.db.Names;
+import org.kroky.musiclib.model.CollectionMetadata;
 import org.kroky.musiclib.model.CollectionType;
 import org.kroky.musiclib.model.CollectionFolderCandidate;
 import org.kroky.musiclib.model.MusicCollection;
@@ -85,6 +86,57 @@ public class MusicCollectionRepository {
             statement.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to mark collection scanned " + collectionId, e);
+        }
+    }
+
+    public Optional<CollectionMetadata> metadata(String id) {
+        if (find(id).isEmpty()) {
+            return Optional.empty();
+        }
+        String sql = """
+                SELECT
+                    (SELECT count(*)
+                     FROM artist_collections ac
+                     WHERE ac.collection_id = ?) AS artist_count,
+                    (SELECT count(DISTINCT aa.artist_id)
+                     FROM collection_albums ca
+                     JOIN album_artists aa ON aa.album_id = ca.album_id
+                     WHERE ca.collection_id = ?) AS contributor_artist_count,
+                    (SELECT count(DISTINCT lp.album_id)
+                     FROM album_local_paths lp
+                     WHERE lp.collection_id = ? AND lp.missing_since IS NULL) AS local_album_count,
+                    (SELECT count(*)
+                     FROM collection_albums ca
+                     WHERE ca.collection_id = ?) AS known_album_count,
+                    (SELECT count(*)
+                     FROM collection_albums ca
+                     JOIN albums a ON a.id = ca.album_id
+                     WHERE ca.collection_id = ? AND a.checked = 0) AS unchecked_album_count,
+                    (SELECT count(*)
+                     FROM collection_albums ca
+                     JOIN albums a ON a.id = ca.album_id
+                     WHERE ca.collection_id = ? AND a.checked = 1) AS checked_album_count
+                """;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            for (int i = 1; i <= 6; i++) {
+                statement.setString(i, id);
+            }
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(new CollectionMetadata(
+                        id,
+                        rs.getInt("artist_count"),
+                        rs.getInt("contributor_artist_count"),
+                        rs.getInt("local_album_count"),
+                        rs.getInt("known_album_count"),
+                        rs.getInt("unchecked_album_count"),
+                        rs.getInt("checked_album_count")));
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to load collection metadata " + id, e);
         }
     }
 
@@ -166,18 +218,18 @@ public class MusicCollectionRepository {
             connection.setAutoCommit(false);
             try (PreparedStatement deleteLocalPaths = connection.prepareStatement(
                     "DELETE FROM album_local_paths WHERE collection_id = ?");
+                    PreparedStatement deleteCollectionAlbums = connection.prepareStatement(
+                            "DELETE FROM collection_albums WHERE collection_id = ?");
                     PreparedStatement deleteArtistMemberships = connection.prepareStatement(
                             "DELETE FROM artist_collections WHERE collection_id = ?");
-                    PreparedStatement deleteTitleItems = connection.prepareStatement(
-                            "DELETE FROM collection_title_items WHERE collection_id = ?");
                     PreparedStatement deleteCollection = connection.prepareStatement(
                             "DELETE FROM collections WHERE id = ?")) {
                 deleteLocalPaths.setString(1, id);
                 deleteLocalPaths.executeUpdate();
+                deleteCollectionAlbums.setString(1, id);
+                deleteCollectionAlbums.executeUpdate();
                 deleteArtistMemberships.setString(1, id);
                 deleteArtistMemberships.executeUpdate();
-                deleteTitleItems.setString(1, id);
-                deleteTitleItems.executeUpdate();
                 deleteCollection.setString(1, id);
                 deleteCollection.executeUpdate();
                 connection.commit();

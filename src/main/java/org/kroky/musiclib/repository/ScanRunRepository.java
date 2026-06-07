@@ -1,17 +1,22 @@
 package org.kroky.musiclib.repository;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import javax.sql.DataSource;
 
 import org.jboss.logging.Logger;
+import org.kroky.musiclib.config.MusicLibraryConfig;
 import org.kroky.musiclib.model.ScanEvent;
 import org.kroky.musiclib.model.ScanRun;
+import org.kroky.musiclib.scan.PathResolver;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -23,6 +28,12 @@ public class ScanRunRepository {
 
     @Inject
     DataSource dataSource;
+
+    @Inject
+    MusicLibraryConfig config;
+
+    @Inject
+    PathResolver pathResolver;
 
     public long start(String collectionId) {
         LOG.infof("Starting scan run for collection %s", collectionId);
@@ -46,7 +57,8 @@ public class ScanRunRepository {
         LOG.debugf("Listing recent scan runs limit=%d", limit);
         String sql = """
                 SELECT sr.id, sr.collection_id, ms.name AS collection_name, sr.started_at, sr.finished_at, sr.status,
-                       sr.parsed_count, sr.created_count, sr.updated_count, sr.missing_count, sr.skipped_count, sr.message
+                       sr.parsed_count, sr.created_count, sr.updated_count, sr.missing_count, sr.skipped_count,
+                       sr.message, sr.report_path
                 FROM scan_runs sr
                 LEFT JOIN collections ms ON ms.id = sr.collection_id
                 ORDER BY sr.started_at DESC, sr.id DESC
@@ -97,12 +109,17 @@ public class ScanRunRepository {
 
     public void finish(long runId, String status, int parsed, int created, int updated, int missing, int skipped,
             String message) {
+        finish(runId, status, parsed, created, updated, missing, skipped, message, null);
+    }
+
+    public void finish(long runId, String status, int parsed, int created, int updated, int missing, int skipped,
+            String message, String reportPath) {
         LOG.infof("Finishing scan run %d status=%s parsed=%d created=%d updated=%d missing=%d skipped=%d",
                 runId, status, parsed, created, updated, missing, skipped);
         String sql = """
                 UPDATE scan_runs
                 SET status = ?, finished_at = CURRENT_TIMESTAMP, parsed_count = ?, created_count = ?,
-                    updated_count = ?, missing_count = ?, skipped_count = ?, message = ?
+                    updated_count = ?, missing_count = ?, skipped_count = ?, message = ?, report_path = ?
                 WHERE id = ?
                 """;
         try (Connection connection = dataSource.getConnection();
@@ -114,7 +131,8 @@ public class ScanRunRepository {
             statement.setInt(5, missing);
             statement.setInt(6, skipped);
             statement.setString(7, message);
-            statement.setLong(8, runId);
+            statement.setString(8, reportPath);
+            statement.setLong(9, runId);
             statement.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to finish scan run " + runId, e);
@@ -135,6 +153,31 @@ public class ScanRunRepository {
         }
     }
 
+    public Optional<String> report(long runId) {
+        String sql = "SELECT report_path FROM scan_runs WHERE id = ?";
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, runId);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) {
+                    return Optional.empty();
+                }
+                String reportPath = rs.getString("report_path");
+                if (reportPath == null || reportPath.isBlank()) {
+                    return Optional.empty();
+                }
+                Path reportRoot = pathResolver.resolve(config.reportDirectory()).normalize().toAbsolutePath();
+                Path report = reportRoot.resolve(reportPath).normalize().toAbsolutePath();
+                if (!report.startsWith(reportRoot) || !Files.isRegularFile(report)) {
+                    return Optional.empty();
+                }
+                return Optional.of(Files.readString(report));
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to read scan report for run " + runId, e);
+        }
+    }
+
     private ScanRun mapRun(ResultSet rs) throws Exception {
         return new ScanRun(
                 rs.getLong("id"),
@@ -148,6 +191,7 @@ public class ScanRunRepository {
                 rs.getInt("updated_count"),
                 rs.getInt("missing_count"),
                 rs.getInt("skipped_count"),
-                rs.getString("message"));
+                rs.getString("message"),
+                rs.getString("report_path"));
     }
 }

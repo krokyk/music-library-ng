@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
-import org.kroky.musiclib.model.ParseStatus;
 import org.kroky.musiclib.model.ParserType;
 
 class FolderNameParserTest {
@@ -23,11 +22,12 @@ class FolderNameParserTest {
         assertEquals("Dark Tranquillity", parsed.get().artistName());
         assertEquals("Fiction", parsed.get().title());
         assertEquals("2007", parsed.get().releaseDate());
+        assertEquals("Fiction | 2007", parsed.get().sortName());
     }
 
     @Test
     void parsesTitleFoldersWithInnerParenthesesAndFinalArtistYearSuffix() {
-        var parsed = parser.parseTitleItem(
+        var parsed = parser.parseTitleAlbum(
                 Path.of("Ahsoka - Vol. 1 (Episodes 1-4) (Kevin Kiner, 2023)"),
                 "soundtracks");
 
@@ -35,72 +35,65 @@ class FolderNameParserTest {
         assertEquals("Ahsoka - Vol. 1 (Episodes 1-4)", parsed.title());
         assertEquals("2023", parsed.releaseDate());
         assertEquals("Ahsoka - Vol. 1 (Episodes 1-4) | 2023", parsed.sortName());
-        assertEquals(ParseStatus.EXACT, parsed.parseStatus());
     }
 
     @Test
     void parsesTitleFoldersWithFullReleaseDate() {
-        var parsed = parser.parseTitleItem(
+        var parsed = parser.parseTitleAlbum(
                 Path.of("V for Vendetta (Dario Marianelli, 2006-03-13)"),
                 "soundtracks");
 
         assertEquals("V for Vendetta", parsed.title());
         assertEquals("Dario Marianelli", parsed.artistName());
         assertEquals("2006-03-13", parsed.releaseDate());
-        assertEquals(ParseStatus.EXACT, parsed.parseStatus());
     }
 
     @Test
     void parsesTitleFoldersWithMultipleArtists() {
-        var parsed = parser.parseTitleItem(
+        var parsed = parser.parseTitleAlbum(
                 Path.of("Ad Astra (Max Richter, Lorne Balfe, 2019)"),
                 "soundtracks");
 
         assertEquals("Ad Astra", parsed.title());
         assertEquals("Max Richter, Lorne Balfe", parsed.artistName());
         assertEquals("2019", parsed.releaseDate());
-        assertEquals(ParseStatus.EXACT, parsed.parseStatus());
     }
 
     @Test
     void parsesTitleFoldersWithPartialReleaseMonth() {
-        var parsed = parser.parseTitleItem(
+        var parsed = parser.parseTitleAlbum(
                 Path.of("Example Score (Composer Name, 2006-03)"),
                 "soundtracks");
 
         assertEquals("Example Score", parsed.title());
         assertEquals("Composer Name", parsed.artistName());
         assertEquals("2006-03", parsed.releaseDate());
-        assertEquals(ParseStatus.EXACT, parsed.parseStatus());
     }
 
     @Test
     void parsesTitleFoldersWithYearOnlySuffix() {
-        var parsed = parser.parseTitleItem(Path.of("Conan the Barbarian (2011)"), "soundtracks");
+        var parsed = parser.parseTitleAlbum(Path.of("Conan the Barbarian (2011)"), "soundtracks");
 
         assertEquals("Conan the Barbarian", parsed.title());
         assertEquals("2011", parsed.releaseDate());
-        assertEquals(ParseStatus.PARTIAL, parsed.parseStatus());
     }
 
     @Test
     void parsesTitleFoldersWithDashYearSubtitle() {
-        var parsed = parser.parseTitleItem(Path.of("World of Warcraft - 2007 - The Burning Crusade"), "soundtracks");
+        var parsed = parser.parseTitleAlbum(Path.of("World of Warcraft - 2007 - The Burning Crusade"), "soundtracks");
 
         assertEquals("World of Warcraft - The Burning Crusade", parsed.title());
         assertEquals("2007", parsed.releaseDate());
         assertEquals("World of Warcraft | 2007 | The Burning Crusade", parsed.sortName());
-        assertEquals(ParseStatus.PARTIAL, parsed.parseStatus());
     }
 
     @Test
     void keepsAmbiguousTitleFoldersAsTitleOnly() {
-        var parsed = parser.parseTitleItem(Path.of("Wojciech Kilar - The Best"), "soundtracks");
+        var parsed = parser.parseTitleAlbum(Path.of("Wojciech Kilar - The Best"), "soundtracks");
 
         assertEquals("Wojciech Kilar - The Best", parsed.title());
         assertNull(parsed.artistName());
         assertNull(parsed.releaseDate());
-        assertEquals(ParseStatus.TITLE_ONLY, parsed.parseStatus());
     }
 
     @Test

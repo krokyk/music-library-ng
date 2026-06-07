@@ -1,12 +1,12 @@
 import { defineStore } from 'pinia'
-import { apiGet, apiSend } from '@/api'
+import { apiGet, apiSend, apiText } from '@/api'
 import { formatDateWithJavaPattern } from '@/dateFormat'
 import type {
   Album,
   Artist,
   ArtistProviderLink,
   CollectionFolderCandidate,
-  CollectionTitleItem,
+  CollectionMetadata,
   MusicRootInfo,
   MusicCollection,
   ScanJobStatus,
@@ -42,13 +42,17 @@ interface State {
   collectionCandidates: CollectionFolderCandidate[]
   collectionArtists: Artist[]
   collectionAlbums: Album[]
-  collectionTitleItems: CollectionTitleItem[]
+  collectionTitleItems: Album[]
+  collectionMetadata: Record<string, CollectionMetadata>
+  collectionMetadataLoading: Record<string, boolean>
   selectedCollectionId: string | null
   selectedArtistId: number | null
   musicRoot: MusicRootInfo | null
   scanRuns: ScanRun[]
   scanJob: ScanJobStatus | null
   scanEvents: Record<number, ScanEvent[]>
+  scanReports: Record<number, string>
+  scanReportsLoading: Record<number, boolean>
   providerLinks: Record<number, ArtistProviderLink[]>
   providerCheckRuns: ProviderCheckRun[]
   uiSettings: UiSettings
@@ -117,12 +121,16 @@ export const useLibraryStore = defineStore('library', {
     collectionArtists: [],
     collectionAlbums: [],
     collectionTitleItems: [],
+    collectionMetadata: {},
+    collectionMetadataLoading: {},
     selectedCollectionId: null,
     selectedArtistId: null,
     musicRoot: null,
     scanRuns: [],
     scanJob: null,
     scanEvents: {},
+    scanReports: {},
+    scanReportsLoading: {},
     providerLinks: {},
     providerCheckRuns: [],
     uiSettings: {
@@ -234,6 +242,7 @@ export const useLibraryStore = defineStore('library', {
     async deleteCollection(collectionId: string) {
       await apiSend(`/api/collections/${encodeURIComponent(collectionId)}`, 'DELETE')
       this.collections = this.collections.filter((collection) => collection.id !== collectionId)
+      this.invalidateCollectionMetadata(collectionId)
       if (this.selectedCollectionId === collectionId) {
         this.selectedCollectionId = null
         this.selectedArtistId = null
@@ -241,6 +250,34 @@ export const useLibraryStore = defineStore('library', {
         this.collectionAlbums = []
         this.collectionTitleItems = []
       }
+    },
+    async loadCollectionMetadata(collectionId: string, force = false) {
+      if (!force && this.collectionMetadata[collectionId]) {
+        return this.collectionMetadata[collectionId]
+      }
+      if (this.collectionMetadataLoading[collectionId]) {
+        return this.collectionMetadata[collectionId] ?? null
+      }
+      this.collectionMetadataLoading = { ...this.collectionMetadataLoading, [collectionId]: true }
+      try {
+        const metadata = await apiGet<CollectionMetadata>(`/api/collections/${encodeURIComponent(collectionId)}/metadata`)
+        this.collectionMetadata = { ...this.collectionMetadata, [collectionId]: metadata }
+        return metadata
+      } finally {
+        const { [collectionId]: _removed, ...rest } = this.collectionMetadataLoading
+        this.collectionMetadataLoading = rest
+      }
+    },
+    invalidateCollectionMetadata(collectionId?: string) {
+      if (!collectionId) {
+        this.collectionMetadata = {}
+        this.collectionMetadataLoading = {}
+        return
+      }
+      const { [collectionId]: _metadata, ...metadataRest } = this.collectionMetadata
+      const { [collectionId]: _loading, ...loadingRest } = this.collectionMetadataLoading
+      this.collectionMetadata = metadataRest
+      this.collectionMetadataLoading = loadingRest
     },
     async loadSettings() {
       this.loading = true
@@ -276,7 +313,11 @@ export const useLibraryStore = defineStore('library', {
       this.uiSettings = await apiSend<UiSettings>('/api/settings/ui', 'DELETE')
       return this.uiSettings
     },
-    addStatusHistory(message: string, state: StatusHistoryEntry['state'] = 'info') {
+    addStatusHistory(
+      message: string,
+      state: StatusHistoryEntry['state'] = 'info',
+      options: { scanRunIds?: number[] } = {},
+    ) {
       this.statusHistory = [
         ...this.statusHistory,
         {
@@ -284,6 +325,7 @@ export const useLibraryStore = defineStore('library', {
           createdAt: formatDateWithJavaPattern(new Date(), this.uiSettings.statusHistoryDateFormat),
           message,
           state,
+          scanRunIds: options.scanRunIds,
         },
       ].slice(-100)
     },
@@ -308,22 +350,40 @@ export const useLibraryStore = defineStore('library', {
         this.collectionTitleItems = []
         return
       }
-      this.collectionTitleItems = await apiGet<CollectionTitleItem[]>(
+      this.collectionTitleItems = await apiGet<Album[]>(
         `/api/collections/${encodeURIComponent(this.selectedCollectionId)}/titles`,
       )
     },
-    async updateTitleItem(item: CollectionTitleItem, payload: { title: string; artistName?: string | null; releaseDate?: string | null; sortName?: string | null }) {
-      const updated = await apiSend<CollectionTitleItem>(
-        `/api/collections/${encodeURIComponent(item.collectionId)}/titles/${item.id}`,
+    async createTitleItem(collectionId: string, payload: { title: string; artistName?: string | null; releaseDate?: string | null; sortName?: string | null }) {
+      const created = await apiSend<Album>(
+        `/api/collections/${encodeURIComponent(collectionId)}/titles`,
+        'POST',
+        payload,
+      )
+      this.collectionTitleItems = [created, ...this.collectionTitleItems.filter((current) => current.id !== created.id)]
+      this.invalidateCollectionMetadata(collectionId)
+      return created
+    },
+    async updateTitleItem(item: Album, payload: { title: string; artistName?: string | null; releaseDate?: string | null; sortName?: string | null }) {
+      if (!this.selectedCollectionId) {
+        return item
+      }
+      const updated = await apiSend<Album>(
+        `/api/collections/${encodeURIComponent(this.selectedCollectionId)}/titles/${item.id}`,
         'PUT',
         payload,
       )
       this.collectionTitleItems = this.collectionTitleItems.map((current) => (current.id === updated.id ? updated : current))
+      this.invalidateCollectionMetadata(this.selectedCollectionId)
       return updated
     },
-    async deleteTitleLocalPath(item: CollectionTitleItem) {
-      await apiSend(`/api/collections/${encodeURIComponent(item.collectionId)}/titles/${item.id}`, 'DELETE')
-      this.collectionTitleItems = this.collectionTitleItems.filter((current) => current.id !== item.id)
+    async deleteTitleLocalPath(item: Album) {
+      if (!this.selectedCollectionId) {
+        return
+      }
+      await apiSend(`/api/collections/${encodeURIComponent(this.selectedCollectionId)}/titles/${item.id}`, 'DELETE')
+      await this.loadTitlesForSelectedCollection()
+      this.invalidateCollectionMetadata(this.selectedCollectionId)
     },
     async loadArtistsForSelectedCollection() {
       if (!this.selectedCollectionId) {
@@ -399,6 +459,7 @@ export const useLibraryStore = defineStore('library', {
         : await apiSend<Artist>('/api/artists', 'POST', body)
       await this.loadArtists()
       await this.refreshCollectionContext()
+      this.invalidateCollectionMetadata()
       return artist
     },
     async addAlbum(artistId: number, title: string, releaseDate: string | null, checked: boolean) {
@@ -415,12 +476,23 @@ export const useLibraryStore = defineStore('library', {
       })
       this.replaceAlbum(updated)
       await this.refreshCollectionContext()
+      this.invalidateCollectionMetadata()
+    },
+    async untrackMissingAlbumLocalPaths(albumId: number, collectionId: string) {
+      const updated = await apiSend<Album>(
+        `/api/collections/${collectionId}/albums/${albumId}/missing-local-paths`,
+        'DELETE',
+      )
+      this.replaceAlbum(updated)
+      this.invalidateCollectionMetadata(collectionId)
     },
     async deleteAlbum(albumId: number) {
       await apiSend(`/api/albums/${albumId}`, 'DELETE')
       this.albums = this.albums.filter((album) => album.id !== albumId)
       this.collectionAlbums = this.collectionAlbums.filter((album) => album.id !== albumId)
+      this.collectionTitleItems = this.collectionTitleItems.filter((album) => album.id !== albumId)
       await this.refreshCollectionContext()
+      this.invalidateCollectionMetadata()
     },
     replaceAlbum(album: Album) {
       this.albums = this.albums.some((item) => item.id === album.id)
@@ -429,6 +501,9 @@ export const useLibraryStore = defineStore('library', {
       this.collectionAlbums = this.collectionAlbums.some((item) => item.id === album.id)
         ? this.collectionAlbums.map((item) => (item.id === album.id ? album : item))
         : this.collectionAlbums
+      this.collectionTitleItems = this.collectionTitleItems.some((item) => item.id === album.id)
+        ? this.collectionTitleItems.map((item) => (item.id === album.id ? album : item))
+        : this.collectionTitleItems
     },
     async runScanJob(collectionId?: string) {
       await this.startScanJob(collectionId)
@@ -445,6 +520,7 @@ export const useLibraryStore = defineStore('library', {
           const status = await this.loadScanJob()
           if (!status || status.status !== 'RUNNING') {
             this.stopScanJobPolling()
+            this.invalidateCollectionMetadata(status?.requestedCollectionId ?? status?.activeCollectionId ?? undefined)
             await this.loadSettings()
             if (status?.kind === 'LOCAL_ALBUMS') {
               await this.refreshCollectionContext()
@@ -487,6 +563,19 @@ export const useLibraryStore = defineStore('library', {
     },
     async loadScanEvents(runId: number) {
       this.scanEvents[runId] = await apiGet<ScanEvent[]>(`/api/scan/runs/${runId}/events`)
+    },
+    async loadScanReport(runId: number) {
+      if (this.scanReports[runId]) {
+        return this.scanReports[runId]
+      }
+      this.scanReportsLoading[runId] = true
+      try {
+        const report = await apiText(`/api/scan/runs/${runId}/report`)
+        this.scanReports[runId] = report
+        return report
+      } finally {
+        this.scanReportsLoading[runId] = false
+      }
     },
     async loadPreference(key: string) {
       try {
@@ -531,10 +620,14 @@ export const useLibraryStore = defineStore('library', {
         ?? `artist ${artistId}`
       this.providerStatus = { running: true, message: `Checking provider links for ${artistName}`, state: 'running' }
       try {
-        const summary = await apiSend<ProviderCheckSummary>(`/api/provider-checks/artist/${artistId}`, 'POST')
+        const summary = await apiSend<ProviderCheckSummary>(
+          withQuery(`/api/provider-checks/artist/${artistId}`, { collectionId: this.selectedCollectionId }),
+          'POST',
+        )
         this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
         await this.loadArtists()
         await this.refreshCollectionContext()
+        this.invalidateCollectionMetadata(this.selectedCollectionId ?? undefined)
         const detail = summary.messages.join(' ').trim()
         const message = detail || `Provider check complete: ${summary.newAlbumCount} new albums`
         this.providerStatus = { running: false, message, state: providerSummaryState(summary) }
@@ -557,6 +650,7 @@ export const useLibraryStore = defineStore('library', {
         this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
         await this.loadArtists()
         await this.refreshCollectionContext()
+        this.invalidateCollectionMetadata(collectionId)
         const detail = summary.messages.join(' ').trim()
         const message = detail || `Provider check complete: ${summary.newAlbumCount} new albums`
         this.providerStatus = { running: false, message, state: providerSummaryState(summary) }
@@ -573,6 +667,7 @@ export const useLibraryStore = defineStore('library', {
         const summary = await apiSend<ProviderCheckSummary>('/api/provider-checks/all', 'POST')
         await this.loadAll()
         await this.refreshCollectionContext()
+        this.invalidateCollectionMetadata()
         const detail = summary.messages.join(' ').trim()
         const message = detail || `Provider check complete: ${summary.newAlbumCount} new albums`
         this.providerStatus = { running: false, message, state: providerSummaryState(summary) }

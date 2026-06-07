@@ -6,15 +6,16 @@ import java.util.List;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.db.ArtistNames;
+import org.kroky.musiclib.model.Album;
 import org.kroky.musiclib.model.Artist;
-import org.kroky.musiclib.model.CollectionTitleItem;
+import org.kroky.musiclib.model.CollectionMetadata;
 import org.kroky.musiclib.model.CollectionType;
 import org.kroky.musiclib.model.CollectionFolderCandidate;
 import org.kroky.musiclib.model.MusicCollection;
 import org.kroky.musiclib.model.ParserType;
+import org.kroky.musiclib.model.ReleaseDates;
 import org.kroky.musiclib.repository.AlbumRepository;
 import org.kroky.musiclib.repository.ArtistRepository;
-import org.kroky.musiclib.repository.CollectionTitleItemRepository;
 import org.kroky.musiclib.repository.MusicCollectionRepository;
 
 import jakarta.inject.Inject;
@@ -38,9 +39,6 @@ public class MusicCollectionResource {
 
     @Inject
     ArtistRepository artists;
-
-    @Inject
-    CollectionTitleItemRepository titleItems;
 
     @Inject
     AlbumRepository albums;
@@ -76,15 +74,38 @@ public class MusicCollectionResource {
     }
 
     @GET
+    @Path("/{id}/metadata")
+    public CollectionMetadata metadata(@PathParam("id") String id) {
+        LOG.debugf("Loading metadata for collection %s", id);
+        return collections.metadata(id).orElseThrow(NotFoundException::new);
+    }
+
+    @GET
     @Path("/{id}/titles")
-    public List<CollectionTitleItem> titles(@PathParam("id") String id) {
-        LOG.infof("Listing title items for collection %s", id);
-        return titleItems.list(id);
+    public List<Album> titles(@PathParam("id") String id) {
+        LOG.infof("Listing title albums for collection %s", id);
+        return albums.list(null, id, null, null, null);
+    }
+
+    @POST
+    @Path("/{id}/titles")
+    public Album createTitle(@PathParam("id") String id, TitleItemRequest request) {
+        if (request == null || request.title() == null || request.title().isBlank()) {
+            throw new BadRequestException("title is required");
+        }
+        LOG.infof("Create title album request collection=%s title='%s'", id, request.title());
+        return albums.upsertManual(
+                contributorArtistIds(request.artistName()),
+                request.title().trim(),
+                normalizeReleaseDate(request.releaseDate()),
+                request.sortName(),
+                true,
+                id);
     }
 
     @PUT
     @Path("/{id}/titles/{titleItemId}")
-    public CollectionTitleItem updateTitle(
+    public Album updateTitle(
             @PathParam("id") String id,
             @PathParam("titleItemId") long titleItemId,
             TitleItemRequest request) {
@@ -94,30 +115,26 @@ public class MusicCollectionResource {
         LOG.infof("Update title item request collection=%s id=%d title='%s'",
                 id, titleItemId, request.title());
         try {
-            CollectionTitleItem updated = titleItems.updateManual(
-                    id,
+            Album updated = albums.updateTitleMetadata(
                     titleItemId,
+                    contributorArtistIds(request.artistName()),
                     request.title().trim(),
-                    request.artistName(),
-                    request.releaseDate(),
+                    normalizeReleaseDate(request.releaseDate()),
                     request.sortName()).orElseThrow(NotFoundException::new);
-            populateArtistAlbum(id, updated);
+            albums.assignToCollection(updated.id(), id);
             return updated;
         } catch (IllegalArgumentException e) {
             throw new BadRequestException(e.getMessage());
         }
     }
 
-    private void populateArtistAlbum(String collectionId, CollectionTitleItem item) {
+    private List<Long> contributorArtistIds(String artistNameValue) {
         List<Long> artistIds = new ArrayList<>();
-        for (String artistName : ArtistNames.splitList(item.artistName())) {
+        for (String artistName : ArtistNames.splitList(artistNameValue)) {
             var artist = artists.upsertByName(artistName);
-            artists.assignToCollection(artist.id(), collectionId);
             artistIds.add(artist.id());
         }
-        if (!artistIds.isEmpty()) {
-            albums.upsertScanned(artistIds, item.title(), item.releaseDate(), item.relativePath(), collectionId);
-        }
+        return artistIds;
     }
 
     @DELETE
@@ -126,9 +143,19 @@ public class MusicCollectionResource {
             @PathParam("id") String id,
             @PathParam("titleItemId") long titleItemId) {
         LOG.infof("Delete title local path request collection=%s id=%d", id, titleItemId);
-        CollectionTitleItem item = titleItems.markMissing(id, titleItemId).orElseThrow(NotFoundException::new);
-        albums.markLocalPathMissing(id, item.relativePath());
+        albums.find(titleItemId).orElseThrow(NotFoundException::new);
+        albums.markLocalPathsMissing(id, titleItemId);
         return Response.noContent().build();
+    }
+
+    @DELETE
+    @Path("/{id}/albums/{albumId}/missing-local-paths")
+    public Album untrackMissingAlbumLocalPaths(
+            @PathParam("id") String id,
+            @PathParam("albumId") long albumId) {
+        LOG.infof("Untrack missing album local paths request collection=%s albumId=%d", id, albumId);
+        albums.find(albumId).orElseThrow(NotFoundException::new);
+        return albums.untrackMissingLocalPaths(id, albumId).orElseThrow(NotFoundException::new);
     }
 
     @PUT
@@ -175,6 +202,10 @@ public class MusicCollectionResource {
         } catch (IllegalArgumentException e) {
             throw new BadRequestException("Unknown parser: " + value);
         }
+    }
+
+    private static String normalizeReleaseDate(String releaseDate) {
+        return ReleaseDates.normalize(releaseDate);
     }
 
     public record MusicCollectionRequest(String name, String relativePath, String type, String parser) {

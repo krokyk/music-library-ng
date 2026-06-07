@@ -187,18 +187,28 @@ public class ArtistRepository {
     }
 
     public void assignToCollection(long artistId, String collectionId) {
+        assignToCollection(artistId, collectionId, false);
+    }
+
+    public void assignToCollection(long artistId, String collectionId, boolean local) {
         String normalizedCollectionId = blankToNull(collectionId);
         if (normalizedCollectionId == null) {
             return;
         }
         String sql = """
-                INSERT OR IGNORE INTO artist_collections (artist_id, collection_id)
-                VALUES (?, ?)
+                INSERT INTO artist_collections (artist_id, collection_id, local)
+                VALUES (?, ?, ?)
+                ON CONFLICT(artist_id, collection_id) DO UPDATE SET
+                    local = CASE
+                        WHEN excluded.local = 1 THEN 1
+                        ELSE artist_collections.local
+                    END
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, artistId);
             statement.setString(2, normalizedCollectionId);
+            statement.setInt(3, local ? 1 : 0);
             statement.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to assign artist " + artistId
@@ -247,7 +257,13 @@ public class ArtistRepository {
                            FROM artist_collections ac
                            WHERE ac.artist_id = a.id
                            ORDER BY ac.collection_id
-                       )) AS collection_ids
+                       )) AS collection_ids,
+                       (SELECT group_concat(collection_id, ',') FROM (
+                           SELECT ac.collection_id
+                           FROM artist_collections ac
+                           WHERE ac.artist_id = a.id AND ac.local = 1
+                           ORDER BY ac.collection_id
+                       )) AS local_collection_ids
                 FROM artists a
                 LEFT JOIN album_artists aa ON aa.artist_id = a.id
                 LEFT JOIN albums al ON al.id = aa.album_id
@@ -264,8 +280,8 @@ public class ArtistRepository {
             throws Exception {
         try (PreparedStatement delete = connection.prepareStatement("DELETE FROM artist_collections WHERE artist_id = ?");
                 PreparedStatement insert = connection.prepareStatement("""
-                        INSERT OR IGNORE INTO artist_collections (artist_id, collection_id)
-                        VALUES (?, ?)
+                        INSERT OR IGNORE INTO artist_collections (artist_id, collection_id, local)
+                        VALUES (?, ?, 0)
                         """)) {
             delete.setLong(1, artistId);
             delete.executeUpdate();
@@ -296,6 +312,7 @@ public class ArtistRepository {
                 rs.getString("sort_name"),
                 rs.getString("notes"),
                 parseCollectionIds(rs.getString("collection_ids")),
+                parseCollectionIds(rs.getString("local_collection_ids")),
                 rs.getInt("album_count"),
                 rs.getInt("checked_album_count"),
                 rs.getInt("unchecked_album_count"),
