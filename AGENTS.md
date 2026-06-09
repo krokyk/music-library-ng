@@ -2,6 +2,21 @@
 
 Project-specific instructions for AI agents and other contributors working in this repository.
 
+## Startup Context
+
+Every new Codex session should read the shared repo context before broad work:
+
+- `README.md`
+- `PLAN.md`
+- `music-library-ng-implementation-plan.md`
+- `codex-ui-workflow-guide.md`
+- all `evolution-*.md` files
+
+For small, targeted questions or one-file fixes, read only the files needed for
+the task plus any directly relevant context above. For UI, workflow, layout,
+settings, scanning, or multi-session handoff work, read
+`codex-ui-workflow-guide.md` before making changes.
+
 ## Project Summary
 
 Music Library NG is a local-first music collection app for one user running on one PC at a time.
@@ -27,16 +42,15 @@ Important paths:
 - `frontend/src/styles.css`: shared app styling.
 - `dev-shell.sh`: local helper functions.
 
-## Working Style
+## Workflow And UI Rules
 
-- Be direct and factual. Surface contradictions, risks, or simpler alternatives.
-- Prefer small, coherent changes over broad rewrites.
-- Match existing patterns before introducing new abstractions.
-- Keep boilerplate low. Do not add layers, DTOs, helpers, or framework code unless they remove real duplication or clarify behavior.
-- Do not hide important behavior in clever code. Prefer boring, readable code.
-- Use precise names. Avoid vague names such as `data`, `handler`, `manager`, or `helper` when a domain name is available.
-- Keep comments sparse. Add comments only for non-obvious decisions, edge cases, or constraints.
-- Do not revert unrelated changes in the worktree.
+`codex-ui-workflow-guide.md` owns working style, frontend layout rules, UI
+smoke-test workflow, settings behavior, scan/status UI behavior, and final
+verification rules. Keep those rules there instead of duplicating them here.
+
+If there is doubt about whether the requested action should remove data, delete
+data, mutate files on disk, or change a broader workflow than stated, ask before
+implementing. Do not guess on destructive or domain-ambiguous actions.
 
 ## Documentation Expectations
 
@@ -53,48 +67,23 @@ Document behavior that a maintainer or user needs to know.
 
 - Use Quarkus REST resources for API endpoints under `/api/...`.
 - Keep frontend SPA fallback separate from API routes. Do not route `/api`, `/q`, or asset-like paths to `index.html`.
+- Keep REST resources thin: parse request, log intent, call repositories/services, and return responses. Do not put SQL or workflow logic in resources.
+- Put multi-step workflows in services; put direct SQLite access in repositories.
 - Use repositories for database access. Avoid SQL in resources.
 - Use structured SQL and prepared statements. Do not build SQL by concatenating user-controlled values.
 - SQLite lock risk matters. Keep transactions and write windows small.
+- Any multi-table write must use an explicit transaction with rollback on failure.
 - Log normal user actions as `INFO` or lower. Use `WARN` only for conditions that need attention and are not normal user-controlled outcomes.
+- Do not rely on cascade behavior blindly for domain deletes. Be explicit about which related records should be removed and which must remain.
+- Database deletes must never delete files or folders on disk unless the request explicitly says it is a filesystem delete.
+- Distinguish association removal from entity deletion:
+  - remove/unlink endpoints remove membership or relationship rows only.
+  - delete endpoints delete the entity from the library database.
+- Long-running work, filesystem scans, and provider checks must go through job/service flows, not ad hoc blocking resource methods.
+- Mutation endpoints should refresh or return canonical model state when the frontend depends on updated counts, memberships, or derived fields.
+- Counts and presence flags must be scoped deliberately. Global counts and selected-collection counts are not interchangeable.
+- Use existing normalization helpers such as `Names`, `ReleaseDates`, and parser utilities instead of duplicating normalization logic.
 - For a fresh-start schema change, edit `V1__init.sql` when the current development state allows starting from scratch. Add migrations only when preserving existing DBs is required.
-
-## Frontend Rules
-
-- The app itself must not create a browser vertical scrollbar. Pages should fit the browser height; panes and dialogs scroll internally when needed.
-- Use pane-style layouts for app screens. Avoid landing-page or marketing layouts.
-- Keep operational UI compact and scannable.
-- Prefer aligned, tabular controls for settings and dense operational screens.
-- Use icons for compact actions and text buttons for clear commands.
-- Use Vuetify components consistently, but do not accept default Vuetify layout behavior when it breaks alignment or density.
-- For dropdowns/popovers tied to pane controls, anchor them near the triggering control instead of centering a modal unless the task needs a blocking decision.
-- Status/history UI should preserve layout stability. Avoid content appearing/disappearing in a way that shifts the main workspace.
-- If text can grow, constrain it with ellipsis, wrapping, or internal scrolling so it does not overlap adjacent controls.
-- Workspace pane data grids should use the custom CSS grid pattern, not Vuetify `v-table`, when columns need resizing or sticky headers. Use explicit pixel column widths, one resize handle per column boundary, a sticky grid header, and a single scroll container owned by the grid. Avoid table/colgroup layout for these panes because native table layout can resize adjacent columns unpredictably and create ghost columns.
-- Workspace pane headers should be clickable for sorting when the column has sortable data. Title-centric `Title` sorting has a separate colored icon inside the `Title` header that switches between display-title sort and `sortName` sort; clicking the rest of the header changes direction.
-- Release date table columns display only the year. If a fuller value is available, show the full release date in a tooltip using the configured display pattern.
-- If the same action can be invoked from multiple places, route all entry points through the same store/action/job path. The visible behavior must be identical: same status bar messages, same polling, same busy indicators, same cancellation behavior when available, and same refresh-after-completion behavior.
-
-## Settings And Preferences
-
-- Defaults belong in `application.properties`.
-- Runtime user preferences belong in the DB.
-- A DB preference equal to the current default should be treated as default, not custom.
-- Reset controls should remove DB overrides or call the reset endpoint, returning the effective value to the property default.
-- Do not expose every property in the Settings screen. Expose only settings that are useful to change at runtime.
-- Avoid settings that cause jarring immediate layout changes unless there is a strong reason.
-
-## Scanning Behavior
-
-- Collection filesystem scan should be lazy and fast.
-- Artist-centric collection scans populate artists only. Do not populate albums during artist-centric collection scans.
-- Artist-centric local album scans are explicit maintenance actions. They may populate albums and local paths, but must not run merely because an artist row was clicked.
-- Title-centric collection scans populate title items, and also populate artist/album/local-path rows when the title parser has a credible artist value.
-- Comma-separated title artists, such as `Max Richter, Lorne Balfe`, must populate separate artist rows and link the same album to each artist. Do not create a single composite artist for that string.
-- Artists discovered from folders should be created in readable title case, not all caps.
-- Artist-centric albums should be loaded or scanned only when the user explicitly drills into artist/album workflows or provider checks require it.
-- Progress should reflect actual work where practical, but do not make scans materially slower just to improve animation.
-- Any collection scan trigger, including Settings and collection row actions, must use the scan job flow so status history, status bar progress, row spinners/progress, polling, and post-scan refresh are consistent.
 
 ## Collection Types And Parsing
 
@@ -112,18 +101,8 @@ Document behavior that a maintainer or user needs to know.
 
 ## Build And Test Commands
 
-Primary verification:
-
-```bash
-npm run build --prefix frontend
-./gradlew test
-```
-
-Full package build:
-
-```bash
-./gradlew build
-```
+Use `codex-ui-workflow-guide.md` for verification rules and UI smoke-test
+workflow.
 
 Useful dev-shell commands after sourcing `dev-shell.sh`:
 
@@ -144,64 +123,3 @@ http://localhost:8795/
 ```
 
 Port `5173` is Vite dev server only.
-
-## UI Layout Smoke Check
-
-Use `scripts/check-ui-layout.ps1` when changing pane layout, grid layout,
-scrolling, sticky headers, column resizing, status-bar placement, or anything
-that can affect whether the app fits in the browser viewport.
-
-Run it after building and starting either the packaged app or dev app. From WSL,
-prefer the packaged app for final verification:
-
-```bash
-./gradlew build
-java -jar build/quarkus-app/quarkus-run.jar
-```
-
-In another WSL shell, run the smoke check through Windows PowerShell:
-
-```bash
-powershell.exe -NoProfile -ExecutionPolicy Bypass \
-  -File "$(wslpath -w scripts/check-ui-layout.ps1)" \
-  -AppUrl "http://localhost:8795/"
-```
-
-If Windows cannot reach the WSL app through `localhost`, pass the WSL IP:
-
-```bash
-APP_HOST="$(hostname -I | awk '{print $1}')"
-powershell.exe -NoProfile -ExecutionPolicy Bypass \
-  -File "$(wslpath -w scripts/check-ui-layout.ps1)" \
-  -AppUrl "http://${APP_HOST}:8795/"
-```
-
-The script opens headless Chrome or Edge through CDP, disables browser cache,
-selects the configured artist and title collections, captures screenshots, and
-prints DOM metrics for pane heights, scroll heights, row counts, and document
-height.
-
-Treat this check as failed if:
-
-- `document.documentScrollHeight` is greater than `document.documentClientHeight`.
-- `.collection-list`, `.artists-pane .workspace-grid`, or `.titles-pane .workspace-grid` has a near-zero height when content is present.
-- Expected collection rows, artist rows, or title rows are missing while the API/DB has data.
-- Screenshots show clipped pane bottoms, tiny scrollbars, ghost columns, or headers scrolling away.
-
-The script writes screenshots to the Windows temp directory by default. Use
-`-OutputDir` to choose another location, `-ArtistCollection` or
-`-TitleCollection` if the test DB uses different collection names, and
-`-KeepChromeOpen` only while debugging.
-
-## Review Checklist
-
-Before finishing a change:
-
-- Does the behavior match the latest user request, not an older intermediate request?
-- Does the app still build?
-- Are browser scrollbars avoided at the app level?
-- Are panes/dialogs/dropdowns scrollable when content overflows?
-- For pane/grid/scroll changes, did you run `scripts/check-ui-layout.ps1` or clearly explain why it was not possible?
-- Are runtime preferences stored in the right place?
-- Are docs updated if setup, config, or workflow changed?
-- Is the commit-message summary accurate for the whole diff?
