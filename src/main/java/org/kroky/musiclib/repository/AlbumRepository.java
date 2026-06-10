@@ -19,6 +19,7 @@ import org.jboss.logging.Logger;
 import org.kroky.musiclib.db.Names;
 import org.kroky.musiclib.db.TitleSortNames;
 import org.kroky.musiclib.model.Album;
+import org.kroky.musiclib.model.AlbumCollection;
 import org.kroky.musiclib.model.AlbumLocalPath;
 import org.kroky.musiclib.model.MetadataSource;
 import org.kroky.musiclib.model.UpsertResult;
@@ -699,6 +700,7 @@ public class AlbumRepository {
         return new Album(
                 albumId,
                 parseArtistIds(rs.getString("artist_ids")),
+                listCollections(connection, albumId),
                 rs.getString("artist_name"),
                 rs.getString("title"),
                 rs.getString("release_date"),
@@ -711,6 +713,30 @@ public class AlbumRepository {
                 rs.getString("notes"),
                 rs.getString("created_at"),
                 rs.getString("updated_at"));
+    }
+
+    private List<AlbumCollection> listCollections(Connection connection, long albumId) {
+        String sql = """
+                SELECT c.id, c.name
+                FROM collection_albums ca
+                JOIN collections c ON c.id = ca.collection_id
+                WHERE ca.album_id = ?
+                ORDER BY c.name
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, albumId);
+            try (ResultSet rs = statement.executeQuery()) {
+                List<AlbumCollection> collections = new ArrayList<>();
+                while (rs.next()) {
+                    collections.add(new AlbumCollection(
+                            rs.getString("id"),
+                            rs.getString("name")));
+                }
+                return collections;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to list album collections", e);
+        }
     }
 
     private List<AlbumLocalPath> listPaths(Connection connection, long albumId) {

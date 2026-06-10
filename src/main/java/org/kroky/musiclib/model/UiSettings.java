@@ -72,6 +72,7 @@ public record UiSettings(
             int name,
             int releaseDate,
             int checked,
+            int collections,
             int action) {
     }
 

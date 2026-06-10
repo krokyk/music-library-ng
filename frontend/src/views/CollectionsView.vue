@@ -105,6 +105,7 @@ const albumColumnWidths = reactive({
   name: 360,
   releaseDate: 140,
   checked: 120,
+  collections: 180,
   action: 122,
 })
 
@@ -157,14 +158,14 @@ const paneHeaderMinimumWidths = {
 } as const
 
 const actionColumnWidths = {
-  artist: { icon: 116, labeled: 260 },
+  artist: { icon: 148, labeled: 340 },
   album: { icon: 116, labeled: 286 },
   title: { icon: 84, labeled: 178 },
 } as const
 
 const tableColumnOrders = {
   artist: ['name'],
-  album: ['name', 'releaseDate', 'checked', 'action'],
+  album: ['name', 'releaseDate', 'checked', 'collections', 'action'],
   title: ['title', 'artist', 'releaseDate', 'status', 'action'],
 } as const
 
@@ -245,6 +246,10 @@ const sortedCollectionAlbums = computed(() =>
         'asc',
       ), albumSort.direction)
   }),
+)
+
+const showAlbumCollectionsColumn = computed(() =>
+  sortedCollectionAlbums.value.some((album) => albumExtraCollections(album).length > 0),
 )
 
 const visibleCollectionTitleItems = computed(() => {
@@ -421,15 +426,26 @@ function titleSortModeTooltip() {
 function albumDiskTitle(album: Album) {
   const activePaths = album.localPaths.filter((path) => !path.missingSince)
   if (activePaths.length > 0) {
-    return activePaths.map((path) => path.resolvedPath ?? path.relativePath).join('\n')
+    return activePaths.map((path) => path.relativePath).join('\n')
   }
   const missingPaths = album.localPaths.filter((path) => path.missingSince)
   if (missingPaths.length > 0) {
     return missingPaths
-      .map((path) => `Missing: ${path.resolvedPath ?? path.relativePath}`)
+      .map((path) => `Missing: ${path.relativePath}`)
       .join('\n')
   }
   return 'No local folder'
+}
+
+function albumIsInSelectedCollection(album: Album) {
+  return Boolean(
+    selectedCollectionId.value
+    && album.collections.some((collection) => collection.id === selectedCollectionId.value),
+  )
+}
+
+function albumExtraCollections(album: Album) {
+  return album.collections.filter((collection) => collection.id !== selectedCollectionId.value)
 }
 
 function albumIsLocalToSelectedCollection(album: Album) {
@@ -446,8 +462,24 @@ function albumIsLocalToSelectedCollection(album: Album) {
 function artistIsLocalToSelectedCollection(artist: Artist) {
   return Boolean(
     selectedCollectionId.value
-    && (artist.localCollectionIds ?? []).includes(selectedCollectionId.value),
+    && artist.localAlbumCount > 0,
   )
+}
+
+function artistCanBeRemovedFromSelectedCollection(artist: Artist) {
+  return Boolean(
+    selectedCollectionIsArtist.value
+    && selectedCollectionId.value
+    && artist.collectionIds.includes(selectedCollectionId.value)
+    && !artistIsLocalToSelectedCollection(artist),
+  )
+}
+
+function artistRowClass(artist: Artist) {
+  return {
+    'is-selected': artist.id === selectedArtistId.value,
+    'workspace-row--nonlocal-artist': !artistIsLocalToSelectedCollection(artist),
+  }
 }
 
 function matchesPresenceFilter(isLocal: boolean, filter: PresenceFilter[]) {
@@ -462,9 +494,16 @@ function includeNonLocal(filter: { value: PresenceFilter[] }) {
 }
 
 function albumPresenceClass(album: Album) {
+  const inSelectedCollection = albumIsInSelectedCollection(album)
+  const local = albumIsLocalToSelectedCollection(album)
+  const otherCollection = !inSelectedCollection && album.collections.length > 0
+  const libraryOnly = !local && !otherCollection
   return {
-    'album-presence-text--local': albumIsLocalToSelectedCollection(album),
-    'album-presence-text--nonlocal-unchecked': !albumIsLocalToSelectedCollection(album) && !album.checked,
+    'album-presence-text--local': local,
+    'album-presence-text--current-collection': inSelectedCollection,
+    'album-presence-text--other-collection': otherCollection,
+    'album-presence-text--nonlocal-checked': libraryOnly && album.checked,
+    'album-presence-text--nonlocal-unchecked': libraryOnly && !album.checked,
   }
 }
 
@@ -711,21 +750,28 @@ function startPaneResize(index: number, event: PointerEvent) {
 
     if (index === 0) {
       const leftMinimum = (minimums[0] / paneAreaWidth) * 100
-      const rightMinimumPixels = selectedCollectionIsTitle.value
-        ? titlePaneMinimumWidth()
-        : minimums[1] + minimums[2]
-      const rightMinimum = (rightMinimumPixels / paneAreaWidth) * 100
-      const leftMaximum = Math.max(leftMinimum, 100 - rightMinimum)
+      if (!selectedCollectionIsTitle.value) {
+        const middleMinimum = (minimums[1] / paneAreaWidth) * 100
+        const rightMinimum = (minimums[2] / paneAreaWidth) * 100
+        const middle = Math.max(middleMinimum, startPercents[1])
+        const leftMaximum = Math.max(leftMinimum, 100 - middle - rightMinimum)
+        const left = Math.min(Math.max(leftMinimum, startPercents[0] + deltaPercent), leftMaximum)
+        const right = 100 - left - middle
+
+        panePercents.value = normalizePanePercents([
+          left,
+          middle,
+          right,
+        ])
+        schedulePaneLayoutSave()
+        return
+      }
+
+      const titleMinimum = (titlePaneMinimumWidth() / paneAreaWidth) * 100
+      const leftMaximum = Math.max(leftMinimum, 100 - titleMinimum)
       const left = Math.min(Math.max(leftMinimum, startPercents[0] + deltaPercent), leftMaximum)
       const right = 100 - left
-      const previousRight = startPercents[1] + startPercents[2]
-      const middleShare = previousRight > 0 ? startPercents[1] / previousRight : 0.5
-
-      panePercents.value = normalizePanePercents([
-        left,
-        right * middleShare,
-        right * (1 - middleShare),
-      ])
+      panePercents.value = normalizePanePercents([left, 0, right])
       schedulePaneLayoutSave()
       return
     }
@@ -941,6 +987,9 @@ function columnGridStyle(table: keyof typeof columnWidthPreferenceKeys) {
 }
 
 function tableColumnKeys(table: keyof typeof columnWidthPreferenceKeys) {
+  if (table === 'album' && !showAlbumCollectionsColumn.value) {
+    return tableColumnOrders.album.filter((key) => key !== 'collections') as readonly string[]
+  }
   return tableColumnOrders[table] as readonly string[]
 }
 
@@ -1175,6 +1224,14 @@ async function saveArtistDetails() {
   }
 }
 
+async function removeArtistFromCollection(artist: Artist) {
+  try {
+    await store.removeArtistFromSelectedCollection(artist.id)
+  } catch (error) {
+    store.error = error instanceof Error ? error.message : String(error)
+  }
+}
+
 async function saveProviderLink(link: ProviderLinkForm) {
   if (!artistForm.id || !link.providerUrl.trim()) {
     return
@@ -1283,7 +1340,15 @@ async function refreshCollectionProviders() {
 }
 
 async function updateAlbumChecked(album: Album, checked: boolean) {
+  if (albumCheckedToggleDisabled(album) && !checked) {
+    store.showStatus('Cannot uncheck album while it is still present on disk.', 'failed')
+    return
+  }
   await store.updateAlbum({ ...album, checked })
+}
+
+function albumCheckedToggleDisabled(album: Album) {
+  return album.checked && album.onDisk
 }
 
 function albumHasMissingLocalPath(album: Album) {
@@ -1957,7 +2022,7 @@ watch(titlePresence, (value) => {
             v-for="artist in sortedCollectionArtists"
             :key="artist.id"
             class="workspace-grid__row workspace-row"
-            :class="{ 'is-selected': artist.id === selectedArtistId }"
+            :class="artistRowClass(artist)"
             @click="store.selectArtist(artist.id)"
           >
               <div data-column="artist.name" class="workspace-grid__cell">
@@ -2029,6 +2094,26 @@ watch(titlePresence, (value) => {
                         @click.stop="openArtistDialog(artist)"
                       >
                         <span v-if="showActionLabels('artists')">Edit</span>
+                      </v-btn>
+                    </template>
+                  </v-tooltip>
+                  <v-tooltip
+                    v-if="artistCanBeRemovedFromSelectedCollection(artist)"
+                    text="Remove artist from this collection"
+                    location="top"
+                  >
+                    <template #activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        prepend-icon="mdi-account-remove-outline"
+                        size="x-small"
+                        variant="text"
+                        color="error"
+                        :class="rowActionClass('artists')"
+                        :disabled="scanIsRunning || providerIsRunning"
+                        @click.stop="removeArtistFromCollection(artist)"
+                      >
+                        <span v-if="showActionLabels('artists')">Remove</span>
                       </v-btn>
                     </template>
                   </v-tooltip>
@@ -2120,23 +2205,23 @@ watch(titlePresence, (value) => {
                   @click="suppressHeaderSortClick($event)"
                 ></span>
             </div>
+            <div
+              v-if="showAlbumCollectionsColumn"
+              class="workspace-grid__cell workspace-grid__header-cell"
+              data-column="album.collections"
+            >
+              <span class="sortable-header__label">Collections</span>
+                <span
+                  class="column-resize-handle"
+                  @pointerdown="startColumnResize('album', 'collections', $event)"
+                  @click="suppressHeaderSortClick($event)"
+                ></span>
+            </div>
           </div>
           <div v-for="album in sortedCollectionAlbums" :key="album.id" class="workspace-grid__row workspace-row">
               <div data-column="album.name" class="workspace-grid__cell truncate-cell">
                 <div class="album-cell">
                   <span :class="albumPresenceClass(album)">{{ album.title }}</span>
-                  <v-tooltip :text="albumDiskTitle(album)" location="top">
-                    <template #activator="{ props }">
-                      <v-icon
-                        v-if="album.onDisk || album.hasLocalPath"
-                        v-bind="props"
-                        :icon="album.onDisk ? 'mdi-folder-check-outline' : 'mdi-folder-alert-outline'"
-                        :color="album.onDisk ? 'success' : 'warning'"
-                        size="18"
-                        class="album-cell__disk-icon"
-                      ></v-icon>
-                    </template>
-                  </v-tooltip>
                 </div>
               </div>
               <div data-column="album.releaseDate" class="workspace-grid__cell cell-muted">
@@ -2157,8 +2242,37 @@ watch(titlePresence, (value) => {
                   @update:model-value="(value) => updateAlbumChecked(album, Boolean(value))"
                 ></v-checkbox>
               </div>
+              <div
+                v-if="showAlbumCollectionsColumn"
+                data-column="album.collections"
+                class="workspace-grid__cell album-collections-cell"
+              >
+                <div v-if="albumExtraCollections(album).length" class="album-collection-chips">
+                  <v-chip
+                    v-for="collection in albumExtraCollections(album)"
+                    :key="collection.id"
+                    size="x-small"
+                    variant="tonal"
+                    color="primary"
+                  >
+                    {{ collection.name }}
+                  </v-chip>
+                </div>
+              </div>
               <div class="workspace-grid__cell row-action-cell">
                 <div class="row-actions">
+                  <v-tooltip v-if="album.localPaths.length" :text="albumDiskTitle(album)" location="top">
+                    <template #activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        icon="mdi-information-outline"
+                        size="x-small"
+                        variant="text"
+                        class="album-info-button"
+                        @click.stop
+                      ></v-btn>
+                    </template>
+                  </v-tooltip>
                   <v-tooltip text="Edit album title" location="top">
                     <template #activator="{ props }">
                       <v-btn
@@ -2227,6 +2341,8 @@ watch(titlePresence, (value) => {
               <v-select
                 v-model="artistForm.collectionIds"
                 :items="collectionOptions"
+                :menu-props="{ maxHeight: 184 }"
+                class="artist-collection-select"
                 label="Collections"
                 multiple
                 chips

@@ -62,9 +62,18 @@ public class ArtistResource {
     }
 
     @DELETE
+    @Path("/{id}/collections/{collectionId}")
+    public Response removeFromCollection(@PathParam("id") long id, @PathParam("collectionId") String collectionId) {
+        LOG.infof("Remove artist from collection request id=%d collectionId=%s", id, collectionId);
+        artists.find(id).orElseThrow(NotFoundException::new);
+        artists.removeFromCollection(id, collectionId);
+        return Response.noContent().build();
+    }
+
+    @DELETE
     @Path("/{id}")
     public Response delete(@PathParam("id") long id) {
-        LOG.warnf("Delete artist request id=%d", id);
+        LOG.infof("Delete artist request id=%d", id);
         artists.delete(id);
         return Response.noContent().build();
     }

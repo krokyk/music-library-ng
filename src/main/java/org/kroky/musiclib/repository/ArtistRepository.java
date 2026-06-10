@@ -46,10 +46,12 @@ public class ArtistRepository {
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             String normalizedSearch = search == null || search.isBlank() ? null : Names.normalize(search);
             String normalizedCollectionId = blankToNull(collectionId);
-            statement.setString(1, normalizedSearch);
-            statement.setString(2, normalizedSearch);
-            statement.setString(3, normalizedCollectionId);
-            statement.setString(4, normalizedCollectionId);
+            statement.setString(1, normalizedCollectionId);
+            statement.setString(2, normalizedCollectionId);
+            statement.setString(3, normalizedSearch);
+            statement.setString(4, normalizedSearch);
+            statement.setString(5, normalizedCollectionId);
+            statement.setString(6, normalizedCollectionId);
             try (ResultSet rs = statement.executeQuery()) {
                 List<Artist> artists = new ArrayList<>();
                 while (rs.next()) {
@@ -67,7 +69,9 @@ public class ArtistRepository {
         String sql = selectArtists("WHERE a.id = ?");
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, id);
+            statement.setString(1, null);
+            statement.setString(2, null);
+            statement.setLong(3, id);
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() ? Optional.of(map(rs)) : Optional.empty();
             }
@@ -218,13 +222,101 @@ public class ArtistRepository {
 
     public void delete(long id) {
         LOG.infof("Deleting artist id=%d", id);
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement("DELETE FROM artists WHERE id = ?")) {
-            statement.setLong(1, id);
-            statement.executeUpdate();
-            albums.deleteOrphanAlbums();
+        try (Connection connection = dataSource.getConnection()) {
+            boolean autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try {
+                try (PreparedStatement deleteExclusiveAlbums = connection.prepareStatement("""
+                        DELETE FROM albums
+                        WHERE id IN (
+                            SELECT aa.album_id
+                            FROM album_artists aa
+                            WHERE aa.artist_id = ?
+                              AND NOT EXISTS (
+                                  SELECT 1
+                                  FROM album_artists aa_other
+                                  WHERE aa_other.album_id = aa.album_id
+                                    AND aa_other.artist_id <> ?
+                              )
+                        )
+                        """)) {
+                    deleteExclusiveAlbums.setLong(1, id);
+                    deleteExclusiveAlbums.setLong(2, id);
+                    deleteExclusiveAlbums.executeUpdate();
+                }
+                try (PreparedStatement deleteArtist = connection.prepareStatement("DELETE FROM artists WHERE id = ?")) {
+                    deleteArtist.setLong(1, id);
+                    deleteArtist.executeUpdate();
+                }
+                connection.commit();
+                albums.deleteOrphanAlbums();
+            } catch (Exception e) {
+                rollbackQuietly(connection);
+                throw e;
+            } finally {
+                connection.setAutoCommit(autoCommit);
+            }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to delete artist " + id, e);
+        }
+    }
+
+    public boolean removeFromCollection(long id, String collectionId) {
+        String normalizedCollectionId = blankToNull(collectionId);
+        if (normalizedCollectionId == null) {
+            return false;
+        }
+        LOG.infof("Removing artist id=%d from collection=%s", id, normalizedCollectionId);
+        try (Connection connection = dataSource.getConnection()) {
+            boolean autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try {
+                int removedAlbums;
+                try (PreparedStatement deleteAlbums = connection.prepareStatement("""
+                        DELETE FROM collection_albums
+                        WHERE collection_id = ?
+                          AND album_id IN (
+                              SELECT aa.album_id
+                              FROM album_artists aa
+                              WHERE aa.artist_id = ?
+                          )
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM album_artists aa_other
+                              JOIN artist_collections ac_other
+                                ON ac_other.artist_id = aa_other.artist_id
+                               AND ac_other.collection_id = collection_albums.collection_id
+                              WHERE aa_other.album_id = collection_albums.album_id
+                                AND aa_other.artist_id <> ?
+                          )
+                        """)) {
+                    deleteAlbums.setString(1, normalizedCollectionId);
+                    deleteAlbums.setLong(2, id);
+                    deleteAlbums.setLong(3, id);
+                    removedAlbums = deleteAlbums.executeUpdate();
+                }
+                int removedMemberships;
+                try (PreparedStatement deleteMembership = connection.prepareStatement("""
+                        DELETE FROM artist_collections
+                        WHERE artist_id = ? AND collection_id = ?
+                        """)) {
+                    deleteMembership.setLong(1, id);
+                    deleteMembership.setString(2, normalizedCollectionId);
+                    removedMemberships = deleteMembership.executeUpdate();
+                }
+                connection.commit();
+                LOG.infof("Removed artist id=%d from collection=%s membershipRows=%d albumRows=%d",
+                        id, normalizedCollectionId, removedMemberships, removedAlbums);
+                return removedMemberships > 0 || removedAlbums > 0;
+            } catch (Exception e) {
+                rollbackQuietly(connection);
+                throw e;
+            } finally {
+                connection.setAutoCommit(autoCommit);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to remove artist " + id
+                    + " from collection " + collectionId, e);
         }
     }
 
@@ -232,7 +324,9 @@ public class ArtistRepository {
         String sql = selectArtists("WHERE a.normalized_name = ?");
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, normalizedName);
+            statement.setString(1, null);
+            statement.setString(2, null);
+            statement.setString(3, normalizedName);
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() ? Optional.of(map(rs)) : Optional.empty();
             }
@@ -250,6 +344,7 @@ public class ArtistRepository {
                        coalesce(sum(CASE WHEN EXISTS (
                            SELECT 1 FROM album_local_paths lp
                            WHERE lp.album_id = al.id AND lp.missing_since IS NULL
+                             AND (? IS NULL OR lp.collection_id = ?)
                        ) THEN 1 ELSE 0 END), 0) AS local_album_count,
                        (SELECT count(*) FROM artist_provider_links apl WHERE apl.artist_id = a.id) AS provider_link_count,
                        (SELECT group_concat(collection_id, ',') FROM (

@@ -58,6 +58,10 @@ public class AlbumResource {
     public Album update(@PathParam("id") long id, AlbumRequest request) {
         LOG.infof("Update album request id=%d title='%s' releaseDate='%s' checked=%s",
                 id, request.title(), request.releaseDate(), request.checkedOrDefault());
+        Album existing = albums.find(id).orElseThrow(NotFoundException::new);
+        if (!request.checkedOrDefault() && existing.onDisk()) {
+            throw new BadRequestException("Cannot uncheck album while it is still present on disk.");
+        }
         return albums.update(id, request.title(), request.normalizedReleaseDate(),
                 request.checkedOrDefault(), request.notes()).orElseThrow(NotFoundException::new);
     }

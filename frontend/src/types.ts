@@ -27,9 +27,15 @@ export interface AlbumLocalPath {
   missingSince?: string | null
 }
 
+export interface AlbumCollection {
+  id: string
+  name: string
+}
+
 export interface Album {
   id: number
   artistIds: number[]
+  collections: AlbumCollection[]
   artistName: string
   title: string
   releaseDate?: string | null
@@ -179,6 +185,7 @@ export interface WorkspaceColumnWidths {
     name: number
     releaseDate: number
     checked: number
+    collections: number
     action: number
   }
   title: {

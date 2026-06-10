@@ -3,8 +3,8 @@ param(
     [int]$CdpPort = 9223,
     [string]$ChromePath = "",
     [string]$OutputDir = "$env:TEMP",
-    [int]$Width = 1320,
-    [int]$Height = 900,
+    [int]$Width = 1920,
+    [int]$Height = 1080,
     [string]$ArtistCollection = "Melodeath",
     [string]$TitleCollection = "Soundtracks",
     [switch]$KeepChromeOpen

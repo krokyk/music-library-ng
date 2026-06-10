@@ -8,6 +8,7 @@ const store = useLibraryStore()
 const {
   collectionArtists,
   collections,
+  manualStatus,
   providerStatus,
   scanJob,
   scanReports,
@@ -22,7 +23,7 @@ const activeReportRunId = ref<number | null>(null)
 const historyScrollElement = ref<HTMLElement | null>(null)
 const historyPinnedToBottom = ref(true)
 const completedStatus = ref('')
-const completedStatusState = ref<'done' | 'warning' | 'failed'>('done')
+const completedStatusState = ref<'done' | 'warning' | 'failed' | 'info'>('done')
 const completedStatusTimer = ref<number | null>(null)
 const scanStartedAt = ref<number | null>(null)
 const providerStartedAt = ref<number | null>(null)
@@ -112,6 +113,14 @@ const activeReportEntry = computed(() =>
   activeReportIndex.value >= 0 ? reportEntries.value[activeReportIndex.value] : null,
 )
 
+const activeReportPaging = computed(() => {
+  if (!reportEntries.value.length) {
+    return '0/0'
+  }
+  const current = activeReportIndex.value >= 0 ? activeReportIndex.value + 1 : 1
+  return `${current}/${reportEntries.value.length}`
+})
+
 const activeReportText = computed(() =>
   activeReportRunId.value === null ? '' : scanReports.value[activeReportRunId.value] ?? '',
 )
@@ -153,7 +162,7 @@ function withElapsed(message: string, elapsed: string | null) {
 
 function completeStatus(
   message: string,
-  state: 'done' | 'warning' | 'failed' = 'done',
+  state: 'done' | 'warning' | 'failed' | 'info' = 'done',
   historyMessage = message,
   scanRunIds: number[] = [],
 ) {
@@ -199,6 +208,19 @@ function showAdjacentReport(delta: number) {
   openReportRun(entries[nextIndex].runId)
 }
 
+async function copyActiveReport() {
+  const text = activeReportText.value
+  if (!text) {
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    store.showStatus('Scan report copied to clipboard', 'done')
+  } catch (error) {
+    store.showStatus('Unable to copy scan report to clipboard', 'failed')
+  }
+}
+
 watch(
   () => scanJob.value?.status ?? 'IDLE',
   (status, previousStatus) => {
@@ -225,6 +247,16 @@ watch(
         completeStatus(message, 'failed', withElapsed(message, elapsed), scanJob.value.runIds)
       }
     }
+  },
+)
+
+watch(
+  () => manualStatus.value?.id,
+  () => {
+    if (!manualStatus.value) {
+      return
+    }
+    completeStatus(manualStatus.value.message, manualStatus.value.state)
   },
 )
 
@@ -386,35 +418,69 @@ onMounted(async () => {
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="reportDialog" max-width="1180" class="scan-report-overlay">
+    <v-dialog
+      v-model="reportDialog"
+      width="1280"
+      max-width="calc(100vw - 64px)"
+      class="scan-report-overlay"
+      content-class="scan-report-dialog-content"
+      scrollable
+    >
       <v-card class="dialog-card scan-report-dialog">
         <v-card-title class="scan-report-dialog__title">
-          <span>Scan Report</span>
-          <span v-if="activeReportEntry" class="scan-report-dialog__meta">
-            {{ activeReportEntry.entry.createdAt }} - {{ activeReportEntry.entry.message }}
-          </span>
-          <v-spacer></v-spacer>
-          <v-btn
-            icon="mdi-chevron-left"
-            variant="text"
-            density="comfortable"
-            :disabled="reportEntries.length <= 1"
-            @click="showAdjacentReport(-1)"
-          ></v-btn>
-          <v-btn
-            icon="mdi-chevron-right"
-            variant="text"
-            density="comfortable"
-            :disabled="reportEntries.length <= 1"
-            @click="showAdjacentReport(1)"
-          ></v-btn>
+          <div class="scan-report-dialog__heading">
+            <div class="scan-report-dialog__heading-main">
+              <span>Scan Report</span>
+              <span v-if="activeReportEntry" class="scan-report-dialog__timestamp">
+                {{ activeReportEntry.entry.createdAt }}
+              </span>
+            </div>
+            <div v-if="activeReportEntry" class="scan-report-dialog__message">
+              {{ activeReportEntry.entry.message }}
+            </div>
+          </div>
+          <div class="scan-report-dialog__controls">
+            <div class="scan-report-dialog__navigation">
+              <v-btn
+                icon="mdi-chevron-left"
+                variant="text"
+                density="comfortable"
+                :disabled="reportEntries.length <= 1"
+                @click="showAdjacentReport(-1)"
+              ></v-btn>
+              <v-btn
+                icon="mdi-chevron-right"
+                variant="text"
+                density="comfortable"
+                :disabled="reportEntries.length <= 1"
+                @click="showAdjacentReport(1)"
+              ></v-btn>
+              <span class="scan-report-dialog__paging">{{ activeReportPaging }}</span>
+            </div>
+            <div class="scan-report-dialog__copy">
+              <v-tooltip text="Copy report" location="bottom">
+                <template #activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    icon="mdi-content-copy"
+                    variant="text"
+                    density="comfortable"
+                    :disabled="activeReportLoading || !activeReportText"
+                    @click="copyActiveReport"
+                  ></v-btn>
+                </template>
+              </v-tooltip>
+            </div>
+          </div>
         </v-card-title>
         <v-card-text class="scan-report-dialog__body">
-          <div v-if="activeReportLoading" class="scan-report-dialog__loading">
-            <v-progress-circular indeterminate size="18" width="2"></v-progress-circular>
-            <span>Loading report</span>
+          <div class="scan-report-dialog__scroller">
+            <div v-if="activeReportLoading" class="scan-report-dialog__loading">
+              <v-progress-circular indeterminate size="18" width="2"></v-progress-circular>
+              <span>Loading report</span>
+            </div>
+            <pre v-else class="scan-report-dialog__content">{{ activeReportText || 'Report is not available.' }}</pre>
           </div>
-          <pre v-else class="scan-report-dialog__content">{{ activeReportText || 'Report is not available.' }}</pre>
         </v-card-text>
       </v-card>
     </v-dialog>

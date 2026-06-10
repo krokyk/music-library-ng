@@ -298,6 +298,7 @@ public class SettingsResource {
                         defaults.album().name(),
                         defaults.album().releaseDate(),
                         defaults.album().checked(),
+                        defaults.album().collections(),
                         defaults.album().action()),
                 new UiSettings.TitleColumns(
                         defaults.title().title(),

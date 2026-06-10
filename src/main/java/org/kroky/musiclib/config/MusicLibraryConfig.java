@@ -138,6 +138,9 @@ public interface MusicLibraryConfig {
         @WithDefault("120")
         int checked();
 
+        @WithDefault("180")
+        int collections();
+
         @WithDefault("122")
         int action();
     }

@@ -200,10 +200,10 @@ public class ScanService {
                         artistRepository.assignToCollection(result.id(), collection.id(), true);
                         if (result.created()) {
                             created++;
-                            report.created("Artist: " + artistName + " | folder: " + folder.getFileName());
+                            report.created(artistName);
                         } else {
                             existing++;
-                            report.existing("Artist: " + artistName + " | folder: " + folder.getFileName());
+                            report.existing(artistName);
                         }
                     }
                 }

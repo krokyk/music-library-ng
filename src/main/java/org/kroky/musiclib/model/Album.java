@@ -5,6 +5,7 @@ import java.util.List;
 public record Album(
         long id,
         List<Long> artistIds,
+        List<AlbumCollection> collections,
         String artistName,
         String title,
         String releaseDate,

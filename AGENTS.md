@@ -7,10 +7,10 @@ Project-specific instructions for AI agents and other contributors working in th
 Every new Codex session should read the shared repo context before broad work:
 
 - `README.md`
-- `PLAN.md`
-- `music-library-ng-implementation-plan.md`
-- `codex-ui-workflow-guide.md`
-- all `evolution-*.md` files
+- `docs/PLAN.md`
+- `docs/music-library-ng-implementation-plan.md`
+- `docs/codex-ui-workflow-guide.md`
+- all `docs/evolution-*.md` files
 
 For small, targeted questions or one-file fixes, read only the files needed for
 the task plus any directly relevant context above. For UI, workflow, layout,

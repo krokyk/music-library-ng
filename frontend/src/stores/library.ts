@@ -57,6 +57,7 @@ interface State {
   providerCheckRuns: ProviderCheckRun[]
   uiSettings: UiSettings
   statusHistory: StatusHistoryEntry[]
+  manualStatus: { id: number; message: string; state: Exclude<StatusHistoryEntry['state'], 'running'> } | null
   providerStatus: { running: boolean; message: string | null; state: StatusHistoryEntry['state'] }
   loading: boolean
   error: string | null
@@ -81,6 +82,7 @@ const defaultWorkspaceColumnDefaults = {
     name: 360,
     releaseDate: 140,
     checked: 120,
+    collections: 180,
     action: 122,
   },
   title: {
@@ -175,6 +177,7 @@ export const useLibraryStore = defineStore('library', {
       },
     },
     statusHistory: [],
+    manualStatus: null,
     providerStatus: {
       running: false,
       message: null,
@@ -329,6 +332,13 @@ export const useLibraryStore = defineStore('library', {
         },
       ].slice(-100)
     },
+    showStatus(message: string, state: Exclude<StatusHistoryEntry['state'], 'running'> = 'info') {
+      this.manualStatus = {
+        id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
+        message,
+        state,
+      }
+    },
     async loadArtists(search?: string) {
       this.artists = await apiGet<Artist[]>(withQuery('/api/artists', { search }))
     },
@@ -409,7 +419,6 @@ export const useLibraryStore = defineStore('library', {
       }
       this.collectionAlbums = await apiGet<Album[]>(
         withQuery('/api/albums', {
-          collectionId: this.selectedCollectionId,
           artistId: this.selectedArtistId,
         }),
       )
@@ -493,6 +502,40 @@ export const useLibraryStore = defineStore('library', {
       this.collectionTitleItems = this.collectionTitleItems.filter((album) => album.id !== albumId)
       await this.refreshCollectionContext()
       this.invalidateCollectionMetadata()
+    },
+    async deleteArtist(artistId: number) {
+      await apiSend(`/api/artists/${artistId}`, 'DELETE')
+      const [artists, albums] = await Promise.all([
+        apiGet<Artist[]>('/api/artists'),
+        apiGet<Album[]>('/api/albums'),
+      ])
+      this.artists = artists
+      this.albums = albums
+      this.collectionArtists = this.collectionArtists.filter((artist) => artist.id !== artistId)
+      delete this.providerLinks[artistId]
+      if (this.selectedArtistId === artistId) {
+        this.selectedArtistId = null
+        this.collectionAlbums = []
+      }
+      await this.refreshCollectionContext()
+      this.invalidateCollectionMetadata()
+    },
+    async removeArtistFromSelectedCollection(artistId: number) {
+      if (!this.selectedCollectionId) {
+        return
+      }
+      const collectionId = this.selectedCollectionId
+      await apiSend(
+        `/api/artists/${artistId}/collections/${encodeURIComponent(collectionId)}`,
+        'DELETE',
+      )
+      this.collectionArtists = this.collectionArtists.filter((artist) => artist.id !== artistId)
+      if (this.selectedArtistId === artistId) {
+        this.selectedArtistId = null
+        this.collectionAlbums = []
+      }
+      await this.loadArtists()
+      this.invalidateCollectionMetadata(collectionId)
     },
     replaceAlbum(album: Album) {
       this.albums = this.albums.some((item) => item.id === album.id)

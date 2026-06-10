@@ -5,13 +5,18 @@ import { useLibraryStore } from '@/stores/library'
 import type { Artist } from '@/types'
 
 const store = useLibraryStore()
-const { artists, providerLinks, providerCheckRuns, loading, error } = storeToRefs(store)
+const { artists, collections, providerLinks, providerCheckRuns, loading, error } = storeToRefs(store)
 
 const search = ref('')
 const selectedArtistId = ref<number | null>(null)
 const providerId = ref('spirit_of_metal')
 const providerUrl = ref('')
 const lastMessage = ref('')
+const artistToDelete = ref<Artist | null>(null)
+const deleteArtistDialog = ref(false)
+const deleteArtistWarningDialog = ref(false)
+const deletingArtist = ref(false)
+const deletingArtistId = ref<number | null>(null)
 
 const filteredArtists = computed(() => {
   const needle = search.value.trim().toLowerCase()
@@ -41,6 +46,68 @@ async function checkArtist(artistId: number) {
 async function checkAll() {
   const summary = await store.checkAllProviders()
   lastMessage.value = summary.messages.join(' ')
+}
+
+function askDeleteArtist(artist: Artist) {
+  artistToDelete.value = artist
+  deleteArtistDialog.value = true
+}
+
+function artistDeleteNeedsWarning(artist: Artist | null) {
+  return Boolean(artist && (artist.collectionIds.length > 0 || artist.localAlbumCount > 0))
+}
+
+function artistDeleteWarningLines(artist: Artist | null) {
+  if (!artist) {
+    return []
+  }
+  const lines: string[] = []
+  if (artist.localAlbumCount > 0) {
+    lines.push(`Local albums in the library DB: ${artist.localAlbumCount}`)
+  }
+  return lines
+}
+
+function artistDeleteCollections(artist: Artist | null) {
+  if (!artist) {
+    return []
+  }
+  return artist.collectionIds.map((collectionId) => ({
+    id: collectionId,
+    name: collections.value.find((collection) => collection.id === collectionId)?.name ?? collectionId,
+  }))
+}
+
+function confirmDeleteArtist() {
+  deleteArtistDialog.value = false
+  if (artistDeleteNeedsWarning(artistToDelete.value)) {
+    deleteArtistWarningDialog.value = true
+    return
+  }
+  void deleteArtist()
+}
+
+async function deleteArtist() {
+  if (!artistToDelete.value) {
+    return
+  }
+  deletingArtist.value = true
+  deletingArtistId.value = artistToDelete.value.id
+  try {
+    const artistId = artistToDelete.value.id
+    await store.deleteArtist(artistId)
+    if (selectedArtistId.value === artistId) {
+      selectedArtistId.value = null
+    }
+    deleteArtistDialog.value = false
+    deleteArtistWarningDialog.value = false
+    artistToDelete.value = null
+  } catch (error) {
+    store.error = error instanceof Error ? error.message : String(error)
+  } finally {
+    deletingArtist.value = false
+    deletingArtistId.value = null
+  }
 }
 
 onMounted(() => store.loadAll())
@@ -91,8 +158,22 @@ onMounted(() => store.loadAll())
               </tr>
             </thead>
             <tbody>
-              <tr v-for="artist in filteredArtists" :key="artist.id">
-                <td class="cell-strong">{{ artist.name }}</td>
+              <tr
+                v-for="artist in filteredArtists"
+                :key="artist.id"
+                :class="{ 'music-table-row--deleting': deletingArtistId === artist.id }"
+              >
+                <td class="cell-strong">
+                  <span class="artist-delete-cell">
+                    <v-progress-circular
+                      v-if="deletingArtistId === artist.id"
+                      indeterminate
+                      size="14"
+                      width="2"
+                    ></v-progress-circular>
+                    <span>{{ artist.name }}</span>
+                  </span>
+                </td>
                 <td>{{ artist.albumCount }}</td>
                 <td>
                   <v-chip :color="artist.uncheckedAlbumCount > 0 ? 'warning' : 'default'" size="small" variant="tonal">
@@ -102,9 +183,33 @@ onMounted(() => store.loadAll())
                 <td>{{ artist.localAlbumCount }}</td>
                 <td>{{ artist.providerLinkCount }}</td>
                 <td class="text-right">
-                  <v-btn size="small" variant="text" @click="selectArtist(artist)">Links</v-btn>
-                  <v-btn size="small" variant="text" prepend-icon="mdi-cloud-search" @click="checkArtist(artist.id)">
+                  <v-btn
+                    size="small"
+                    variant="text"
+                    :disabled="deletingArtistId === artist.id"
+                    @click="selectArtist(artist)"
+                  >
+                    Links
+                  </v-btn>
+                  <v-btn
+                    size="small"
+                    variant="text"
+                    prepend-icon="mdi-cloud-search"
+                    :disabled="deletingArtistId === artist.id"
+                    @click="checkArtist(artist.id)"
+                  >
                     Check
+                  </v-btn>
+                  <v-btn
+                    size="small"
+                    variant="text"
+                    color="error"
+                    prepend-icon="mdi-trash-can-outline"
+                    :loading="deletingArtistId === artist.id"
+                    :disabled="deletingArtistId !== null && deletingArtistId !== artist.id"
+                    @click="askDeleteArtist(artist)"
+                  >
+                    Delete
                   </v-btn>
                 </td>
               </tr>
@@ -164,5 +269,50 @@ onMounted(() => store.loadAll())
         </v-sheet>
       </v-col>
     </v-row>
+
+    <v-dialog v-model="deleteArtistDialog" max-width="460">
+      <v-card class="dialog-card">
+        <v-card-title>Delete Artist</v-card-title>
+        <v-card-text>
+          Delete <span class="dialog-entity-name">{{ artistToDelete?.name }}</span> from the library database?
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="deleteArtistDialog = false">Cancel</v-btn>
+          <v-btn color="error" :loading="deletingArtist" @click="confirmDeleteArtist">Delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="deleteArtistWarningDialog" max-width="520">
+      <v-card class="dialog-card">
+        <v-card-title>Delete Artist With Library Data</v-card-title>
+        <v-card-text class="edit-form">
+          <div>
+            <span class="dialog-entity-name">{{ artistToDelete?.name }}</span> is linked to existing library data.
+            Deleting it removes related database records only; files on disk are not touched.
+          </div>
+          <div class="cell-muted">
+            <div v-if="artistDeleteCollections(artistToDelete).length" class="dialog-chip-row">
+              <v-chip
+                v-for="collection in artistDeleteCollections(artistToDelete)"
+                :key="collection.id"
+                size="small"
+                color="primary"
+                variant="tonal"
+              >
+                {{ collection.name }}
+              </v-chip>
+            </div>
+            <div v-for="line in artistDeleteWarningLines(artistToDelete)" :key="line">{{ line }}</div>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="deleteArtistWarningDialog = false">Cancel</v-btn>
+          <v-btn color="error" :loading="deletingArtist" @click="deleteArtist">Delete anyway</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
