@@ -48,6 +48,9 @@ checked=false, onDisk=true  -> local files exist, not marked listened - invalid,
 
 There are no selected/rejected/unlistened album statuses.
 
+The collection workspace display matrix for these states is documented in
+`docs/codex-ui-workflow-guide.md` under "Album Name Display States".
+
 ## 2. Navigation And Main Screen UX
 
 Use top-level sections:

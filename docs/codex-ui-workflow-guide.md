@@ -223,14 +223,32 @@ result is ambiguous, run the smoke check.
   - If the artist belongs to any collection or has local albums, require a second
     warning confirmation.
   - Deleting from the library DB never deletes folders or files on disk.
-- Album/title local presence styling:
-  - present on disk: normal text
-  - checked but not on disk: muted normal text
-  - unchecked and not on disk: muted italic text
-- Do not allow unchecking an album/title that is present on disk from the simple
-  checkbox control.
+- Album/title local presence styling in the collection workspace is scoped to
+  the selected collection, not just global `album.onDisk`.
+- Present-on-disk albums/titles are always shown checked and their checkbox is
+  disabled with tooltip text `Present on disk; can't uncheck`.
 - `Untrack` means forget missing local-path history; it does not delete the album
   or disk content.
+
+### Album Name Display States
+
+Album names in the Collections screen use these visual states. This is the
+canonical UI contract for future changes to album row styling.
+
+![Album display states](images/albums-style.png)
+
+| Situation | Condition | Display |
+| --- | --- | --- |
+| Local in selected collection | Active local path for the selected collection: matching `collectionId`, no `missingSince`, and `onDisk=true`. | Bright text, normal style, same size as artist names, bold `800`; checkbox is shown checked and disabled. |
+| Local in another collection | No active local path for the selected collection, not in the selected collection, and has membership in at least one other collection. | Bright text, italic style, one CSS pixel smaller than artist names, not bold; checkbox is shown checked and disabled when `album.onDisk=true`. |
+| Checked, non-local | No active local path for the selected collection, no other collection membership taking precedence, and `checked=true`. | Dim neutral text, normal style, one CSS pixel smaller than artist names, not bold; checked box is primary blue. |
+| Unchecked, non-local | No active local path for the selected collection, no other collection membership taking precedence, and `checked=false`. | Warm muted text, italic style, one CSS pixel smaller than artist names, not bold; checkbox is empty. |
+
+The implementation is `albumPresenceClass` in
+`frontend/src/views/CollectionsView.vue`, with styles in
+`frontend/src/styles.css` under the `.album-presence-text--*` classes. Local
+current-collection rows inherit the workspace row font size so they match Artist
+pane names. Nonlocal and other-collection rows use `calc(1em - 1px)`.
 
 ## Settings Rules
 

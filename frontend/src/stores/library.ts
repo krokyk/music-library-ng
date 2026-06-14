@@ -43,6 +43,12 @@ interface State {
   collectionArtists: Artist[]
   collectionAlbums: Album[]
   collectionTitleItems: Album[]
+  collectionArtistsByCollection: Record<string, Artist[]>
+  collectionArtistsLoading: Record<string, boolean>
+  collectionAlbumsByArtist: Record<string, Album[]>
+  collectionAlbumsLoading: Record<string, boolean>
+  collectionTitleItemsByCollection: Record<string, Album[]>
+  collectionTitleItemsLoading: Record<string, boolean>
   collectionMetadata: Record<string, CollectionMetadata>
   collectionMetadataLoading: Record<string, boolean>
   selectedCollectionId: string | null
@@ -89,7 +95,6 @@ const defaultWorkspaceColumnDefaults = {
     title: 460,
     artist: 220,
     releaseDate: 150,
-    status: 120,
     action: 178,
   },
 }
@@ -123,6 +128,12 @@ export const useLibraryStore = defineStore('library', {
     collectionArtists: [],
     collectionAlbums: [],
     collectionTitleItems: [],
+    collectionArtistsByCollection: {},
+    collectionArtistsLoading: {},
+    collectionAlbumsByArtist: {},
+    collectionAlbumsLoading: {},
+    collectionTitleItemsByCollection: {},
+    collectionTitleItemsLoading: {},
     collectionMetadata: {},
     collectionMetadataLoading: {},
     selectedCollectionId: null,
@@ -237,6 +248,7 @@ export const useLibraryStore = defineStore('library', {
         type: payload.type,
       })
       this.collections = this.collections.map((item) => (item.id === collection.id ? collection : item))
+      this.invalidateCollectionContent(collection.id)
       if (this.selectedCollectionId === collection.id) {
         await this.selectCollection(collection.id)
       }
@@ -246,6 +258,7 @@ export const useLibraryStore = defineStore('library', {
       await apiSend(`/api/collections/${encodeURIComponent(collectionId)}`, 'DELETE')
       this.collections = this.collections.filter((collection) => collection.id !== collectionId)
       this.invalidateCollectionMetadata(collectionId)
+      this.invalidateCollectionContent(collectionId)
       if (this.selectedCollectionId === collectionId) {
         this.selectedCollectionId = null
         this.selectedArtistId = null
@@ -253,6 +266,19 @@ export const useLibraryStore = defineStore('library', {
         this.collectionAlbums = []
         this.collectionTitleItems = []
       }
+    },
+    invalidateCollectionContent(collectionId?: string) {
+      if (!collectionId) {
+        this.collectionArtistsByCollection = {}
+        this.collectionTitleItemsByCollection = {}
+        this.collectionAlbumsByArtist = {}
+        return
+      }
+      const { [collectionId]: _artists, ...artistRest } = this.collectionArtistsByCollection
+      const { [collectionId]: _titles, ...titleRest } = this.collectionTitleItemsByCollection
+      this.collectionArtistsByCollection = artistRest
+      this.collectionTitleItemsByCollection = titleRest
+      this.collectionAlbumsByArtist = {}
     },
     async loadCollectionMetadata(collectionId: string, force = false) {
       if (!force && this.collectionMetadata[collectionId]) {
@@ -349,9 +375,15 @@ export const useLibraryStore = defineStore('library', {
       const collection = this.collections.find((item) => item.id === collectionId)
       if (collection?.type === 'TITLE') {
         this.collectionArtists = []
+        if (!hasCachedValue(this.collectionTitleItemsByCollection, collectionId)) {
+          this.collectionTitleItems = []
+        }
         await this.loadTitlesForSelectedCollection()
       } else {
         this.collectionTitleItems = []
+        if (!hasCachedValue(this.collectionArtistsByCollection, collectionId)) {
+          this.collectionArtists = []
+        }
         await this.loadArtistsForSelectedCollection()
       }
     },
@@ -360,9 +392,31 @@ export const useLibraryStore = defineStore('library', {
         this.collectionTitleItems = []
         return
       }
-      this.collectionTitleItems = await apiGet<Album[]>(
-        `/api/collections/${encodeURIComponent(this.selectedCollectionId)}/titles`,
-      )
+      await this.loadTitlesForCollection(this.selectedCollectionId)
+    },
+    async loadTitlesForCollection(collectionId: string, force = false) {
+      if (!force && hasCachedValue(this.collectionTitleItemsByCollection, collectionId)) {
+        this.collectionTitleItems = this.collectionTitleItemsByCollection[collectionId]
+        return this.collectionTitleItems
+      }
+      if (!force && this.collectionTitleItemsLoading[collectionId]) {
+        return this.collectionTitleItemsByCollection[collectionId] ?? []
+      }
+      if (this.selectedCollectionId === collectionId) {
+        this.collectionTitleItems = []
+      }
+      this.collectionTitleItemsLoading = { ...this.collectionTitleItemsLoading, [collectionId]: true }
+      try {
+        const titles = await apiGet<Album[]>(`/api/collections/${encodeURIComponent(collectionId)}/titles`)
+        this.collectionTitleItemsByCollection = { ...this.collectionTitleItemsByCollection, [collectionId]: titles }
+        if (this.selectedCollectionId === collectionId) {
+          this.collectionTitleItems = titles
+        }
+        return titles
+      } finally {
+        const { [collectionId]: _removed, ...rest } = this.collectionTitleItemsLoading
+        this.collectionTitleItemsLoading = rest
+      }
     },
     async createTitleItem(collectionId: string, payload: { title: string; artistName?: string | null; releaseDate?: string | null; sortName?: string | null }) {
       const created = await apiSend<Album>(
@@ -371,6 +425,10 @@ export const useLibraryStore = defineStore('library', {
         payload,
       )
       this.collectionTitleItems = [created, ...this.collectionTitleItems.filter((current) => current.id !== created.id)]
+      this.collectionTitleItemsByCollection = {
+        ...this.collectionTitleItemsByCollection,
+        [collectionId]: [created, ...(this.collectionTitleItemsByCollection[collectionId] ?? []).filter((current) => current.id !== created.id)],
+      }
       this.invalidateCollectionMetadata(collectionId)
       return created
     },
@@ -384,6 +442,12 @@ export const useLibraryStore = defineStore('library', {
         payload,
       )
       this.collectionTitleItems = this.collectionTitleItems.map((current) => (current.id === updated.id ? updated : current))
+      this.collectionTitleItemsByCollection = {
+        ...this.collectionTitleItemsByCollection,
+        [this.selectedCollectionId]: (this.collectionTitleItemsByCollection[this.selectedCollectionId] ?? this.collectionTitleItems)
+          .map((current) => (current.id === updated.id ? updated : current)),
+      }
+      this.replaceCachedAlbum(updated)
       this.invalidateCollectionMetadata(this.selectedCollectionId)
       return updated
     },
@@ -392,7 +456,7 @@ export const useLibraryStore = defineStore('library', {
         return
       }
       await apiSend(`/api/collections/${encodeURIComponent(this.selectedCollectionId)}/titles/${item.id}`, 'DELETE')
-      await this.loadTitlesForSelectedCollection()
+      await this.loadTitlesForCollection(this.selectedCollectionId, true)
       this.invalidateCollectionMetadata(this.selectedCollectionId)
     },
     async loadArtistsForSelectedCollection() {
@@ -400,9 +464,35 @@ export const useLibraryStore = defineStore('library', {
         this.collectionArtists = []
         return
       }
-      this.collectionArtists = await apiGet<Artist[]>(
-        withQuery('/api/artists', { collectionId: this.selectedCollectionId }),
-      )
+      await this.loadArtistsForCollection(this.selectedCollectionId)
+    },
+    async loadArtistsForCollection(collectionId: string, force = false) {
+      if (!force && hasCachedValue(this.collectionArtistsByCollection, collectionId)) {
+        this.collectionArtists = this.collectionArtistsByCollection[collectionId]
+        this.clearInvalidSelectedArtist()
+        return this.collectionArtists
+      }
+      if (!force && this.collectionArtistsLoading[collectionId]) {
+        return this.collectionArtistsByCollection[collectionId] ?? []
+      }
+      if (this.selectedCollectionId === collectionId) {
+        this.collectionArtists = []
+      }
+      this.collectionArtistsLoading = { ...this.collectionArtistsLoading, [collectionId]: true }
+      try {
+        const artists = await apiGet<Artist[]>(withQuery('/api/artists', { collectionId }))
+        this.collectionArtistsByCollection = { ...this.collectionArtistsByCollection, [collectionId]: artists }
+        if (this.selectedCollectionId === collectionId) {
+          this.collectionArtists = artists
+          this.clearInvalidSelectedArtist()
+        }
+        return artists
+      } finally {
+        const { [collectionId]: _removed, ...rest } = this.collectionArtistsLoading
+        this.collectionArtistsLoading = rest
+      }
+    },
+    clearInvalidSelectedArtist() {
       if (this.selectedArtistId && !this.collectionArtists.some((artist) => artist.id === this.selectedArtistId)) {
         this.selectedArtistId = null
         this.collectionAlbums = []
@@ -410,6 +500,9 @@ export const useLibraryStore = defineStore('library', {
     },
     async selectArtist(artistId: number) {
       this.selectedArtistId = artistId
+      if (!hasCachedValue(this.collectionAlbumsByArtist, String(artistId))) {
+        this.collectionAlbums = []
+      }
       await this.loadAlbumsForSelectedArtist()
     },
     async loadAlbumsForSelectedArtist() {
@@ -417,11 +510,36 @@ export const useLibraryStore = defineStore('library', {
         this.collectionAlbums = []
         return
       }
-      this.collectionAlbums = await apiGet<Album[]>(
-        withQuery('/api/albums', {
-          artistId: this.selectedArtistId,
-        }),
-      )
+      await this.loadAlbumsForArtist(this.selectedArtistId)
+    },
+    async loadAlbumsForArtist(artistId: number, force = false) {
+      const cacheKey = String(artistId)
+      if (!force && hasCachedValue(this.collectionAlbumsByArtist, cacheKey)) {
+        this.collectionAlbums = this.collectionAlbumsByArtist[cacheKey]
+        return this.collectionAlbums
+      }
+      if (!force && this.collectionAlbumsLoading[cacheKey]) {
+        return this.collectionAlbumsByArtist[cacheKey] ?? []
+      }
+      if (this.selectedArtistId === artistId) {
+        this.collectionAlbums = []
+      }
+      this.collectionAlbumsLoading = { ...this.collectionAlbumsLoading, [cacheKey]: true }
+      try {
+        const albums = await apiGet<Album[]>(
+          withQuery('/api/albums', {
+            artistId,
+          }),
+        )
+        this.collectionAlbumsByArtist = { ...this.collectionAlbumsByArtist, [cacheKey]: albums }
+        if (this.selectedArtistId === artistId) {
+          this.collectionAlbums = albums
+        }
+        return albums
+      } finally {
+        const { [cacheKey]: _removed, ...rest } = this.collectionAlbumsLoading
+        this.collectionAlbumsLoading = rest
+      }
     },
     async refreshCollectionContext() {
       if (!this.selectedCollectionId) {
@@ -429,12 +547,12 @@ export const useLibraryStore = defineStore('library', {
       }
       const collection = this.collections.find((item) => item.id === this.selectedCollectionId)
       if (collection?.type === 'TITLE') {
-        await this.loadTitlesForSelectedCollection()
+        await this.loadTitlesForCollection(this.selectedCollectionId, true)
         return
       }
-      await this.loadArtistsForSelectedCollection()
+      await this.loadArtistsForCollection(this.selectedCollectionId, true)
       if (this.selectedArtistId) {
-        await this.loadAlbumsForSelectedArtist()
+        await this.loadAlbumsForArtist(this.selectedArtistId, true)
       }
     },
     async refreshCollectionArtistsOnly(clearArtistSelection = false) {
@@ -447,9 +565,9 @@ export const useLibraryStore = defineStore('library', {
       this.collectionAlbums = []
       const collection = this.collections.find((item) => item.id === this.selectedCollectionId)
       if (collection?.type === 'TITLE') {
-        await this.loadTitlesForSelectedCollection()
+        await this.loadTitlesForCollection(this.selectedCollectionId, true)
       } else {
-        await this.loadArtistsForSelectedCollection()
+        await this.loadArtistsForCollection(this.selectedCollectionId, true)
       }
     },
     async addArtist(name: string, collectionIds: string[] = []) {
@@ -467,6 +585,7 @@ export const useLibraryStore = defineStore('library', {
         ? await apiSend<Artist>(`/api/artists/${payload.id}`, 'PUT', body)
         : await apiSend<Artist>('/api/artists', 'POST', body)
       await this.loadArtists()
+      this.invalidateCollectionContent()
       await this.refreshCollectionContext()
       this.invalidateCollectionMetadata()
       return artist
@@ -474,9 +593,11 @@ export const useLibraryStore = defineStore('library', {
     async addAlbum(artistId: number, title: string, releaseDate: string | null, checked: boolean) {
       const album = await apiSend<Album>('/api/albums', 'POST', { artistId, title, releaseDate, checked })
       this.albums = [album, ...this.albums.filter((item) => item.id !== album.id)]
+      this.invalidateAlbumCacheForArtist(artistId)
       await this.refreshCollectionContext()
     },
     async updateAlbum(album: Album) {
+      const previous = this.findCachedAlbum(album.id)
       const updated = await apiSend<Album>(`/api/albums/${album.id}`, 'PUT', {
         title: album.title,
         releaseDate: album.releaseDate,
@@ -484,7 +605,7 @@ export const useLibraryStore = defineStore('library', {
         notes: album.notes,
       })
       this.replaceAlbum(updated)
-      await this.refreshCollectionContext()
+      this.updateArtistAlbumCheckCounts(previous, updated)
       this.invalidateCollectionMetadata()
     },
     async untrackMissingAlbumLocalPaths(albumId: number, collectionId: string) {
@@ -500,6 +621,7 @@ export const useLibraryStore = defineStore('library', {
       this.albums = this.albums.filter((album) => album.id !== albumId)
       this.collectionAlbums = this.collectionAlbums.filter((album) => album.id !== albumId)
       this.collectionTitleItems = this.collectionTitleItems.filter((album) => album.id !== albumId)
+      this.removeCachedAlbum(albumId)
       await this.refreshCollectionContext()
       this.invalidateCollectionMetadata()
     },
@@ -511,6 +633,7 @@ export const useLibraryStore = defineStore('library', {
       ])
       this.artists = artists
       this.albums = albums
+      this.invalidateCollectionContent()
       this.collectionArtists = this.collectionArtists.filter((artist) => artist.id !== artistId)
       delete this.providerLinks[artistId]
       if (this.selectedArtistId === artistId) {
@@ -530,6 +653,11 @@ export const useLibraryStore = defineStore('library', {
         'DELETE',
       )
       this.collectionArtists = this.collectionArtists.filter((artist) => artist.id !== artistId)
+      this.collectionArtistsByCollection = {
+        ...this.collectionArtistsByCollection,
+        [collectionId]: (this.collectionArtistsByCollection[collectionId] ?? this.collectionArtists)
+          .filter((artist) => artist.id !== artistId),
+      }
       if (this.selectedArtistId === artistId) {
         this.selectedArtistId = null
         this.collectionAlbums = []
@@ -547,6 +675,77 @@ export const useLibraryStore = defineStore('library', {
       this.collectionTitleItems = this.collectionTitleItems.some((item) => item.id === album.id)
         ? this.collectionTitleItems.map((item) => (item.id === album.id ? album : item))
         : this.collectionTitleItems
+      this.replaceCachedAlbum(album)
+    },
+    replaceCachedAlbum(album: Album) {
+      this.collectionAlbumsByArtist = Object.fromEntries(
+        Object.entries(this.collectionAlbumsByArtist).map(([key, albums]) => [
+          key,
+          albums.map((item) => (item.id === album.id ? album : item)),
+        ]),
+      )
+      this.collectionTitleItemsByCollection = Object.fromEntries(
+        Object.entries(this.collectionTitleItemsByCollection).map(([key, titles]) => [
+          key,
+          titles.map((item) => (item.id === album.id ? album : item)),
+        ]),
+      )
+    },
+    findCachedAlbum(albumId: number) {
+      return this.albums.find((album) => album.id === albumId)
+        ?? this.collectionAlbums.find((album) => album.id === albumId)
+        ?? this.collectionTitleItems.find((album) => album.id === albumId)
+        ?? Object.values(this.collectionAlbumsByArtist)
+          .flat()
+          .find((album) => album.id === albumId)
+        ?? Object.values(this.collectionTitleItemsByCollection)
+          .flat()
+          .find((album) => album.id === albumId)
+        ?? null
+    },
+    updateArtistAlbumCheckCounts(previous: Album | null, updated: Album) {
+      if (!previous || previous.checked === updated.checked) {
+        return
+      }
+      const artistIds = new Set(updated.artistIds)
+      const checkedDelta = updated.checked ? 1 : -1
+      const updateArtist = (artist: Artist) => {
+        if (!artistIds.has(artist.id)) {
+          return artist
+        }
+        return {
+          ...artist,
+          checkedAlbumCount: Math.max(0, artist.checkedAlbumCount + checkedDelta),
+          uncheckedAlbumCount: Math.max(0, artist.uncheckedAlbumCount - checkedDelta),
+        }
+      }
+      this.artists = this.artists.map(updateArtist)
+      this.collectionArtists = this.collectionArtists.map(updateArtist)
+      this.collectionArtistsByCollection = Object.fromEntries(
+        Object.entries(this.collectionArtistsByCollection).map(([key, artists]) => [
+          key,
+          artists.map(updateArtist),
+        ]),
+      )
+    },
+    removeCachedAlbum(albumId: number) {
+      this.collectionAlbumsByArtist = Object.fromEntries(
+        Object.entries(this.collectionAlbumsByArtist).map(([key, albums]) => [
+          key,
+          albums.filter((album) => album.id !== albumId),
+        ]),
+      )
+      this.collectionTitleItemsByCollection = Object.fromEntries(
+        Object.entries(this.collectionTitleItemsByCollection).map(([key, titles]) => [
+          key,
+          titles.filter((album) => album.id !== albumId),
+        ]),
+      )
+    },
+    invalidateAlbumCacheForArtist(artistId: number) {
+      const cacheKey = String(artistId)
+      const { [cacheKey]: _albums, ...rest } = this.collectionAlbumsByArtist
+      this.collectionAlbumsByArtist = rest
     },
     async runScanJob(collectionId?: string) {
       await this.startScanJob(collectionId)
@@ -563,7 +762,9 @@ export const useLibraryStore = defineStore('library', {
           const status = await this.loadScanJob()
           if (!status || status.status !== 'RUNNING') {
             this.stopScanJobPolling()
-            this.invalidateCollectionMetadata(status?.requestedCollectionId ?? status?.activeCollectionId ?? undefined)
+            const collectionId = status?.requestedCollectionId ?? status?.activeCollectionId ?? undefined
+            this.invalidateCollectionMetadata(collectionId)
+            this.invalidateCollectionContent(collectionId)
             await this.loadSettings()
             if (status?.kind === 'LOCAL_ALBUMS') {
               await this.refreshCollectionContext()
@@ -645,6 +846,7 @@ export const useLibraryStore = defineStore('library', {
         await apiSend<ArtistProviderLink>(`/api/artists/${artistId}/provider-links`, 'POST', body)
       }
       await this.loadProviderLinks(artistId)
+      this.invalidateCollectionContent()
       await this.loadArtists()
       await this.refreshCollectionContext()
     },
@@ -654,6 +856,7 @@ export const useLibraryStore = defineStore('library', {
     async deleteProviderLink(artistId: number, linkId: number) {
       await apiSend(`/api/artists/${artistId}/provider-links/${linkId}`, 'DELETE')
       await this.loadProviderLinks(artistId)
+      this.invalidateCollectionContent()
       await this.loadArtists()
       await this.refreshCollectionContext()
     },
@@ -668,6 +871,7 @@ export const useLibraryStore = defineStore('library', {
           'POST',
         )
         this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
+        this.invalidateCollectionContent(this.selectedCollectionId ?? undefined)
         await this.loadArtists()
         await this.refreshCollectionContext()
         this.invalidateCollectionMetadata(this.selectedCollectionId ?? undefined)
@@ -691,6 +895,7 @@ export const useLibraryStore = defineStore('library', {
           'POST',
         )
         this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
+        this.invalidateCollectionContent(collectionId)
         await this.loadArtists()
         await this.refreshCollectionContext()
         this.invalidateCollectionMetadata(collectionId)
@@ -708,6 +913,7 @@ export const useLibraryStore = defineStore('library', {
       this.providerStatus = { running: true, message: 'Checking all provider links', state: 'running' }
       try {
         const summary = await apiSend<ProviderCheckSummary>('/api/provider-checks/all', 'POST')
+        this.invalidateCollectionContent()
         await this.loadAll()
         await this.refreshCollectionContext()
         this.invalidateCollectionMetadata()
@@ -723,6 +929,10 @@ export const useLibraryStore = defineStore('library', {
     },
   },
 })
+
+function hasCachedValue<T>(cache: Record<string, T>, key: string) {
+  return Object.prototype.hasOwnProperty.call(cache, key)
+}
 
 function providerSummaryState(summary: ProviderCheckSummary): StatusHistoryEntry['state'] {
   if (summary.errorCount > 0) {

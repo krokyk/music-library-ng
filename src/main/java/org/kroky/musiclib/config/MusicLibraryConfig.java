@@ -155,9 +155,6 @@ public interface MusicLibraryConfig {
         @WithDefault("120")
         int releaseDate();
 
-        @WithDefault("120")
-        int status();
-
         @WithDefault("178")
         int action();
     }

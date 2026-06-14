@@ -192,7 +192,6 @@ export interface WorkspaceColumnWidths {
     title: number
     artist: number
     releaseDate: number
-    status: number
     action: number
   }
 }

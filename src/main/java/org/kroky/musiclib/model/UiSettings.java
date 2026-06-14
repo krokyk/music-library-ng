@@ -80,7 +80,6 @@ public record UiSettings(
             int title,
             int artist,
             int releaseDate,
-            int status,
             int action) {
     }
 }

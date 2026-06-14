@@ -1001,6 +1001,13 @@ body,
   border-bottom-color: rgba(255, 255, 255, 0.1);
 }
 
+.workspace-grid__virtual-spacer {
+  box-sizing: border-box;
+  min-width: var(--workspace-grid-min-width);
+  pointer-events: none;
+  width: 100%;
+}
+
 .workspace-grid__cell {
   align-items: center;
   display: flex;
@@ -1028,6 +1035,26 @@ body,
   position: relative;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.checkbox-cell {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: center;
+}
+
+.checkbox-cell .v-selection-control {
+  justify-content: center;
+  min-width: 0;
+}
+
+.checkbox-cell .v-checkbox {
+  flex: 0 0 auto;
+}
+
+.checkbox-cell__tooltip-anchor {
+  display: inline-flex;
 }
 
 .sortable-header {
@@ -1121,7 +1148,8 @@ body,
   width: 1px;
 }
 
-body.is-column-resizing {
+body.is-column-resizing,
+body.is-pane-resizing {
   cursor: col-resize;
   user-select: none;
 }
@@ -1181,28 +1209,33 @@ body.is-column-resizing {
 
 .album-presence-text--local {
   color: rgba(255, 255, 255, 0.92);
+  font-size: inherit;
   font-style: normal;
   font-weight: inherit;
 }
 
 .album-presence-text--current-collection {
+  font-size: inherit;
   font-weight: 800;
 }
 
 .album-presence-text--nonlocal-checked {
-  color: rgba(255, 255, 255, 0.48);
+  color: rgba(255, 255, 255, 0.34);
+  font-size: calc(1em - 1px);
   font-style: normal;
   font-weight: inherit;
 }
 
 .album-presence-text--nonlocal-unchecked {
-  color: rgba(255, 255, 255, 0.48);
+  color: rgba(255, 214, 128, 0.68);
+  font-size: calc(1em - 1px);
   font-style: italic;
   font-weight: inherit;
 }
 
 .album-presence-text--other-collection {
   color: rgba(255, 255, 255, 0.92);
+  font-size: calc(1em - 1px);
   font-style: italic;
   font-weight: inherit;
 }
@@ -1302,6 +1335,15 @@ body.is-column-resizing {
   flex: 1 1 auto;
   font-size: 0.86rem;
   justify-content: center;
+}
+
+.pane-loading {
+  align-items: center;
+  color: rgb(var(--v-theme-primary));
+  display: flex;
+  flex: 1 1 auto;
+  justify-content: center;
+  min-height: 0;
 }
 
 .pane-empty--compact {

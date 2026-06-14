@@ -304,7 +304,6 @@ public class SettingsResource {
                         defaults.title().title(),
                         defaults.title().artist(),
                         defaults.title().releaseDate(),
-                        defaults.title().status(),
                         defaults.title().action()));
     }
 

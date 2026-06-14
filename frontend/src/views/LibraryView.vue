@@ -85,7 +85,18 @@ async function addAlbum() {
 }
 
 async function updateAlbum(album: Album, patch: Partial<Album>) {
+  if (albumCheckedToggleDisabled(album) && patch.checked !== undefined) {
+    return
+  }
   await store.updateAlbum({ ...album, ...patch })
+}
+
+function albumCheckedValue(album: Album) {
+  return album.onDisk || album.checked
+}
+
+function albumCheckedToggleDisabled(album: Album) {
+  return album.onDisk
 }
 
 function albumReleaseDateValue(album: Album) {
@@ -213,8 +224,25 @@ onMounted(() => store.loadAll())
               ></v-text-field>
             </td>
             <td style="width: 112px">
+              <v-tooltip
+                v-if="albumCheckedToggleDisabled(album)"
+                text="Present on disk; can't uncheck"
+                location="top"
+              >
+                <template #activator="{ props }">
+                  <span v-bind="props" class="checkbox-cell__tooltip-anchor">
+                    <v-checkbox
+                      :model-value="albumCheckedValue(album)"
+                      density="compact"
+                      disabled
+                      hide-details
+                    ></v-checkbox>
+                  </span>
+                </template>
+              </v-tooltip>
               <v-checkbox
-                :model-value="album.checked"
+                v-else
+                :model-value="albumCheckedValue(album)"
                 density="compact"
                 hide-details
                 @update:model-value="(value) => updateAlbum(album, { checked: Boolean(value) })"

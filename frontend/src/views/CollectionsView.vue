@@ -24,9 +24,10 @@ interface ProviderLinkForm {
 type SortDirection = 'asc' | 'desc'
 type ArtistSortKey = 'name'
 type AlbumSortKey = 'name' | 'releaseDate'
-type TitleSortKey = 'title' | 'artist' | 'releaseDate' | 'status'
+type TitleSortKey = 'title' | 'artist' | 'releaseDate'
 type TitleSortMode = 'title' | 'sortName'
 type PresenceFilter = 'local' | 'nonLocal'
+type PaneLayoutKind = 'artist' | 'title'
 
 const store = useLibraryStore()
 const {
@@ -35,6 +36,9 @@ const {
   collectionArtists,
   collectionAlbums,
   collectionTitleItems,
+  collectionArtistsLoading,
+  collectionAlbumsLoading,
+  collectionTitleItemsLoading,
   collectionMetadata,
   collectionMetadataLoading,
   selectedCollectionId,
@@ -61,9 +65,25 @@ const collectionsPaneElement = ref<unknown>(null)
 const artistsPaneElement = ref<unknown>(null)
 const albumsPaneElement = ref<unknown>(null)
 const titlesPaneElement = ref<unknown>(null)
+const artistGridElement = ref<HTMLElement | null>(null)
+const titleGridElement = ref<HTMLElement | null>(null)
 const addCollectionAnchor = ref<HTMLElement | null>(null)
 const addCollectionDropdown = ref<HTMLElement | null>(null)
-const panePercents = ref([27, 30, 43])
+const defaultPanePercents = [27, 30, 43]
+const paneResizerWidth = 10
+const minimumRestoredPanePercent = 0.1
+const titleGridHeaderHeight = 38
+const titleGridRowHeight = 42
+const titleGridBufferRows = 12
+const titleGridFallbackViewportHeight = 900
+const artistGridRowHeight = 42
+const artistGridBufferRows = 12
+const artistGridFallbackViewportHeight = 900
+const panePercents = ref([...defaultPanePercents])
+const paneLayoutCache = reactive<Record<PaneLayoutKind, number[]>>({
+  artist: [...defaultPanePercents],
+  title: [...defaultPanePercents],
+})
 const paneLayoutSaveTimer = ref<number | null>(null)
 const paneNames = ['collections', 'artists', 'albums'] as const
 const titleItemDialog = ref(false)
@@ -113,7 +133,6 @@ const titleColumnWidths = reactive({
   title: 460,
   artist: 220,
   releaseDate: 150,
-  status: 120,
   action: 178,
 })
 
@@ -135,7 +154,12 @@ const titleSort = reactive<{ key: TitleSortKey; direction: SortDirection }>({
 const titleSortMode = ref<TitleSortMode>('sortName')
 const artistPresence = ref<PresenceFilter[]>(['local', 'nonLocal'])
 const titlePresence = ref<PresenceFilter[]>(['local'])
+const artistGridScrollTop = ref(0)
+const artistGridViewportHeight = ref(0)
+const titleGridScrollTop = ref(0)
+const titleGridViewportHeight = ref(0)
 let presencePreferencesLoaded = false
+let paneResizeActive = false
 const suppressHeaderSortUntil = ref(0)
 
 const columnWidthSaveTimers = new Map<string, number>()
@@ -166,7 +190,7 @@ const actionColumnWidths = {
 const tableColumnOrders = {
   artist: ['name'],
   album: ['name', 'releaseDate', 'checked', 'collections', 'action'],
-  title: ['title', 'artist', 'releaseDate', 'status', 'action'],
+  title: ['title', 'artist', 'releaseDate', 'action'],
 } as const
 
 const artistForm = reactive<ArtistForm>({
@@ -208,6 +232,27 @@ const collectionEditDialogOpen = computed({
 
 const selectedCollectionIsTitle = computed(() => selectedCollection.value?.type === 'TITLE')
 const selectedCollectionIsArtist = computed(() => selectedCollection.value?.type === 'ARTIST')
+const selectedCollectionArtistsLoading = computed(() =>
+  Boolean(
+    selectedCollectionId.value
+    && collectionArtistsLoading.value[selectedCollectionId.value]
+    && collectionArtists.value.length === 0,
+  ),
+)
+const selectedCollectionTitlesLoading = computed(() =>
+  Boolean(
+    selectedCollectionId.value
+    && collectionTitleItemsLoading.value[selectedCollectionId.value]
+    && collectionTitleItems.value.length === 0,
+  ),
+)
+const selectedArtistAlbumsLoading = computed(() =>
+  Boolean(
+    selectedArtistId.value !== null
+    && collectionAlbumsLoading.value[String(selectedArtistId.value)]
+    && collectionAlbums.value.length === 0,
+  ),
+)
 
 const selectedArtist = computed(() =>
   collectionArtists.value.find((artist) => artist.id === selectedArtistId.value) ?? null,
@@ -221,12 +266,47 @@ const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
 const collectionScanIsRunning = computed(() => scanIsRunning.value && scanJob.value?.kind !== 'LOCAL_ALBUMS')
 const localAlbumScanIsRunning = computed(() => scanIsRunning.value && scanJob.value?.kind === 'LOCAL_ALBUMS')
 const providerIsRunning = computed(() => providerStatus.value.running)
-const paneLayoutPreferenceKey = 'collections.paneLayout'
+const legacyPaneLayoutPreferenceKey = 'collections.paneLayout'
+const paneLayoutPreferenceKeys = {
+  artist: 'collections.paneLayout.artist',
+  title: 'collections.paneLayout.title',
+} as const
 
 const sortedCollectionArtists = computed(() =>
   collectionArtists.value
     .filter((artist) => matchesPresenceFilter(artistIsLocalToSelectedCollection(artist), artistPresence.value))
     .sort((left, right) => applyDirection(compareText(left.name, right.name), artistSort.direction)),
+)
+
+const artistVirtualViewportHeight = computed(() =>
+  Math.max(artistGridViewportHeight.value, artistGridFallbackViewportHeight),
+)
+
+const artistVirtualRowCount = computed(() =>
+  Math.ceil(artistVirtualViewportHeight.value / artistGridRowHeight) + artistGridBufferRows * 2,
+)
+
+const artistVirtualStartIndex = computed(() => {
+  const total = sortedCollectionArtists.value.length
+  const maximumStart = Math.max(0, total - artistVirtualRowCount.value)
+  const visibleStart = Math.floor(Math.max(0, artistGridScrollTop.value) / artistGridRowHeight)
+  return Math.min(Math.max(0, visibleStart - artistGridBufferRows), maximumStart)
+})
+
+const artistVirtualEndIndex = computed(() =>
+  Math.min(sortedCollectionArtists.value.length, artistVirtualStartIndex.value + artistVirtualRowCount.value),
+)
+
+const visibleArtistRows = computed(() =>
+  sortedCollectionArtists.value.slice(artistVirtualStartIndex.value, artistVirtualEndIndex.value),
+)
+
+const artistVirtualTopSpacerHeight = computed(() =>
+  artistVirtualStartIndex.value * artistGridRowHeight,
+)
+
+const artistVirtualBottomSpacerHeight = computed(() =>
+  Math.max(0, sortedCollectionArtists.value.length - artistVirtualEndIndex.value) * artistGridRowHeight,
 )
 
 const sortedCollectionAlbums = computed(() =>
@@ -273,13 +353,42 @@ const sortedCollectionTitleItems = computed(() =>
         releaseDateSortValue(right.releaseDate),
         titleSort.direction,
       )
-    } else {
-      result = Number(left.checked) - Number(right.checked)
     }
     return titleSort.key === 'releaseDate'
       ? result || compareText(left.sortName, right.sortName) || compareText(left.title, right.title)
       : applyDirection(result || compareText(left.sortName, right.sortName) || compareText(left.title, right.title), titleSort.direction)
   }),
+)
+
+const titleVirtualViewportHeight = computed(() =>
+  Math.max(titleGridViewportHeight.value, titleGridFallbackViewportHeight),
+)
+
+const titleVirtualRowCount = computed(() =>
+  Math.ceil(titleVirtualViewportHeight.value / titleGridRowHeight) + titleGridBufferRows * 2,
+)
+
+const titleVirtualStartIndex = computed(() => {
+  const total = sortedCollectionTitleItems.value.length
+  const maximumStart = Math.max(0, total - titleVirtualRowCount.value)
+  const visibleStart = Math.floor(Math.max(0, titleGridScrollTop.value - titleGridHeaderHeight) / titleGridRowHeight)
+  return Math.min(Math.max(0, visibleStart - titleGridBufferRows), maximumStart)
+})
+
+const titleVirtualEndIndex = computed(() =>
+  Math.min(sortedCollectionTitleItems.value.length, titleVirtualStartIndex.value + titleVirtualRowCount.value),
+)
+
+const visibleTitleRows = computed(() =>
+  sortedCollectionTitleItems.value.slice(titleVirtualStartIndex.value, titleVirtualEndIndex.value),
+)
+
+const titleVirtualTopSpacerHeight = computed(() =>
+  titleVirtualStartIndex.value * titleGridRowHeight,
+)
+
+const titleVirtualBottomSpacerHeight = computed(() =>
+  Math.max(0, sortedCollectionTitleItems.value.length - titleVirtualEndIndex.value) * titleGridRowHeight,
 )
 
 function artistIssueLabel(artist: Artist) {
@@ -382,6 +491,56 @@ function handleTitleHeaderClick(key: TitleSortKey, event: MouseEvent) {
     return
   }
   toggleTitleSort(key)
+}
+
+function handleArtistGridScroll(event: Event) {
+  const element = event.currentTarget
+  if (!(element instanceof HTMLElement)) {
+    return
+  }
+  updateArtistGridViewport(element)
+}
+
+function handleTitleGridScroll(event: Event) {
+  const element = event.currentTarget
+  if (!(element instanceof HTMLElement)) {
+    return
+  }
+  updateTitleGridViewport(element)
+}
+
+function resetArtistGridScroll() {
+  artistGridScrollTop.value = 0
+  void nextTick(() => {
+    if (!artistGridElement.value) {
+      artistGridViewportHeight.value = 0
+      return
+    }
+    artistGridElement.value.scrollTop = 0
+    updateArtistGridViewport(artistGridElement.value)
+  })
+}
+
+function resetTitleGridScroll() {
+  titleGridScrollTop.value = 0
+  void nextTick(() => {
+    if (!titleGridElement.value) {
+      titleGridViewportHeight.value = 0
+      return
+    }
+    titleGridElement.value.scrollTop = 0
+    updateTitleGridViewport(titleGridElement.value)
+  })
+}
+
+function updateArtistGridViewport(element: HTMLElement) {
+  artistGridScrollTop.value = element.scrollTop
+  artistGridViewportHeight.value = element.clientHeight
+}
+
+function updateTitleGridViewport(element: HTMLElement) {
+  titleGridScrollTop.value = element.scrollTop
+  titleGridViewportHeight.value = element.clientHeight
 }
 
 function shouldSuppressHeaderSort(event: MouseEvent) {
@@ -497,7 +656,7 @@ function albumPresenceClass(album: Album) {
   const inSelectedCollection = albumIsInSelectedCollection(album)
   const local = albumIsLocalToSelectedCollection(album)
   const otherCollection = !inSelectedCollection && album.collections.length > 0
-  const libraryOnly = !local && !otherCollection
+  const libraryOnly = albumIsLibraryOnly(album, local, otherCollection)
   return {
     'album-presence-text--local': local,
     'album-presence-text--current-collection': inSelectedCollection,
@@ -505,6 +664,11 @@ function albumPresenceClass(album: Album) {
     'album-presence-text--nonlocal-checked': libraryOnly && album.checked,
     'album-presence-text--nonlocal-unchecked': libraryOnly && !album.checked,
   }
+}
+
+function albumIsLibraryOnly(album: Album, local = albumIsLocalToSelectedCollection(album), otherCollection?: boolean) {
+  const belongsToOtherCollection = otherCollection ?? (!albumIsInSelectedCollection(album) && album.collections.length > 0)
+  return !local && !belongsToOtherCollection
 }
 
 function collectionTypeIcon(collection: MusicCollection) {
@@ -581,6 +745,9 @@ function actionLabelClassFor(showLabels: boolean) {
 function setupPaneWidthObserver() {
   paneWidthObserver?.disconnect()
   paneWidthObserver = new ResizeObserver((entries) => {
+    if (paneResizeActive) {
+      return
+    }
     entries.forEach((entry) => {
       const pane = (entry.target as HTMLElement).dataset.paneKey as keyof typeof paneWidths | undefined
       if (pane) {
@@ -602,6 +769,54 @@ function observePaneWidth(pane: keyof typeof paneWidths, paneRef: unknown) {
   element.dataset.paneKey = pane
   paneWidths[pane] = Math.round(element.getBoundingClientRect().width)
   paneWidthObserver.observe(element)
+}
+
+function updatePaneWidthsOnLabelThresholdCrossing(isTitleLayout: boolean) {
+  const entries: Array<[keyof typeof paneWidths, HTMLElement | null]> = [
+    ['collections', resolveElement(collectionsPaneElement.value)],
+  ]
+  if (isTitleLayout) {
+    entries.push(['titles', resolveElement(titlesPaneElement.value)])
+  } else {
+    entries.push(['artists', resolveElement(artistsPaneElement.value)])
+    entries.push(['albums', resolveElement(albumsPaneElement.value)])
+  }
+
+  let crossed = false
+  entries.forEach(([pane, element]) => {
+    if (!element) {
+      return
+    }
+    const width = Math.round(element.getBoundingClientRect().width)
+    if (paneLabelThresholdCrossed(pane, paneWidths[pane], width)) {
+      paneWidths[pane] = width
+      crossed = true
+    }
+  })
+  return crossed
+}
+
+function paneLabelThresholdCrossed(pane: keyof typeof paneWidths, previousWidth: number, nextWidth: number) {
+  return paneLabelThresholds(pane).some((threshold) => thresholdCrossed(previousWidth, nextWidth, threshold))
+}
+
+function paneLabelThresholds(pane: keyof typeof paneWidths) {
+  const thresholds = [uiSettings.value.actionLabelThresholds[pane]]
+  if (pane === 'collections') {
+    thresholds.push(260)
+  }
+  if (pane === 'albums') {
+    thresholds.push(fixedColumnsWidth('album') + actionColumnWidths.album.labeled)
+  }
+  if (pane === 'titles') {
+    thresholds.push(fixedColumnsWidth('title') + actionColumnWidths.title.labeled)
+  }
+  return thresholds
+}
+
+function thresholdCrossed(previousWidth: number, nextWidth: number, threshold: number) {
+  return (previousWidth < threshold && nextWidth >= threshold)
+    || (previousWidth >= threshold && nextWidth < threshold)
 }
 
 function resolveElement(value: unknown) {
@@ -713,11 +928,9 @@ function selectCollection(collection: MusicCollection) {
 }
 
 function paneStyle(index: number) {
-  const resizerWidth = 20
-  const resizerShare = (resizerWidth * panePercents.value[index]) / 100
   return {
     display: 'flex',
-    flex: `0 0 calc(${panePercents.value[index]}% - ${resizerShare}px)`,
+    flex: paneFlexValue(index, panePercents.value),
     flexDirection: 'column',
     minWidth: '0',
     overflow: index === 0 ? 'visible' : 'hidden',
@@ -725,14 +938,54 @@ function paneStyle(index: number) {
 }
 
 function titlePaneStyle() {
-  const titlePercent = panePercents.value[1] + panePercents.value[2]
   return {
     display: 'flex',
-    flex: `1 1 calc(${titlePercent}% - 10px)`,
+    flex: titlePaneFlexValue(panePercents.value),
     flexDirection: 'column',
     minWidth: '0',
     overflow: 'hidden',
   } satisfies CSSProperties
+}
+
+function paneResizerTotalWidth() {
+  return selectedCollectionIsTitle.value ? paneResizerWidth : paneResizerWidth * 2
+}
+
+function paneFlexValue(index: number, percents: number[], totalResizerWidth = paneResizerTotalWidth()) {
+  const percent = percents[index]
+  const resizerShare = (totalResizerWidth * percent) / 100
+  return `0 0 calc(${percent}% - ${resizerShare}px)`
+}
+
+function titlePaneFlexValue(percents: number[], totalResizerWidth = paneResizerTotalWidth()) {
+  const titlePercent = percents[1] + percents[2]
+  const resizerShare = (totalResizerWidth * titlePercent) / 100
+  return `0 0 calc(${titlePercent}% - ${resizerShare}px)`
+}
+
+function applyPaneFlexStyles(percents: number[], isTitleLayout = selectedCollectionIsTitle.value) {
+  const totalResizerWidth = isTitleLayout ? paneResizerWidth : paneResizerWidth * 2
+  const collectionsElement = resolveElement(collectionsPaneElement.value)
+  if (collectionsElement) {
+    collectionsElement.style.flex = paneFlexValue(0, percents, totalResizerWidth)
+  }
+
+  if (isTitleLayout) {
+    const titlesElement = resolveElement(titlesPaneElement.value)
+    if (titlesElement) {
+      titlesElement.style.flex = titlePaneFlexValue(percents, totalResizerWidth)
+    }
+    return
+  }
+
+  const artistsElement = resolveElement(artistsPaneElement.value)
+  const albumsElement = resolveElement(albumsPaneElement.value)
+  if (artistsElement) {
+    artistsElement.style.flex = paneFlexValue(1, percents, totalResizerWidth)
+  }
+  if (albumsElement) {
+    albumsElement.style.flex = paneFlexValue(2, percents, totalResizerWidth)
+  }
 }
 
 function startPaneResize(index: number, event: PointerEvent) {
@@ -742,8 +995,45 @@ function startPaneResize(index: number, event: PointerEvent) {
   }
   const startX = event.clientX
   const startPercents = [...panePercents.value]
-  const paneAreaWidth = Math.max(1, threePaneElement.value.clientWidth - 20)
+  let currentPercents = [...startPercents]
+  const isTitleLayout = selectedCollectionIsTitle.value
+  const paneAreaWidth = Math.max(1, threePaneElement.value.clientWidth - paneResizerTotalWidth())
   const minimums = paneMinimums()
+  let pendingPanePercents: number[] | null = null
+  let paneResizeFrame: number | null = null
+
+  function applyPanePercents(values: number[]) {
+    currentPercents = values
+    pendingPanePercents = values
+    if (paneResizeFrame !== null) {
+      return
+    }
+    paneResizeFrame = window.requestAnimationFrame(() => {
+      paneResizeFrame = null
+      if (!pendingPanePercents) {
+        return
+      }
+      applyPaneFlexStyles(pendingPanePercents, isTitleLayout)
+      if (updatePaneWidthsOnLabelThresholdCrossing(isTitleLayout)) {
+        panePercents.value = pendingPanePercents
+      }
+      pendingPanePercents = null
+    })
+  }
+
+  function flushPanePercents() {
+    if (paneResizeFrame !== null) {
+      window.cancelAnimationFrame(paneResizeFrame)
+      paneResizeFrame = null
+    }
+    if (pendingPanePercents) {
+      applyPaneFlexStyles(pendingPanePercents, isTitleLayout)
+      if (updatePaneWidthsOnLabelThresholdCrossing(isTitleLayout)) {
+        panePercents.value = pendingPanePercents
+      }
+      pendingPanePercents = null
+    }
+  }
 
   function move(pointerEvent: PointerEvent) {
     const deltaPercent = ((pointerEvent.clientX - startX) / paneAreaWidth) * 100
@@ -758,21 +1048,18 @@ function startPaneResize(index: number, event: PointerEvent) {
         const left = Math.min(Math.max(leftMinimum, startPercents[0] + deltaPercent), leftMaximum)
         const right = 100 - left - middle
 
-        panePercents.value = normalizePanePercents([
+        applyPanePercents(normalizePanePercents([
           left,
           middle,
           right,
-        ])
-        schedulePaneLayoutSave()
+        ]))
         return
       }
 
       const titleMinimum = (titlePaneMinimumWidth() / paneAreaWidth) * 100
       const leftMaximum = Math.max(leftMinimum, 100 - titleMinimum)
       const left = Math.min(Math.max(leftMinimum, startPercents[0] + deltaPercent), leftMaximum)
-      const right = 100 - left
-      panePercents.value = normalizePanePercents([left, 0, right])
-      schedulePaneLayoutSave()
+      applyPanePercents(paneLayoutForTitleResize(left, startPercents))
       return
     }
 
@@ -783,24 +1070,33 @@ function startPaneResize(index: number, event: PointerEvent) {
     const left = Math.min(Math.max(leftMinimum, startPercents[index] + deltaPercent), leftMaximum)
     const right = combined - left
 
-    panePercents.value = normalizePanePercents(
-      panePercents.value.map((percent, percentIndex) => {
+    applyPanePercents(normalizePanePercents(
+      startPercents.map((percent, percentIndex) => {
         if (percentIndex === index) return left
         if (percentIndex === index + 1) return right
         return percent
       }),
-    )
-    schedulePaneLayoutSave()
+    ))
   }
 
   function stop() {
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', stop)
+    window.removeEventListener('pointercancel', stop)
+    paneResizeActive = false
+    document.body.classList.remove('is-pane-resizing')
+    flushPanePercents()
+    panePercents.value = currentPercents
     savePaneLayout()
+    void nextTick(setupPaneWidthObserver)
   }
 
+  paneResizeActive = true
+  paneWidthObserver?.disconnect()
+  document.body.classList.add('is-pane-resizing')
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', stop)
+  window.addEventListener('pointercancel', stop)
 }
 
 function paneMinimums() {
@@ -815,25 +1111,44 @@ function titlePaneMinimumWidth() {
   return Math.max(paneHeaderMinimumWidths.titles, minimumGridWidth('title'))
 }
 
-async function loadPaneLayout() {
-  const preference = await store.loadPreference(paneLayoutPreferenceKey)
+async function loadPaneLayouts() {
+  await Promise.all([
+    loadPaneLayout('artist'),
+    loadPaneLayout('title'),
+  ])
+  activatePaneLayout(activePaneLayoutKind())
+}
+
+async function loadPaneLayout(kind: PaneLayoutKind) {
+  let preference = await store.loadPreference(paneLayoutPreferenceKeys[kind])
+  if (!preference?.value && kind === 'artist') {
+    preference = await store.loadPreference(legacyPaneLayoutPreferenceKey)
+  }
   if (!preference?.value) {
     return
   }
   try {
     const parsed = JSON.parse(preference.value)
     if (isPaneLayoutObject(parsed)) {
-      panePercents.value = normalizePanePercents([
+      paneLayoutCache[kind] = repairPaneLayout([
         parsed.collections,
         parsed.artists,
         parsed.albums,
       ])
     } else if (Array.isArray(parsed) && parsed.length === 3 && parsed.every((value) => typeof value === 'number')) {
-      panePercents.value = normalizePanePercents(parsed)
+      paneLayoutCache[kind] = repairPaneLayout(parsed)
     }
   } catch (error) {
     // Ignore invalid stored UI state and keep the default layout.
   }
+}
+
+function activePaneLayoutKind(): PaneLayoutKind {
+  return selectedCollectionIsTitle.value ? 'title' : 'artist'
+}
+
+function activatePaneLayout(kind: PaneLayoutKind) {
+  panePercents.value = [...paneLayoutCache[kind]]
 }
 
 function schedulePaneLayoutSave() {
@@ -848,22 +1163,56 @@ function savePaneLayout() {
     window.clearTimeout(paneLayoutSaveTimer.value)
     paneLayoutSaveTimer.value = null
   }
-  const rounded = normalizePanePercents(panePercents.value).map((value) => Math.round(value * 100) / 100)
+  const kind = activePaneLayoutKind()
+  const rounded = repairPaneLayout(normalizePanePercents(panePercents.value))
+    .map((value) => Math.round(value * 100) / 100)
+  paneLayoutCache[kind] = rounded
   panePercents.value = rounded
-  void store.savePreference(paneLayoutPreferenceKey, JSON.stringify(paneLayoutObject(rounded)))
+  void store.savePreference(paneLayoutPreferenceKeys[kind], JSON.stringify(paneLayoutObject(rounded)))
 }
 
 function normalizePanePercents(values: number[]) {
-  const fallback = [27, 30, 43]
   const cleaned = values.map((value) => (Number.isFinite(value) && value > 0 ? value : 0))
   const total = cleaned.reduce((sum, value) => sum + value, 0)
   if (total <= 0) {
-    return fallback
+    return [...defaultPanePercents]
   }
   const normalized = cleaned.map((value) => (value / total) * 100)
   const rounded = normalized.map((value) => Math.round(value * 10000) / 10000)
   rounded[2] = Math.round((100 - rounded[0] - rounded[1]) * 10000) / 10000
   return rounded
+}
+
+function paneLayoutForTitleResize(collectionsPercent: number, sourcePercents: number[]) {
+  const right = Math.max(0, 100 - collectionsPercent)
+  const artistShare = hiddenPaneArtistShare(sourcePercents)
+  return normalizePanePercents([
+    collectionsPercent,
+    right * artistShare,
+    right * (1 - artistShare),
+  ])
+}
+
+function hiddenPaneArtistShare(sourcePercents: number[]) {
+  const right = sourcePercents[1] + sourcePercents[2]
+  const defaultRight = defaultPanePercents[1] + defaultPanePercents[2]
+  const defaultShare = defaultPanePercents[1] / defaultRight
+  if (
+    right <= 0
+    || sourcePercents[1] <= minimumRestoredPanePercent
+    || sourcePercents[2] <= minimumRestoredPanePercent
+  ) {
+    return defaultShare
+  }
+  return sourcePercents[1] / right
+}
+
+function repairPaneLayout(values: number[]) {
+  const normalized = normalizePanePercents(values)
+  if (normalized[1] > minimumRestoredPanePercent) {
+    return normalized
+  }
+  return paneLayoutForTitleResize(normalized[0], defaultPanePercents)
 }
 
 function paneLayoutObject(values: number[]) {
@@ -977,8 +1326,9 @@ function columnGridStyle(table: keyof typeof columnWidthPreferenceKeys) {
     }
   }
   const rendered = renderedColumnWidths(table)
-  const columns = tableColumnKeys(table)
-    .map((key) => `${rendered[key]}px`)
+  const keys = tableColumnKeys(table)
+  const columns = keys
+    .map((key, index) => (index === keys.length - 1 ? `minmax(${columnMinimumWidth(table, key)}px, 1fr)` : `${rendered[key]}px`))
     .join(' ')
   return {
     '--workspace-grid-columns': columns,
@@ -997,72 +1347,65 @@ function showGridActionLabels(table: keyof typeof columnWidthPreferenceKeys) {
   if (table === 'artist') {
     return showActionLabels('artists')
   }
-  return renderedColumnWidths(table).action >= actionColumnWidths[table].labeled
+  return showActionLabels(tablePaneKey(table)) && rightmostColumnAvailableWidth(table) >= actionColumnWidths[table].labeled
 }
 
 function renderedColumnWidths(table: keyof typeof columnWidthPreferenceKeys) {
   const widths = columnWidthState(table)
   const keys = tableColumnKeys(table)
-  const rendered = Object.fromEntries(
-    keys.map((key) => [key, Math.max(columnMinimumWidth(table, key), widths[key] ?? columnMinimumWidth(table, key))]),
+  return Object.fromEntries(
+    keys.map((key) => [key, renderedColumnWidth(table, key, widths)]),
   ) as Record<string, number>
-  if (table === 'artist') {
-    return rendered
-  }
+}
 
-  const available = tableAvailableWidth(table)
-  if (available <= 0) {
-    return rendered
-  }
-  const minimumTotal = minimumGridWidth(table)
-  const preferredTotal = keys.reduce((sum, key) => sum + rendered[key], 0)
-  if (preferredTotal <= available) {
-    rendered.action += available - preferredTotal
-    return rendered
-  }
-  if (available <= minimumTotal) {
-    keys.forEach((key) => {
-      rendered[key] = columnMinimumWidth(table, key)
-    })
-    return rendered
-  }
+function renderedColumnWidth(
+  table: keyof typeof columnWidthPreferenceKeys,
+  key: string,
+  widths: Record<string, number>,
+) {
+  return Math.max(columnMinimumWidth(table, key), widths[key] ?? columnMinimumWidth(table, key))
+}
 
-  const shrinkableTotal = keys.reduce((sum, key) => sum + rendered[key] - columnMinimumWidth(table, key), 0)
-  if (shrinkableTotal <= 0) {
-    return rendered
-  }
-
-  const excess = preferredTotal - available
-  let used = 0
-  keys.forEach((key) => {
-    const minimum = columnMinimumWidth(table, key)
-    const shrinkable = rendered[key] - minimum
-    const shrink = (excess * shrinkable) / shrinkableTotal
-    rendered[key] = Math.max(minimum, Math.round(rendered[key] - shrink))
-    used += rendered[key]
-  })
-
-  let adjustment = Math.round(available - used)
-  for (const key of keys) {
-    if (adjustment === 0) {
-      break
-    }
-    const minimum = columnMinimumWidth(table, key)
-    const next = Math.max(minimum, rendered[key] + adjustment)
-    adjustment -= next - rendered[key]
-    rendered[key] = next
-  }
-  return rendered
+function tablePaneKey(table: keyof typeof columnWidthPreferenceKeys): keyof typeof paneWidths {
+  if (table === 'album') return 'albums'
+  if (table === 'title') return 'titles'
+  return 'artists'
 }
 
 function tableAvailableWidth(table: keyof typeof columnWidthPreferenceKeys) {
-  const pane = table === 'album' ? 'albums' : table === 'title' ? 'titles' : 'artists'
+  const grid = document.querySelector(`.${tablePaneKey(table)}-pane .workspace-grid`)
+  if (grid instanceof HTMLElement) {
+    return grid.clientWidth
+  }
+  const pane = tablePaneKey(table)
   const paneWidth = paneWidths[pane]
-  return paneWidth > 0 ? Math.max(0, paneWidth - 20) : 0
+  return paneWidth > 0 ? Math.max(0, paneWidth - 2) : 0
+}
+
+function fixedColumnsWidth(table: keyof typeof columnWidthPreferenceKeys) {
+  const rendered = renderedColumnWidths(table)
+  return tableColumnKeys(table)
+    .slice(0, -1)
+    .reduce((sum, key) => sum + rendered[key], 0)
+}
+
+function rightmostColumnAvailableWidth(table: keyof typeof columnWidthPreferenceKeys) {
+  const lastKey = rightmostColumnKey(table)
+  const available = tableAvailableWidth(table)
+  if (available <= 0) {
+    return renderedColumnWidth(table, lastKey, columnWidthState(table))
+  }
+  return Math.max(columnMinimumWidth(table, lastKey), available - fixedColumnsWidth(table))
 }
 
 function minimumGridWidth(table: keyof typeof columnWidthPreferenceKeys) {
-  return tableColumnKeys(table).reduce((sum, key) => sum + columnMinimumWidth(table, key), 0)
+  const lastKey = rightmostColumnKey(table)
+  return fixedColumnsWidth(table) + columnMinimumWidth(table, lastKey)
+}
+
+function rightmostColumnKey(table: keyof typeof columnWidthPreferenceKeys) {
+  const keys = tableColumnKeys(table)
+  return keys[keys.length - 1]
 }
 
 function startColumnResize(table: keyof typeof columnWidthPreferenceKeys, key: string, event: PointerEvent) {
@@ -1087,11 +1430,11 @@ function startColumnResize(table: keyof typeof columnWidthPreferenceKeys, key: s
     .slice(leftIndex + 1, -1)
     .reduce((sum, columnKey) => sum + rendered[columnKey], 0)
   const leftMinimum = columnMinimumWidth(table, key)
-  const actionKey = keys[keys.length - 1]
-  const actionMinimum = columnMinimumWidth(table, actionKey)
+  const rightmostKey = keys[keys.length - 1]
+  const rightmostMinimum = columnMinimumWidth(table, rightmostKey)
   const available = tableAvailableWidth(table)
   const leftMaximum = available > 0
-    ? Math.max(leftMinimum, available - beforeWidth - rightDataBlockWidth - actionMinimum)
+    ? Math.max(leftMinimum, available - beforeWidth - rightDataBlockWidth - rightmostMinimum)
     : Number.POSITIVE_INFINITY
 
   function move(pointerEvent: PointerEvent) {
@@ -1099,11 +1442,7 @@ function startColumnResize(table: keyof typeof columnWidthPreferenceKeys, key: s
       Math.max(leftMinimum, Math.round(leftStart + pointerEvent.clientX - startX)),
       leftMaximum,
     )
-    const action = available > 0
-      ? Math.max(actionMinimum, available - beforeWidth - left - rightDataBlockWidth)
-      : Math.max(actionMinimum, rendered[actionKey])
     widths[key] = left
-    widths[actionKey] = action
     scheduleColumnWidthSave(table)
   }
 
@@ -1141,6 +1480,9 @@ function saveColumnWidths(table: keyof typeof columnWidthPreferenceKeys) {
 function columnMinimumWidth(table: keyof typeof columnWidthPreferenceKeys, key: string) {
   if (key === 'action') {
     return actionColumnWidths[table].icon
+  }
+  if (table === 'album' && key === 'collections') {
+    return 90
   }
   return Math.max(1, uiSettings.value.tableGridColumnMinWidth)
 }
@@ -1340,15 +1682,18 @@ async function refreshCollectionProviders() {
 }
 
 async function updateAlbumChecked(album: Album, checked: boolean) {
-  if (albumCheckedToggleDisabled(album) && !checked) {
-    store.showStatus('Cannot uncheck album while it is still present on disk.', 'failed')
+  if (albumCheckedToggleDisabled(album)) {
     return
   }
   await store.updateAlbum({ ...album, checked })
 }
 
+function albumCheckedValue(album: Album) {
+  return album.onDisk || album.checked
+}
+
 function albumCheckedToggleDisabled(album: Album) {
-  return album.checked && album.onDisk
+  return album.onDisk
 }
 
 function albumHasMissingLocalPath(album: Album) {
@@ -1458,8 +1803,9 @@ onMounted(async () => {
   applyColumnWidthDefaults()
   await loadColumnWidths()
   await loadPresenceFilters()
-  await loadPaneLayout()
+  await loadPaneLayouts()
   await store.loadCollections()
+  activatePaneLayout(activePaneLayoutKind())
   await store.loadScanJob()
   if (scanIsRunning.value) {
     store.startScanJobPolling()
@@ -1471,6 +1817,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
   document.removeEventListener('keydown', handleDocumentKeyDown)
+  paneResizeActive = false
+  document.body.classList.remove('is-pane-resizing')
   paneWidthObserver?.disconnect()
   paneWidthObserver = null
   if (paneLayoutSaveTimer.value !== null) {
@@ -1481,12 +1829,41 @@ onBeforeUnmount(() => {
 })
 
 watch(selectedCollectionIsTitle, () => {
+  activatePaneLayout(activePaneLayoutKind())
+  resetArtistGridScroll()
+  resetTitleGridScroll()
   void nextTick(setupPaneWidthObserver)
 })
 
+watch(selectedCollectionId, () => {
+  resetArtistGridScroll()
+  resetTitleGridScroll()
+})
+
+watch(selectedCollectionArtistsLoading, (loading) => {
+  if (!loading && selectedCollectionIsArtist.value) {
+    resetArtistGridScroll()
+  }
+})
+
+watch(selectedCollectionTitlesLoading, (loading) => {
+  if (!loading && selectedCollectionIsTitle.value) {
+    resetTitleGridScroll()
+  }
+})
+
+watch([titlePresence, () => titleSort.key, () => titleSort.direction, titleSortMode], () => {
+  resetTitleGridScroll()
+}, { deep: true })
+
 watch(artistPresence, (value) => {
+  resetArtistGridScroll()
   savePresenceFilter('artist', value)
 }, { deep: true })
+
+watch([() => artistSort.key, () => artistSort.direction], () => {
+  resetArtistGridScroll()
+})
 
 watch(titlePresence, (value) => {
   savePresenceFilter('title', value)
@@ -1770,7 +2147,16 @@ watch(titlePresence, (value) => {
           </div>
 
           <div v-if="!selectedCollection" class="pane-empty">Select a collection.</div>
-          <div v-else class="workspace-grid" :style="columnGridStyle('title')">
+          <div v-else-if="selectedCollectionTitlesLoading" class="pane-loading">
+            <v-progress-circular indeterminate size="60" width="5"></v-progress-circular>
+          </div>
+          <div
+            v-else
+            ref="titleGridElement"
+            class="workspace-grid"
+            :style="columnGridStyle('title')"
+            @scroll="handleTitleGridScroll"
+          >
             <div class="workspace-grid__row workspace-grid__header">
               <div
                 class="workspace-grid__cell workspace-grid__header-cell sortable-header"
@@ -1839,26 +2225,14 @@ watch(titlePresence, (value) => {
                     @click="suppressHeaderSortClick($event)"
                   ></span>
               </div>
-              <div
-                class="workspace-grid__cell workspace-grid__header-cell sortable-header"
-                data-column="title.status"
-                @click="handleTitleHeaderClick('status', $event)"
-              >
-                <span class="sortable-header__label">Checked</span>
-                <v-icon
-                  v-if="titleSort.key === 'status'"
-                  :icon="sortIcon(titleSort.direction)"
-                  size="14"
-                  class="sort-direction-icon"
-                ></v-icon>
-                  <span
-                    class="column-resize-handle"
-                    @pointerdown="startColumnResize('title', 'status', $event)"
-                    @click="suppressHeaderSortClick($event)"
-                  ></span>
-              </div>
             </div>
-            <div v-for="item in sortedCollectionTitleItems" :key="item.id" class="workspace-grid__row workspace-row">
+            <div
+              v-if="titleVirtualTopSpacerHeight > 0"
+              class="workspace-grid__virtual-spacer"
+              :style="{ height: `${titleVirtualTopSpacerHeight}px` }"
+              aria-hidden="true"
+            ></div>
+            <div v-for="item in visibleTitleRows" :key="item.id" class="workspace-grid__row workspace-row">
                 <div data-column="title.title" class="workspace-grid__cell truncate-cell">
                   <span :class="albumPresenceClass(item)">{{ item.title }}</span>
                 </div>
@@ -1872,16 +2246,6 @@ watch(titlePresence, (value) => {
                     </template>
                   </v-tooltip>
                   <span v-else>{{ releaseDateYearLabel(item.releaseDate) }}</span>
-                </div>
-                <div data-column="title.status" class="workspace-grid__cell">
-                  <v-checkbox
-                    :model-value="item.checked"
-                    color="primary"
-                    density="compact"
-                    hide-details
-                    @click.stop
-                    @update:model-value="(value) => updateAlbumChecked(item, Boolean(value))"
-                  ></v-checkbox>
                 </div>
                 <div class="workspace-grid__cell row-action-cell">
                   <div class="row-actions">
@@ -1919,6 +2283,12 @@ watch(titlePresence, (value) => {
                   </div>
                 </div>
             </div>
+            <div
+              v-if="titleVirtualBottomSpacerHeight > 0"
+              class="workspace-grid__virtual-spacer"
+              :style="{ height: `${titleVirtualBottomSpacerHeight}px` }"
+              aria-hidden="true"
+            ></div>
           </div>
         </v-sheet>
       </template>
@@ -2017,9 +2387,24 @@ watch(titlePresence, (value) => {
         </div>
 
         <div v-if="!selectedCollection" class="pane-empty">Select a collection.</div>
-        <div v-else class="workspace-grid workspace-grid--no-header" :style="columnGridStyle('artist')">
+        <div v-else-if="selectedCollectionArtistsLoading" class="pane-loading">
+          <v-progress-circular indeterminate size="60" width="5"></v-progress-circular>
+        </div>
+        <div
+          v-else
+          ref="artistGridElement"
+          class="workspace-grid workspace-grid--no-header"
+          :style="columnGridStyle('artist')"
+          @scroll="handleArtistGridScroll"
+        >
           <div
-            v-for="artist in sortedCollectionArtists"
+            v-if="artistVirtualTopSpacerHeight > 0"
+            class="workspace-grid__virtual-spacer"
+            :style="{ height: `${artistVirtualTopSpacerHeight}px` }"
+            aria-hidden="true"
+          ></div>
+          <div
+            v-for="artist in visibleArtistRows"
             :key="artist.id"
             class="workspace-grid__row workspace-row"
             :class="artistRowClass(artist)"
@@ -2120,6 +2505,12 @@ watch(titlePresence, (value) => {
                 </div>
               </div>
           </div>
+          <div
+            v-if="artistVirtualBottomSpacerHeight > 0"
+            class="workspace-grid__virtual-spacer"
+            :style="{ height: `${artistVirtualBottomSpacerHeight}px` }"
+            aria-hidden="true"
+          ></div>
         </div>
       </v-sheet>
 
@@ -2134,6 +2525,9 @@ watch(titlePresence, (value) => {
         </div>
 
         <div v-if="!selectedArtist" class="pane-empty">Select an artist.</div>
+        <div v-else-if="selectedArtistAlbumsLoading" class="pane-loading">
+          <v-progress-circular indeterminate size="60" width="5"></v-progress-circular>
+        </div>
         <div v-else-if="sortedCollectionAlbums.length === 0" class="pane-empty pane-empty--action">
           <span>No albums loaded for this artist.</span>
           <div class="pane-empty__actions">
@@ -2210,7 +2604,7 @@ watch(titlePresence, (value) => {
               class="workspace-grid__cell workspace-grid__header-cell"
               data-column="album.collections"
             >
-              <span class="sortable-header__label">Collections</span>
+              <span class="sortable-header__label">Also in</span>
                 <span
                   class="column-resize-handle"
                   @pointerdown="startColumnResize('album', 'collections', $event)"
@@ -2232,9 +2626,27 @@ watch(titlePresence, (value) => {
                 </v-tooltip>
                 <span v-else>{{ releaseDateYearLabel(album.releaseDate) }}</span>
               </div>
-              <div data-column="album.checked" class="workspace-grid__cell">
+              <div data-column="album.checked" class="workspace-grid__cell checkbox-cell">
+                <v-tooltip
+                  v-if="albumCheckedToggleDisabled(album)"
+                  text="Present on disk; can't uncheck"
+                  location="top"
+                >
+                  <template #activator="{ props }">
+                    <span v-bind="props" class="checkbox-cell__tooltip-anchor" @click.stop>
+                      <v-checkbox
+                        :model-value="albumCheckedValue(album)"
+                        color="primary"
+                        density="compact"
+                        disabled
+                        hide-details
+                      ></v-checkbox>
+                    </span>
+                  </template>
+                </v-tooltip>
                 <v-checkbox
-                  :model-value="album.checked"
+                  v-else
+                  :model-value="albumCheckedValue(album)"
                   color="primary"
                   density="compact"
                   hide-details
