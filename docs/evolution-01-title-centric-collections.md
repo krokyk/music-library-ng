@@ -2,8 +2,7 @@
 
 ## Goal
 
-Support both artist-centric collections and title-centric collections without forcing
-soundtracks into the `artist -> album` model.
+Support both artist-centric collections and title-centric collections without forcing soundtracks into the `artist -> album` model.
 
 Artist-centric collections keep the existing flow:
 
@@ -17,10 +16,8 @@ Title-centric collections use a different flow:
 Collections -> Titles
 ```
 
-When a title-centric row has parsed or manually entered artist metadata, scans
-and title metadata saves also populate the shared artist, album, and local-path
-tables. Ambiguous title-only rows remain title-only until artist metadata is
-available.
+When a title-centric row has parsed or manually entered artist metadata, scans and title metadata saves also populate the shared artist, album, and local-path tables.
+Ambiguous title-only rows remain title-only until artist metadata is available.
 
 The initial title-centric use case is `SOUNDTRACKS`.
 
@@ -79,11 +76,9 @@ World of Warcraft | 2007 | The Burning Crusade
 
 Manual `sort_name` edits must be protected across future scans.
 
-Manual edits must be protected by `parse_status = MANUAL`: scanner updates
-path/seen state only and does not overwrite title metadata.
+Manual edits must be protected by `parse_status = MANUAL`: scanner updates path/seen state only and does not overwrite title metadata.
 
-Comma-separated title artists are kept as display text in the title row, but
-split into separate artists when populating shared artist/album/local-path data.
+Comma-separated title artists are kept as display text in the title row, but split into separate artists when populating shared artist/album/local-path data.
 
 ## Collections Pane
 
@@ -94,7 +89,8 @@ split into separate artists when populating shared artist/album/local-path data.
   - focused collection-name text field with selected text
   - collection type toggle: `Artist` / `Title`
 - Changing type updates the collection metadata.
-- Do not silently convert existing scan data. Re-scan populates data for the selected type.
+- Do not silently convert existing scan data.
+  Re-scan populates data for the selected type.
 
 ## Artist-Centric Layout
 

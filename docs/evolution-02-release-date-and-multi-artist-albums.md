@@ -2,12 +2,9 @@
 
 ## Goal
 
-Make release metadata consistent across the app and allow one album/title to be
-linked to multiple artists without creating fake composite artist names.
+Make release metadata consistent across the app and allow one album/title to be linked to multiple artists without creating fake composite artist names.
 
-This completes the follow-up work from title-centric collections where
-soundtracks can be parsed as titles, but still populate shared artist, album,
-and local-path data.
+This completes the follow-up work from title-centric collections where soundtracks can be parsed as titles, but still populate shared artist, album, and local-path data.
 
 ## Release Date Model
 
@@ -51,8 +48,7 @@ Manual title edits are protected by:
 parse_status = MANUAL
 ```
 
-When a title item is manual, scans update path/seen state only and do not
-overwrite the edited title, artist, release date, or sort key.
+When a title item is manual, scans update path/seen state only and do not overwrite the edited title, artist, release date, or sort key.
 
 ## Multi-Artist Albums
 
@@ -64,8 +60,7 @@ Album ownership is now stored in:
 album_artists
 ```
 
-This allows one album to be linked to multiple artists while still keeping one
-album row and one local-path row.
+This allows one album to be linked to multiple artists while still keeping one album row and one local-path row.
 
 The join table stores `position` so artist display order can follow parsed input.
 
@@ -99,8 +94,7 @@ Artist-centric collection scans remain lazy:
 - discover artists only
 - do not populate albums during the collection scan
 
-Scan job progress fields were renamed from artist-specific names to generic item
-names because the progress unit is a scanned directory/item:
+Scan job progress fields were renamed from artist-specific names to generic item names because the progress unit is a scanned directory/item:
 
 ```text
 itemTotal
@@ -109,9 +103,8 @@ itemProcessed
 
 ## Provider Checks
 
-Provider album ingestion now uses canonical `release_date` instead of numeric
-year fields. Provider-created albums are linked through the same album/artist
-relationship as local scans.
+Provider album ingestion now uses canonical `release_date` instead of numeric year fields.
+Provider-created albums are linked through the same album/artist relationship as local scans.
 
 ## UI Updates
 

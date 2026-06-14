@@ -1,10 +1,8 @@
 # Music Library NG
 
-Music Library NG is a local-first music collection app with a Quarkus backend,
-SQLite storage, and a Vue 3 + Vuetify frontend.
+Music Library NG is a local-first music collection app with a Quarkus backend, SQLite storage, and a Vue 3 + Vuetify frontend.
 
-The app is designed for a single user who runs it on one PC at a time while the
-music root may differ between computers.
+The app is designed for a single user who runs it on one PC at a time while the music root may differ between computers.
 
 ## Features
 
@@ -14,14 +12,12 @@ music root may differ between computers.
 - Stores data in SQLite with Flyway migrations.
 - Default HTTP port is `8795`.
 - Supports configurable scan collections added from direct music-root folders.
-- Supports artist-centric collections, for example Power Metal, Melodeath, and
-  Rock.
+- Supports artist-centric collections, for example Power Metal, Melodeath, and Rock.
 - Supports title-centric collections, for example Soundtracks.
 - Uses a type-aware Collections workspace:
   - artist collections: collections, artists, albums
   - title collections: collections, titles
-- Scans artist collections lazily by artist folders first; albums are loaded
-  only when an artist workflow needs them.
+- Scans artist collections lazily by artist folders first; albums are loaded only when an artist workflow needs them.
 - Parses title collections with a soundtrack-oriented folder-name pipeline.
 - Tracks one album listening flag: `checked=true` means listened.
 - Tracks disk presence separately from the listened flag.
@@ -37,13 +33,15 @@ sudo apt update
 sudo apt install -y curl git unzip sqlite3
 ```
 
-Java 21 is required. Verify:
+Java 21 is required.
+Verify:
 
 ```bash
 java -version
 ```
 
-Node.js is required for the Vue/Vuetify frontend. `nvm` is recommended:
+Node.js is required for the Vue/Vuetify frontend.
+`nvm` is recommended:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
@@ -63,20 +61,18 @@ npm -v
 sqlite3 --version
 ```
 
-You do not need to install Maven or system Gradle. The repo includes the Gradle
-wrapper.
+You do not need to install Maven or system Gradle.
+The repo includes the Gradle wrapper.
 
 ### Git SSH From WSL With 1Password
 
-If Git runs in WSL but SSH keys are managed by 1Password for Windows, configure
-Git in WSL to use the Windows SSH client:
+If Git runs in WSL but SSH keys are managed by 1Password for Windows, configure Git in WSL to use the Windows SSH client:
 
 ```bash
 git config --global core.sshCommand ssh.exe
 ```
 
-This lets WSL Git delegate SSH authentication to the Windows environment where
-1Password can provide the key.
+This lets WSL Git delegate SSH authentication to the Windows environment where 1Password can provide the key.
 
 ## Running In Dev Mode
 
@@ -141,12 +137,11 @@ Build and run in one command:
 
 ## Windows Native Executable
 
-Quarkus can build a native Windows `.exe` with GraalVM. Build it from Windows,
-not WSL, because the native image build needs the Windows C++ toolchain.
+Quarkus can build a native Windows `.exe` with GraalVM.
+Build it from Windows, not WSL, because the native image build needs the Windows C++ toolchain.
 
-Build frontend assets in WSL with the normal Gradle build first; that is the
-recommended path for npm/Vite work. Then use the Windows native build described
-below to compile the native executable.
+Build frontend assets in WSL with the normal Gradle build first; that is the recommended path for npm/Vite work.
+Then use the Windows native build described below to compile the native executable.
 
 ### Prerequisites
 
@@ -156,8 +151,8 @@ Install Visual Studio Build Tools with:
 - MSVC Build Tools v143 or newer
 - Windows 11 SDK
 
-Install GraalVM for JDK 21, Windows x64 archive, and choose a local install
-directory. The examples below keep that path in one environment variable:
+Install GraalVM for JDK 21, Windows x64 archive, and choose a local install directory.
+The examples below keep that path in one environment variable:
 
 ```powershell
 $env:GRAALVM_HOME = "<graalvm-jdk-21>"
@@ -165,19 +160,15 @@ $env:GRAALVM_HOME = "<graalvm-jdk-21>"
 
 ### Developer Shell
 
-The native build helper tries to load the Visual Studio amd64 developer
-environment automatically through `vswhere`. If that does not work, open a
-64-bit Visual Studio developer PowerShell before running the native build.
-Either use the Visual Studio installer's developer shell shortcut, or create a
-shortcut that imports the Visual Studio developer shell module and selects the
-64-bit toolchain:
+The native build helper tries to load the Visual Studio amd64 developer environment automatically through `vswhere`.
+If that does not work, open a 64-bit Visual Studio developer PowerShell before running the native build.
+Either use the Visual Studio installer's developer shell shortcut, or create a shortcut that imports the Visual Studio developer shell module and selects the 64-bit toolchain:
 
 ```text
 powershell.exe -noe -c "&{Import-Module '<vs-build-tools-root>\Common7\Tools\Microsoft.VisualStudio.DevShell.dll'; Enter-VsDevShell <instance-id> -DevCmdArguments '-arch=amd64 -host_arch=amd64'}"
 ```
 
-Keep the shortcut's "Start in" value pointed at the Visual Studio Build Tools
-install directory:
+Keep the shortcut's "Start in" value pointed at the Visual Studio Build Tools install directory:
 
 ```text
 <vs-build-tools-root>
@@ -192,23 +183,17 @@ cd <project-root>
 .\build-native-exe.bat
 ```
 
-`build-native-exe.bat` is a Total Commander-friendly wrapper for
-`scripts/build-native-exe.ps1`. The BAT sets the local GraalVM path before
-calling PowerShell, and skips frontend tasks by default because frontend assets
-are expected to be built in WSL. The PowerShell script loads the Visual Studio
-amd64 build environment when it can find Visual Studio Build Tools, sets
-`JAVA_HOME` from `GRAALVM_HOME`, runs the Quarkus native build, and checks the
-expected executable name from `application.properties`.
+`build-native-exe.bat` is a Total Commander-friendly wrapper for `scripts/build-native-exe.ps1`.
+The BAT sets the local GraalVM path before calling PowerShell, and skips frontend tasks by default because frontend assets are expected to be built in WSL.
+The PowerShell script loads the Visual Studio amd64 build environment when it can find Visual Studio Build Tools, sets `JAVA_HOME` from `GRAALVM_HOME`, runs the Quarkus native build, and checks the expected executable name from `application.properties`.
 
-If you run the PowerShell helper directly, pass `-SkipFrontend` when
-`frontend/dist` is already current:
+If you run the PowerShell helper directly, pass `-SkipFrontend` when `frontend/dist` is already current:
 
 ```powershell
 .\scripts\build-native-exe.ps1 -SkipFrontend
 ```
 
-Do not build the native executable until `frontend/dist` contains the frontend
-changes that need to be included.
+Do not build the native executable until `frontend/dist` contains the frontend changes that need to be included.
 
 The expected native executable is:
 
@@ -227,9 +212,8 @@ For a native app distribution, prefer this layout:
   data/
 ```
 
-Quarkus automatically reads `config/application.properties` from the process
-working directory. If you want `application.properties` directly next to the
-`.exe`, launch the executable with:
+Quarkus automatically reads `config/application.properties` from the process working directory.
+If you want `application.properties` directly next to the `.exe`, launch the executable with:
 
 ```powershell
 .\music-library-ng.exe "-Dquarkus.config.locations=file:./application.properties"
@@ -237,9 +221,8 @@ working directory. If you want `application.properties` directly next to the
 
 ### Console Colors
 
-Running the executable from a Windows shortcut or by opening it from File
-Explorer should show colored console output normally. When launching from Total
-Commander, enable Windows virtual terminal processing once for the current user:
+Running the executable from a Windows shortcut or by opening it from File Explorer should show colored console output normally.
+When launching from Total Commander, enable Windows virtual terminal processing once for the current user:
 
 ```powershell
 Set-ItemProperty -Path "HKCU:\Console" -Name "VirtualTerminalLevel" -Type DWord -Value 1
@@ -259,8 +242,7 @@ The default port is:
 quarkus.http.port=8795
 ```
 
-Keep it unchanged for normal runs so all machines use the same shared app
-settings.
+Keep it unchanged for normal runs so all machines use the same shared app settings.
 
 The default SQLite path is shared and should stay the same across machines:
 
@@ -268,9 +250,9 @@ The default SQLite path is shared and should stay the same across machines:
 music-library.db.path=data/music-library-ng.sqlite
 ```
 
-Use the same app configuration on every computer. Collections, parsers, DB path,
-backups, logging, and UI behavior are shared. The only value expected to differ
-between computers is the physical music root, supplied with:
+Use the same app configuration on every computer.
+Collections, parsers, DB path, backups, logging, and UI behavior are shared.
+The only value expected to differ between computers is the physical music root, supplied with:
 
 ```bash
 -Dmusic-library.music-root="<music-root>"
@@ -278,8 +260,8 @@ between computers is the physical music root, supplied with:
 
 ### UI Defaults
 
-Runtime UI preferences are stored in SQLite. First-run defaults live in
-`application.properties`.
+Runtime UI preferences are stored in SQLite.
+First-run defaults live in `application.properties`.
 
 Status/progress defaults:
 
@@ -294,9 +276,8 @@ music-library.release.date.display.format=yyyy-MM-dd
 music-library.ui.default-status-bar-location=top
 ```
 
-Workspace action labels are shown when the pane reaches the configured width in
-CSS pixels. Values can be changed at runtime in Settings; min/max/step remain
-property-only constraints.
+Workspace action labels are shown when the pane reaches the configured width in CSS pixels.
+Values can be changed at runtime in Settings; min/max/step remain property-only constraints.
 
 ```properties
 music-library.ui.default-action-label-thresholds.collections=400
@@ -327,21 +308,18 @@ music-library.ui.default-workspace-column-widths.title.status=120
 music-library.ui.default-workspace-column-widths.title.action=178
 ```
 
-`music-library.ui.table-grid-column-min-width` is the shared hard minimum for
-table data columns. Action columns are the exception; their minimum is based on
-the icon controls they must display.
+`music-library.ui.table-grid-column-min-width` is the shared hard minimum for table data columns.
+Action columns are the exception; their minimum is based on the icon controls they must display.
 
-Release date columns display the year in the table. Fuller values, such as
-`2006-03-13`, are shown in a tooltip using
-`music-library.release.date.display.format`.
+Release date columns display the year in the table.
+Fuller values, such as `2006-03-13`, are shown in a tooltip using `music-library.release.date.display.format`.
 
-The app accepts Windows-style paths such as `<drive>:/<path-to-music-root>` and
-resolves them to WSL mounts when running under WSL.
+The app accepts Windows-style paths such as `<drive>:/<path-to-music-root>` and resolves them to WSL mounts when running under WSL.
 
 ### Music Root Detection
 
-The database stores only paths relative to the runtime music root. The root
-itself is machine-specific.
+The database stores only paths relative to the runtime music root.
+The root itself is machine-specific.
 
 Built-in root candidates are intentionally limited to:
 
@@ -358,8 +336,7 @@ music-library.root-detection.markers[1]=MELODEATH.m3u8
 music-library.root-detection.markers[2]=POWER METAL.m3u8
 ```
 
-If neither expected location is valid, startup fails fast with an error that
-asks for the JVM property:
+If neither expected location is valid, startup fails fast with an error that asks for the JVM property:
 
 ```bash
 java -Dmusic-library.music-root="<music-root>" \
@@ -394,8 +371,8 @@ quarkus.log.file.level=INFO
 quarkus.log.file.path=data/logs/music-library-ng.log
 ```
 
-The code uses Quarkus' built-in JBoss Logging API. Console and file handlers are
-configured through Quarkus properties.
+The code uses Quarkus' built-in JBoss Logging API.
+Console and file handlers are configured through Quarkus properties.
 
 Run with more detailed app logs:
 
@@ -419,8 +396,8 @@ java '-Dquarkus.log.category."org.kroky.musiclib".level=TRACE' \
 
 ## Collection Types And Parsers
 
-New collections start as artist-centric. Change the collection type with the
-pencil action in the Collections pane.
+New collections start as artist-centric.
+Change the collection type with the pencil action in the Collections pane.
 
 Artist-centric collections scan direct child folders and create artists only.
 The current flat parser expects:
@@ -435,23 +412,20 @@ Example:
 Dark Tranquillity - 2007 - Fiction
 ```
 
-Only the artist part is inserted during the collection scan. Album data is
-handled later by artist/provider/album workflows.
+Only the artist part is inserted during the collection scan.
+Album data is handled later by artist/provider/album workflows.
 
 Artist-centric album maintenance is explicit:
 
-- `Scan local albums` parses local album folders in the selected collection and
-  upserts albums plus local paths.
+- `Scan local albums` parses local album folders in the selected collection and upserts albums plus local paths.
 - Row-level `Scan local albums` is scoped to one artist.
 - Title-bar `Scan local albums` is scoped to the selected collection.
-- `Scan providers` checks online provider links and adds remote albums as
-  unchecked.
+- `Scan providers` checks online provider links and adds remote albums as unchecked.
 
-Clicking an artist only selects it and loads known albums. It does not scan or
-modify data.
+Clicking an artist only selects it and loads known albums.
+It does not scan or modify data.
 
-Title-centric collections store one row per direct child folder and use these
-parser rules in order:
+Title-centric collections store one row per direct child folder and use these parser rules in order:
 
 ```text
 title (artist, release date)
@@ -471,16 +445,12 @@ World of Warcraft - 2007 - The Burning Crusade
 Clash of the Titans
 ```
 
-Parsed title metadata can be edited manually. Manual edits are marked as manual
-metadata and later scans update the seen/path state without overwriting the
-edited title, artist, release date, or sort key.
+Parsed title metadata can be edited manually.
+Manual edits are marked as manual metadata and later scans update the seen/path state without overwriting the edited title, artist, release date, or sort key.
 
-When a title-centric folder has a parsed or manually entered artist, the app
-also creates or updates the corresponding artist, album, and local album path.
+When a title-centric folder has a parsed or manually entered artist, the app also creates or updates the corresponding artist, album, and local album path.
 Ambiguous title-only folders stay as title rows until artist metadata is added.
-Comma-separated artists in title metadata are split into separate artists and
-linked to the same album, so `Ad Astra (Max Richter, Lorne Balfe, 2019)` does
-not create one combined artist.
+Comma-separated artists in title metadata are split into separate artists and linked to the same album, so `Ad Astra (Max Richter, Lorne Balfe, 2019)` does not create one combined artist.
 
 The configured collection itself acts as the folder/genre bucket.
 
@@ -493,8 +463,7 @@ This is safe for the intended workflow:
 3. Let file syncing finish if the app directory or database is synced.
 4. Open the app on another PC.
 
-Do not run the app on two machines against the same SQLite database at the same
-time.
+Do not run the app on two machines against the same SQLite database at the same time.
 
 ## Useful API Checks
 

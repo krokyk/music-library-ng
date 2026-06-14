@@ -45,8 +45,10 @@ This document captures the current collection/album UI state changes, artist del
 
 ## Frontend Notes
 
-- `collectionAlbums` now loads all albums for the selected artist rather than only albums in the selected collection. Row styling and collection chips explain how each album relates to the selected collection.
-- The Albums pane `Collections` column is dynamic. It is hidden when no visible row needs it.
+- `collectionAlbums` now loads all albums for the selected artist rather than only albums in the selected collection.
+  Row styling and collection chips explain how each album relates to the selected collection.
+- The Albums pane `Collections` column is dynamic.
+  It is hidden when no visible row needs it.
 - The report dialog width fix depends on `content-class="scan-report-dialog-content"` because Vuetify applies width to `.v-overlay__content`, not the root dialog class.
 - If visual checks still show a narrow report dialog, inspect the actual DOM for `.scan-report-dialog-content` on `.v-overlay__content` and confirm the packaged frontend bundle was refreshed.
 
@@ -59,7 +61,8 @@ This document captures the current collection/album UI state changes, artist del
 
 ## Remaining Checks
 
-- Recheck the scan report dialog in the running packaged app after restarting the backend. The last width fix was made after the earlier smoke check, and the smoke script does not explicitly open the scan report dialog.
+- Recheck the scan report dialog in the running packaged app after restarting the backend.
+  The last width fix was made after the earlier smoke check, and the smoke script does not explicitly open the scan report dialog.
 - Consider extending `scripts/check-ui-layout.ps1` to open a scan report when status history contains report-backed entries, then assert dialog width and internal scroll metrics.
 
 ## Suggested Next Prompt

@@ -48,8 +48,7 @@ checked=false, onDisk=true  -> local files exist, not marked listened - invalid,
 
 There are no selected/rejected/unlistened album statuses.
 
-The collection workspace display matrix for these states is documented in
-`docs/codex-ui-workflow-guide.md` under "Album Name Display States".
+The collection workspace display matrix for these states is documented in `docs/codex-ui-workflow-guide.md` under "Album Name Display States".
 
 ## 2. Navigation And Main Screen UX
 
@@ -59,7 +58,8 @@ Use top-level sections:
 Collections | Artists | Library | Settings
 ```
 
-`Collections` is the default everyday working screen. It should follow this three-pane layout:
+`Collections` is the default everyday working screen.
+It should follow this three-pane layout:
 
 ```text
 +---------------------------------------------------------------+
@@ -83,7 +83,8 @@ Collections pane:
 - Selecting a collection loads artists for that collection and clears the albums pane.
 - Switching collection clears the selected artist and clears the albums pane before loading artists for the new collection.
 - Include an icon/button for configuration/status near the collection title.
-- Configuration itself remains file-based in Quarkus properties. The app keeps one shared config and varies only `music-library.music-root` per machine.
+- Configuration itself remains file-based in Quarkus properties.
+  The app keeps one shared config and varies only `music-library.music-root` per machine.
 - The collections pane should stay narrow and stable; it is navigation, not content.
 
 Artists pane:
@@ -103,7 +104,8 @@ Artists pane:
   - notes;
   - collection membership;
   - provider links/URLs.
-- Artist detail modal does not show album summary/list. Album review stays in the albums pane.
+- Artist detail modal does not show album summary/list.
+  Album review stays in the albums pane.
 
 Albums pane:
 
@@ -573,7 +575,8 @@ Provider-discovered album creation sets `checked = false`.
 GET /api/collections
 ```
 
-Collections are user-managed from direct folders under the configured music root. First-run defaults come from application properties, while user-created collections and runtime layout/preferences are stored in SQLite.
+Collections are user-managed from direct folders under the configured music root.
+First-run defaults come from application properties, while user-created collections and runtime layout/preferences are stored in SQLite.
 
 ### Settings
 
@@ -581,7 +584,8 @@ Collections are user-managed from direct folders under the configured music root
 GET /api/settings/music-root
 ```
 
-Settings use Quarkus properties as first-run defaults and SQLite preferences for runtime overrides. The Settings view exposes only settings that are useful to change while the app is running.
+Settings use Quarkus properties as first-run defaults and SQLite preferences for runtime overrides.
+The Settings view exposes only settings that are useful to change while the app is running.
 
 ### Scan
 

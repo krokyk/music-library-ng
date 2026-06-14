@@ -2,8 +2,7 @@
 
 ## Goal
 
-Clarify the model for title-centric collections, such as soundtracks, while also
-fixing album membership edge cases in artist-centric collections.
+Clarify the model for title-centric collections, such as soundtracks, while also fixing album membership edge cases in artist-centric collections.
 
 The main decision:
 
@@ -12,9 +11,8 @@ Albums are the durable library entity.
 Collections decide how albums are discovered, displayed, and grouped.
 ```
 
-There should not be a separate durable `titles` table for now. A soundtrack,
-movie score, or game score is treated as a normal album/title-like record in the
-existing album model.
+There should not be a separate durable `titles` table for now.
+A soundtrack, movie score, or game score is treated as a normal album/title-like record in the existing album model.
 
 ## Key Distinctions
 
@@ -37,7 +35,8 @@ Current artist-centric browsing often implies:
 collection -> followed artists -> albums
 ```
 
-That is not enough. Album membership must also be explicit:
+That is not enough.
+Album membership must also be explicit:
 
 ```text
 collection -> albums
@@ -47,8 +46,8 @@ collection -> albums
 
 ### Soundtrack Contributor Case
 
-A soundtrack composer can create works in very different styles. Liking one
-soundtrack does not imply following the composer's whole discography.
+A soundtrack composer can create works in very different styles.
+Liking one soundtrack does not imply following the composer's whole discography.
 
 Example:
 
@@ -82,8 +81,7 @@ Artist X -> Power Metal album
 Artist X -> Melodeath album
 ```
 
-The same artist can be relevant to multiple collections, but each album still
-needs its own collection membership.
+The same artist can be relevant to multiple collections, but each album still needs its own collection membership.
 
 ### Multi-Collection Album Case
 
@@ -99,9 +97,8 @@ Album A -> Rock
 
 Collections must not own albums exclusively.
 
-Track-level membership is deferred. If only some tracks from an album belong to
-a collection, that is a future track model problem and should not be solved in
-this evolution.
+Track-level membership is deferred.
+If only some tracks from an album belong to a collection, that is a future track model problem and should not be solved in this evolution.
 
 ## Proposed Model
 
@@ -119,14 +116,12 @@ Rules:
 
 - primary key or unique constraint on `(collection_id, album_id)`
 - delete collection membership without deleting the album
-- deleting a collection cascades only membership/local-path evidence, not shared
-  albums or artists
+- deleting a collection cascades only membership/local-path evidence, not shared albums or artists
 - deleting an album cascades membership and local-path evidence for that album
 
-Do not add a `source` column initially. It is ambiguous once the same album is
-first added manually, later found locally, and later refreshed by a provider.
-If source/origin becomes useful in the UI, add a proper event/history concept
-later instead of overloading collection membership.
+Do not add a `source` column initially.
+It is ambiguous once the same album is first added manually, later found locally, and later refreshed by a provider.
+If source/origin becomes useful in the UI, add a proper event/history concept later instead of overloading collection membership.
 
 Keep existing shared album identity:
 
@@ -175,17 +170,13 @@ Current `album_local_paths` already has the needed local evidence:
 - `last_seen_at`
 - `missing_since`
 
-Fields such as `title`, `normalized_title`, `artist_name`, `release_date`,
-`sort_name`, and `sort_name_source` should move to `albums` and
-`album_artists`, not stay on a collection-local title table.
+Fields such as `title`, `normalized_title`, `artist_name`, `release_date`, `sort_name`, and `sort_name_source` should move to `albums` and `album_artists`, not stay on a collection-local title table.
 
 Do not carry over `raw_folder_name`, `parse_status`, or `metadata_source`:
 
 - `relative_path` is already the source evidence for direct child folder scans.
-- missing artist or release date is visible directly from empty table fields and
-  can be queried without a separate parse-status column.
-- manual edit protection should live on the editable album fields if it becomes
-  necessary, not on the local-path row.
+- missing artist or release date is visible directly from empty table fields and can be queried without a separate parse-status column.
+- manual edit protection should live on the editable album fields if it becomes necessary, not on the local-path row.
 
 ## Collection Type Meaning
 
@@ -218,10 +209,8 @@ In both cases the durable item is still `albums`.
 
 Keep `checked` on `albums`.
 
-Do not add separate checked state to local paths or collection membership,
-because those rows are not the library item. A title/soundtrack can remain
-checked even when the local folder is removed or when it belongs to multiple
-collections.
+Do not add separate checked state to local paths or collection membership, because those rows are not the library item.
+A title/soundtrack can remain checked even when the local folder is removed or when it belongs to multiple collections.
 
 The checked meaning should remain consistent:
 
@@ -231,8 +220,7 @@ checked = user has accepted/listened/reviewed this album/title entity
 
 ## Title-Centric Manual Add
 
-Title-centric collections should have a `+ Add Title` action, similar to
-`+ Add Artist` in artist-centric collections.
+Title-centric collections should have a `+ Add Title` action, similar to `+ Add Artist` in artist-centric collections.
 
 Manual add should:
 
@@ -241,13 +229,10 @@ Manual add should:
 - add a `collection_albums` row
 - not require a local path
 
-This supports checked soundtracks that are no longer on disk or were never local
-in the first place.
+This supports checked soundtracks that are no longer on disk or were never local in the first place.
 
-Deleting a local title path should mark the `album_local_paths` row missing or
-remove that local evidence, but it should not remove the `collection_albums`
-membership. Removing an album/title from a collection should be a separate
-explicit action.
+Deleting a local title path should mark the `album_local_paths` row missing or remove that local evidence, but it should not remove the `collection_albums` membership.
+Removing an album/title from a collection should be a separate explicit action.
 
 ## Title-Centric Local Scan
 
@@ -259,8 +244,8 @@ Scanning a title-centric collection should:
 - add `collection_albums`
 - add or refresh `album_local_paths`
 
-Parsed artists are contributors only. They should not automatically become
-followed artists in `artist_collections`.
+Parsed artists are contributors only.
+They should not automatically become followed artists in `artist_collections`.
 
 ## Artist-Centric Local Scan
 
@@ -280,14 +265,10 @@ Explicit local album scans should:
 
 Artist selection must not scan or mutate data.
 
-Provider scans for followed artists should also add discovered albums to
-`collection_albums` for the collection scope where the scan was invoked, instead
-of relying only on artist membership.
+Provider scans for followed artists should also add discovered albums to `collection_albums` for the collection scope where the scan was invoked, instead of relying only on artist membership.
 
-Provider scans that are not scoped to a collection can create or update global
-album knowledge, but they should not guess collection membership. Row-level
-provider scans from the Artists pane should therefore carry the selected
-collection context.
+Provider scans that are not scoped to a collection can create or update global album knowledge, but they should not guess collection membership.
+Row-level provider scans from the Artists pane should therefore carry the selected collection context.
 
 ## Display Rules
 
@@ -297,9 +278,8 @@ Artist-centric selected collection:
 Collections | Artists | Albums
 ```
 
-The Albums pane should show albums that belong to the selected collection and
-selected artist. This should eventually use `collection_albums` plus
-`album_artists`, not only `artist_collections`.
+The Albums pane should show albums that belong to the selected collection and selected artist.
+This should eventually use `collection_albums` plus `album_artists`, not only `artist_collections`.
 
 Title-centric selected collection:
 
@@ -307,8 +287,8 @@ Title-centric selected collection:
 Collections | Titles
 ```
 
-The Titles pane is a title-oriented album grid. It should show albums belonging
-to the selected collection.
+The Titles pane is a title-oriented album grid.
+It should show albums belonging to the selected collection.
 
 Columns remain approximately:
 
@@ -336,9 +316,8 @@ The tooltip should be lazy-loaded and cached in frontend memory:
 - once loaded, reuse cached data for that page session
 - invalidate only when count-affecting relationships change
 
-Do not materialize these counts in the database yet. The counts are derived from
-indexed DB tables and should remain source-of-truth reads until there is a
-measured performance reason to store them.
+Do not materialize these counts in the database yet.
+The counts are derived from indexed DB tables and should remain source-of-truth reads until there is a measured performance reason to store them.
 
 ## Artist-Centric Tooltip
 
@@ -374,8 +353,7 @@ Meanings:
 
 - `Artists`: distinct contributor artists linked to collection albums.
 - `Local titles`: distinct collection albums with active local paths.
-- `Checked titles`: checked albums assigned to the collection, including albums
-  without a local path.
+- `Checked titles`: checked albums assigned to the collection, including albums without a local path.
 
 Unchecked title counts are intentionally deferred.
 
@@ -399,16 +377,13 @@ Do not invalidate count metadata for display-only changes:
 - pane or column resizing
 - sorting or selection changes
 
-Because the tooltip shows checked/unchecked counts, album checked toggles must
-invalidate metadata for any collections containing that album once
-`collection_albums` exists.
+Because the tooltip shows checked/unchecked counts, album checked toggles must invalidate metadata for any collections containing that album once `collection_albums` exists.
 
 ## What Happens To collection_title_items
 
 `collection_title_items` should be deleted in the target model.
 
-It should not remain as a durable title/library entity, and it should not remain
-as a parallel scan-evidence table once title-centric flows are album-based.
+It should not remain as a durable title/library entity, and it should not remain as a parallel scan-evidence table once title-centric flows are album-based.
 
 Target ownership:
 
@@ -418,13 +393,11 @@ collection_albums = collection membership
 album_local_paths = local folder evidence
 ```
 
-No extra parse-status table or parse-status column is needed for the current
-workflow. The local folder evidence is `album_local_paths.relative_path`; the
-canonical title metadata lives on `albums` and `album_artists`.
+No extra parse-status table or parse-status column is needed for the current workflow.
+The local folder evidence is `album_local_paths.relative_path`; the canonical title metadata lives on `albums` and `album_artists`.
 
-Rows with incomplete parsed metadata can be found by querying the actual missing
-values, for example missing contributor artists or missing release dates. A
-separate parse-status column is not needed for the current workflow.
+Rows with incomplete parsed metadata can be found by querying the actual missing values, for example missing contributor artists or missing release dates.
+A separate parse-status column is not needed for the current workflow.
 
 ## Deferred
 
@@ -445,10 +418,8 @@ These can be revisited only when the workflows require them.
 3. Update album queries to filter by `collection_albums` where appropriate.
 4. Update title-centric scans to create albums plus collection membership.
 5. Update artist-centric local album scans to create collection membership.
-6. Update provider scans to add collection membership when scoped to a
-   collection, including row-level provider scans from the Artists pane.
+6. Update provider scans to add collection membership when scoped to a collection, including row-level provider scans from the Artists pane.
 7. Replace title-centric display data with collection albums.
 8. Add `+ Add Title` for title-centric collections.
 9. Add collection info tooltip using derived DB counts and frontend cache.
-10. Delete `collection_title_items` after title-centric scans, edits, deletes,
-    and display all use album-based storage.
+10. Delete `collection_title_items` after title-centric scans, edits, deletes, and display all use album-based storage.
