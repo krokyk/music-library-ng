@@ -136,3 +136,23 @@ http://localhost:8795/
 ```
 
 Port `5173` is Vite dev server only.
+
+UI smoke test shortcut:
+
+1. Build and run the packaged app, usually with `brun` or:
+
+```bash
+./gradlew build
+java -jar build/quarkus-app/quarkus-run.jar
+```
+
+2. From WSL, run the Windows browser/CDP smoke test:
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File "$(wslpath -w scripts/check-ui-layout.ps1)" \
+  -AppUrl "http://localhost:8795/"
+```
+
+Use `-AppUrl "http://localhost:<port>/"` when testing a temporary port.
+The script uses headless Chrome/Edge, checks workspace panes, internal scrolling, and core artist/title layouts, and writes screenshots to the Windows temp directory.
