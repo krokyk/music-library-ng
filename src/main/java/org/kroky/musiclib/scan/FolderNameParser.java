@@ -19,6 +19,8 @@ public class FolderNameParser {
     private static final String RELEASE_DATE = "\\d{4}(?:-\\d{2}(?:-\\d{2})?)?";
     private static final Pattern ARTIST_YEAR_ALBUM =
             Pattern.compile("^(.+?)\\s+-\\s+(" + RELEASE_DATE + ")\\s+-\\s+(.+)$");
+    private static final Pattern YEAR_ALBUM =
+            Pattern.compile("^(" + RELEASE_DATE + ")\\s+-\\s+(.+)$");
     private static final Pattern TITLE_FINAL_ARTIST_YEAR =
             Pattern.compile("^(.+)\\s+\\(([^()]+),\\s*(" + RELEASE_DATE + ")\\)$");
     private static final Pattern TITLE_FINAL_YEAR =
@@ -34,6 +36,23 @@ public class FolderNameParser {
             case FLAT_ARTIST_YEAR_ALBUM -> parseArtistYearAlbum(name, folder, collectionId);
             case NESTED_ARTIST_ALBUM, TITLE_PIPELINE -> Optional.empty();
         };
+    }
+
+    public Optional<ParsedAlbum> parseNestedArtistAlbum(Path artistFolder, Path albumFolder, String collectionId) {
+        String name = albumFolder.getFileName().toString().trim();
+        Matcher matcher = YEAR_ALBUM.matcher(name);
+        if (!matcher.matches()) {
+            return Optional.empty();
+        }
+        String title = clean(matcher.group(2));
+        String releaseDate = ReleaseDates.normalize(matcher.group(1));
+        return Optional.of(new ParsedAlbum(
+                Names.chicagoStyle(clean(artistFolder.getFileName().toString())),
+                title,
+                releaseDate,
+                TitleSortNames.create(title, releaseDate),
+                albumFolder,
+                collectionId));
     }
 
     public ParsedAlbum parseTitleAlbum(Path folder, String collectionId) {

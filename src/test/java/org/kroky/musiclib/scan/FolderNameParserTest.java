@@ -26,6 +26,33 @@ class FolderNameParserTest {
     }
 
     @Test
+    void parsesNestedArtistAlbumFolders() {
+        var parsed = parser.parseNestedArtistAlbum(
+                Path.of("GLOBUS"),
+                Path.of("2006 - Epicon"),
+                "epic");
+
+        assertTrue(parsed.isPresent());
+        assertEquals("Globus", parsed.get().artistName());
+        assertEquals("Epicon", parsed.get().title());
+        assertEquals("2006", parsed.get().releaseDate());
+        assertEquals("Epicon | 2006", parsed.get().sortName());
+    }
+
+    @Test
+    void parsesNestedArtistAlbumFoldersWithFullReleaseDate() {
+        var parsed = parser.parseNestedArtistAlbum(
+                Path.of("BASIL POLEDOURIS"),
+                Path.of("1982-05-14 - Conan the Barbarian"),
+                "soundtracks");
+
+        assertTrue(parsed.isPresent());
+        assertEquals("Basil Poledouris", parsed.get().artistName());
+        assertEquals("Conan the Barbarian", parsed.get().title());
+        assertEquals("1982-05-14", parsed.get().releaseDate());
+    }
+
+    @Test
     void parsesTitleFoldersWithInnerParenthesesAndFinalArtistYearSuffix() {
         var parsed = parser.parseTitleAlbum(
                 Path.of("Ahsoka - Vol. 1 (Episodes 1-4) (Kevin Kiner, 2023)"),

@@ -196,6 +196,27 @@ public class AlbumRepository {
         }
     }
 
+    public Optional<Album> updateReleaseDateIfMissing(long id, String releaseDate) {
+        String normalizedReleaseDate = blankToNull(releaseDate);
+        if (normalizedReleaseDate == null) {
+            return find(id);
+        }
+        String sql = """
+                UPDATE albums
+                SET release_date = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND release_date IS NULL
+                """;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, normalizedReleaseDate);
+            statement.setLong(2, id);
+            statement.executeUpdate();
+            return find(id);
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to update missing album release date " + id, e);
+        }
+    }
+
     public Album upsertManual(List<Long> artistIds, String title, String releaseDate, String sortName,
             boolean checked, String collectionId) {
         try (Connection connection = dataSource.getConnection()) {
@@ -282,7 +303,7 @@ public class AlbumRepository {
                 } else {
                     Optional<Long> duplicateAlbumId = normalizedArtistIds.isEmpty()
                             ? findDuplicateIdByTitle(connection, title, releaseDate)
-                            : findDuplicateId(connection, normalizedArtistIds, title, releaseDate);
+                            : findScannedDuplicateId(connection, normalizedArtistIds, title, releaseDate);
                     if (duplicateAlbumId.isPresent()) {
                         albumId = duplicateAlbumId.get();
                         markScannedAlbumChecked(connection, albumId);
@@ -306,6 +327,42 @@ public class AlbumRepository {
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to upsert scanned album " + title, e);
+        }
+    }
+
+    public UpsertResult upsertTitleScanned(List<Long> artistIds, String title, String releaseDate, String sortName,
+            String relativePath, String collectionId) {
+        List<Long> normalizedArtistIds = uniqueArtistIds(artistIds);
+
+        try (Connection connection = dataSource.getConnection()) {
+            boolean autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try {
+                Optional<Long> localAlbumId = findAlbumIdByLocalPath(connection, collectionId, relativePath);
+                long albumId;
+                boolean created = false;
+                if (localAlbumId.isPresent()) {
+                    albumId = localAlbumId.get();
+                    markScannedAlbumChecked(connection, albumId);
+                } else {
+                    albumId = insertAlbum(connection, title, releaseDate, sortName, true, null);
+                    created = true;
+                }
+                if (!normalizedArtistIds.isEmpty()) {
+                    replaceArtists(connection, albumId, normalizedArtistIds);
+                }
+                assignToCollection(connection, albumId, collectionId);
+                upsertLocalPath(connection, albumId, collectionId, relativePath);
+                connection.commit();
+                return new UpsertResult(albumId, created);
+            } catch (Exception e) {
+                rollbackQuietly(connection);
+                throw e;
+            } finally {
+                connection.setAutoCommit(autoCommit);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to upsert scanned title album " + title, e);
         }
     }
 
@@ -581,6 +638,17 @@ public class AlbumRepository {
         return Optional.empty();
     }
 
+    private Optional<Long> findScannedDuplicateId(Connection connection, List<Long> artistIds, String title,
+            String releaseDate) throws Exception {
+        for (long artistId : artistIds) {
+            Optional<Long> albumId = findScannedDuplicateId(connection, artistId, title, releaseDate);
+            if (albumId.isPresent()) {
+                return albumId;
+            }
+        }
+        return Optional.empty();
+    }
+
     private Optional<Long> findDuplicateId(Connection connection, long artistId, String title, String releaseDate)
             throws Exception {
         String sql = """
@@ -596,6 +664,27 @@ public class AlbumRepository {
             statement.setLong(1, artistId);
             statement.setString(2, Names.normalize(title));
             statement.setString(3, blankToNull(releaseDate));
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next() ? Optional.of(rs.getLong("id")) : Optional.empty();
+            }
+        }
+    }
+
+    private Optional<Long> findScannedDuplicateId(Connection connection, long artistId, String title, String releaseDate)
+            throws Exception {
+        String sql = """
+                SELECT a.id
+                FROM albums a
+                JOIN album_artists aa ON aa.album_id = a.id
+                WHERE aa.artist_id = ? AND a.normalized_title = ?
+                  AND %s
+                ORDER BY %s
+                LIMIT 1
+                """.formatted(compatibleReleaseDatePredicate(), compatibleReleaseDateOrder());
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, artistId);
+            statement.setString(2, Names.normalize(title));
+            setCompatibleReleaseDateParameters(statement, 3, releaseDate);
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() ? Optional.of(rs.getLong("id")) : Optional.empty();
             }
@@ -618,6 +707,45 @@ public class AlbumRepository {
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() ? Optional.of(rs.getLong("id")) : Optional.empty();
             }
+        }
+    }
+
+    private static String compatibleReleaseDatePredicate() {
+        return """
+                (
+                    coalesce(a.release_date, '') = coalesce(?, '')
+                    OR a.release_date IS NULL
+                    OR ? IS NULL
+                    OR (
+                        length(a.release_date) >= 4
+                        AND length(?) >= 4
+                        AND substr(a.release_date, 1, 4) = substr(?, 1, 4)
+                    )
+                )
+                """;
+    }
+
+    private static String compatibleReleaseDateOrder() {
+        return """
+                CASE
+                    WHEN coalesce(a.release_date, '') = coalesce(?, '') THEN 0
+                    WHEN a.release_date IS NOT NULL
+                        AND ? IS NOT NULL
+                        AND length(a.release_date) >= 4
+                        AND length(?) >= 4
+                        AND substr(a.release_date, 1, 4) = substr(?, 1, 4) THEN 1
+                    WHEN a.release_date IS NULL THEN 2
+                    ELSE 3
+                END,
+                a.id
+                """;
+    }
+
+    private static void setCompatibleReleaseDateParameters(PreparedStatement statement, int startIndex,
+            String releaseDate) throws Exception {
+        String normalizedReleaseDate = blankToNull(releaseDate);
+        for (int i = 0; i < 8; i++) {
+            statement.setString(startIndex + i, normalizedReleaseDate);
         }
     }
 

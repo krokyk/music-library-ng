@@ -1534,7 +1534,7 @@ async function reloadProviderLinkForms(artistId: number) {
   providerLinkForms.value = (providerLinks.value[artistId] ?? []).map((link) => ({
     id: link.id,
     providerId: link.providerId,
-    providerUrl: link.providerUrl,
+    providerUrl: link.providerUrl ?? '',
     enabled: link.enabled,
   }))
 }

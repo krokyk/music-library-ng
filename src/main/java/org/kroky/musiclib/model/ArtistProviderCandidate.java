@@ -1,0 +1,17 @@
+package org.kroky.musiclib.model;
+
+import java.util.List;
+
+public record ArtistProviderCandidate(
+        String providerId,
+        String providerArtistId,
+        String providerArtistName,
+        String providerUrl,
+        String type,
+        String country,
+        String disambiguation,
+        int providerScore,
+        int matchScore,
+        List<String> matchedLocalAlbums,
+        List<RemoteReleaseGroup> releaseGroups) {
+}

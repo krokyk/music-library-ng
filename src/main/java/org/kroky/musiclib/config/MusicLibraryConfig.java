@@ -29,6 +29,8 @@ public interface MusicLibraryConfig {
     @WithName("ui")
     Ui ui();
 
+    Providers providers();
+
     Release release();
 
     interface Release {
@@ -99,6 +101,36 @@ public interface MusicLibraryConfig {
 
         @WithName("default-workspace-column-widths")
         WorkspaceColumnWidths defaultWorkspaceColumnWidths();
+    }
+
+    interface Providers {
+        MusicBrainz musicbrainz();
+    }
+
+    interface MusicBrainz {
+        @WithName("base-url")
+        @WithDefault("https://musicbrainz.org/ws/2")
+        String baseUrl();
+
+        @WithName("site-url")
+        @WithDefault("https://musicbrainz.org")
+        String siteUrl();
+
+        @WithName("user-agent")
+        @WithDefault("music-library-ng (peter.krokavec@gmail.com)")
+        String userAgent();
+
+        @WithName("request-min-interval-ms")
+        @WithDefault("1100")
+        long requestMinIntervalMs();
+
+        @WithName("search-candidate-limit")
+        @WithDefault("5")
+        int searchCandidateLimit();
+
+        @WithName("release-group-page-size")
+        @WithDefault("100")
+        int releaseGroupPageSize();
     }
 
     interface ActionLabelThresholds {

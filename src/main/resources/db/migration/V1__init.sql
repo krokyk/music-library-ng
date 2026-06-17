@@ -109,7 +109,9 @@ CREATE TABLE artist_provider_links (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     artist_id INTEGER NOT NULL,
     provider_id TEXT NOT NULL,
-    provider_url TEXT NOT NULL,
+    provider_artist_id TEXT,
+    provider_artist_name TEXT,
+    provider_url TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     last_checked_at TEXT,
     last_success_at TEXT,
@@ -119,11 +121,30 @@ CREATE TABLE artist_provider_links (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
     CHECK (enabled IN (0, 1)),
-    UNIQUE (provider_id, provider_url)
+    UNIQUE (artist_id),
+    UNIQUE (provider_id, provider_artist_id)
 );
 
-CREATE INDEX idx_artist_provider_links_artist ON artist_provider_links(artist_id);
 CREATE INDEX idx_artist_provider_links_enabled ON artist_provider_links(enabled);
+
+CREATE TABLE album_provider_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    album_id INTEGER NOT NULL,
+    provider_id TEXT NOT NULL,
+    provider_release_group_id TEXT NOT NULL,
+    provider_title TEXT NOT NULL,
+    provider_release_date TEXT,
+    provider_url TEXT,
+    match_source TEXT NOT NULL DEFAULT 'AUTO',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
+    CHECK (match_source IN ('AUTO', 'MANUAL')),
+    UNIQUE (provider_id, provider_release_group_id),
+    UNIQUE (album_id, provider_id, provider_release_group_id)
+);
+
+CREATE INDEX idx_album_provider_links_album ON album_provider_links(album_id);
 
 CREATE TABLE scan_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

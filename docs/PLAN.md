@@ -14,9 +14,12 @@ This roadmap tracks product capabilities and useful next steps.
 - Local disk presence stored through album path rows.
 - Collection membership for artists, including manually added artists without local albums.
 - Local scan for `artist - year - album` folders.
+- Local scan for mixed artist collections with `artist/year - album` nested folders.
 - Local scan for `title (artist, year)` soundtrack/musical folders.
 - Provider links and provider check history.
 - Provider checks that add newly discovered albums as unchecked.
+- One MusicBrainz provider identity per artist with MBID-backed artist matching.
+- MusicBrainz release-group refresh with exact auto-linking, safe unchecked album creation, and review candidates for ambiguous matches.
 - Three-pane Collections workspace.
 - Global Library and Artists views.
 - Read-only Settings view for effective runtime configuration.
@@ -33,7 +36,11 @@ This roadmap tracks product capabilities and useful next steps.
 - Add screenshots.
 - Document release packaging.
 - Decide how to represent compilations with multiple artists.
+- Add bulk MusicBrainz matching after the one-artist flow is stable.
+- Add permanent ignore decisions for unwanted provider release groups if review noise becomes a problem.
 - Add duplicate-detection workflow for slightly different album names.
+- Add identity-preserving folder rename workflow with preview and stored local-path update.
+- Add artist-collection organizer with preview/apply support for moving flat album folders into nested artist folders.
 - Add export/import to JSON for extra safety.
 - Add Android-friendly browser/PWA access pattern.
 

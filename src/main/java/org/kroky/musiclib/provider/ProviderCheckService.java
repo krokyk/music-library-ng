@@ -11,6 +11,7 @@ import org.kroky.musiclib.repository.ArtistRepository;
 import org.kroky.musiclib.repository.ArtistProviderLinkRepository;
 import org.kroky.musiclib.repository.MusicCollectionRepository;
 import org.kroky.musiclib.repository.ProviderCheckRunRepository;
+import org.kroky.musiclib.provider.musicbrainz.MusicBrainzClient;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -35,6 +36,9 @@ public class ProviderCheckService {
 
     @Inject
     ProviderCheckRunRepository runs;
+
+    @Inject
+    ArtistProviderRefreshService artistProviderRefresh;
 
     public ProviderCheckSummary checkLink(long linkId) {
         ArtistProviderLink link = providerLinks.find(linkId)
@@ -96,6 +100,15 @@ public class ProviderCheckService {
         for (ArtistProviderLink link : links) {
             processedArtists++;
             try {
+                if (MusicBrainzClient.PROVIDER_ID.equals(link.providerId())) {
+                    var result = artistProviderRefresh.importMusicBrainz(runId, link);
+                    foundAlbums += result.foundReleaseGroupCount();
+                    newAlbums += result.createdAlbumCount();
+                    existingAlbums += result.linkedExistingCount();
+                    messages.addAll(result.messages());
+                    providerLinks.markSuccess(link.id());
+                    continue;
+                }
                 DiscographyProvider provider = providers.find(link.providerId(), link.providerUrl());
                 List<RemoteAlbum> remoteAlbums = provider.fetchAlbums(link.providerUrl());
                 foundAlbums += remoteAlbums.size();

@@ -22,7 +22,8 @@ public class ArtistProviderLinkRepository {
     DataSource dataSource;
 
     public List<ArtistProviderLink> listByArtist(long artistId) {
-        String sql = baseSelect() + " WHERE apl.artist_id = ? ORDER BY apl.provider_id, apl.provider_url";
+        String sql = baseSelect()
+                + " WHERE apl.artist_id = ? ORDER BY apl.provider_id, coalesce(apl.provider_artist_name, apl.provider_url, '')";
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, artistId);
@@ -35,6 +36,19 @@ public class ArtistProviderLinkRepository {
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to list provider links", e);
+        }
+    }
+
+    public Optional<ArtistProviderLink> findByArtist(long artistId) {
+        String sql = baseSelect() + " WHERE apl.artist_id = ? ORDER BY apl.id LIMIT 1";
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, artistId);
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next() ? Optional.of(map(rs)) : Optional.empty();
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to find provider for artist " + artistId, e);
         }
     }
 
@@ -88,44 +102,79 @@ public class ArtistProviderLinkRepository {
     }
 
     public ArtistProviderLink create(long artistId, String providerId, String providerUrl, boolean enabled) {
+        return upsertForArtist(artistId, providerId, derivedProviderArtistId(providerId, providerUrl), null,
+                providerUrl, enabled);
+    }
+
+    public ArtistProviderLink upsertForArtist(long artistId, String providerId, String providerArtistId,
+            String providerArtistName, String providerUrl, boolean enabled) {
         String sql = """
-                INSERT INTO artist_provider_links (artist_id, provider_id, provider_url, enabled)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO artist_provider_links (
+                    artist_id, provider_id, provider_artist_id, provider_artist_name, provider_url, enabled
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(artist_id) DO UPDATE SET
+                    provider_id = excluded.provider_id,
+                    provider_artist_id = excluded.provider_artist_id,
+                    provider_artist_name = excluded.provider_artist_name,
+                    provider_url = excluded.provider_url,
+                    enabled = excluded.enabled,
+                    last_error_message = NULL,
+                    updated_at = CURRENT_TIMESTAMP
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             statement.setLong(1, artistId);
             statement.setString(2, providerId);
-            statement.setString(3, providerUrl);
-            statement.setInt(4, enabled ? 1 : 0);
+            statement.setString(3, blankToNull(providerArtistId));
+            statement.setString(4, blankToNull(providerArtistName));
+            statement.setString(5, blankToNull(providerUrl));
+            statement.setInt(6, enabled ? 1 : 0);
             statement.executeUpdate();
-            try (ResultSet keys = statement.getGeneratedKeys()) {
-                if (keys.next()) {
-                    return find(keys.getLong(1)).orElseThrow();
-                }
-            }
-            throw new IllegalStateException("Provider link insert returned no id");
+            return findByArtist(artistId).orElseThrow();
         } catch (Exception e) {
-            throw new IllegalStateException("Unable to create provider link", e);
+            throw new IllegalStateException("Unable to upsert provider for artist " + artistId, e);
         }
     }
 
     public Optional<ArtistProviderLink> update(long id, String providerId, String providerUrl, boolean enabled) {
+        return update(id, providerId, derivedProviderArtistId(providerId, providerUrl), null, providerUrl, enabled);
+    }
+
+    public Optional<ArtistProviderLink> update(long id, String providerId, String providerArtistId,
+            String providerArtistName, String providerUrl, boolean enabled) {
         String sql = """
                 UPDATE artist_provider_links
-                SET provider_id = ?, provider_url = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
+                SET provider_id = ?,
+                    provider_artist_id = ?,
+                    provider_artist_name = ?,
+                    provider_url = ?,
+                    enabled = ?,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, providerId);
-            statement.setString(2, providerUrl);
-            statement.setInt(3, enabled ? 1 : 0);
-            statement.setLong(4, id);
+            statement.setString(2, blankToNull(providerArtistId));
+            statement.setString(3, blankToNull(providerArtistName));
+            statement.setString(4, blankToNull(providerUrl));
+            statement.setInt(5, enabled ? 1 : 0);
+            statement.setLong(6, id);
             statement.executeUpdate();
             return find(id);
         } catch (Exception e) {
             throw new IllegalStateException("Unable to update provider link " + id, e);
+        }
+    }
+
+    public void deleteByArtist(long artistId) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement("DELETE FROM artist_provider_links WHERE artist_id = ?")) {
+            statement.setLong(1, artistId);
+            statement.executeUpdate();
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to delete provider for artist " + artistId, e);
         }
     }
 
@@ -180,7 +229,8 @@ public class ArtistProviderLinkRepository {
 
     private static String baseSelect() {
         return """
-                SELECT apl.id, apl.artist_id, ar.name AS artist_name, apl.provider_id, apl.provider_url, apl.enabled,
+                SELECT apl.id, apl.artist_id, ar.name AS artist_name, apl.provider_id,
+                       apl.provider_artist_id, apl.provider_artist_name, apl.provider_url, apl.enabled,
                        apl.last_checked_at, apl.last_success_at, apl.last_error_at, apl.last_error_message,
                        apl.created_at, apl.updated_at
                 FROM artist_provider_links apl
@@ -194,6 +244,8 @@ public class ArtistProviderLinkRepository {
                 rs.getLong("artist_id"),
                 rs.getString("artist_name"),
                 rs.getString("provider_id"),
+                rs.getString("provider_artist_id"),
+                rs.getString("provider_artist_name"),
                 rs.getString("provider_url"),
                 rs.getInt("enabled") == 1,
                 rs.getString("last_checked_at"),
@@ -202,5 +254,38 @@ public class ArtistProviderLinkRepository {
                 rs.getString("last_error_message"),
                 rs.getString("created_at"),
                 rs.getString("updated_at"));
+    }
+
+    private static String derivedProviderArtistId(String providerId, String providerUrl) {
+        if ("musicbrainz".equals(providerId)) {
+            return musicBrainzIdFromUrl(providerUrl);
+        }
+        return blankToNull(providerUrl);
+    }
+
+    private static String musicBrainzIdFromUrl(String providerUrl) {
+        String value = blankToNull(providerUrl);
+        if (value == null) {
+            return null;
+        }
+        int marker = value.indexOf("/artist/");
+        if (marker >= 0) {
+            String suffix = value.substring(marker + "/artist/".length());
+            int slash = suffix.indexOf('/');
+            int query = suffix.indexOf('?');
+            int end = suffix.length();
+            if (slash >= 0) {
+                end = Math.min(end, slash);
+            }
+            if (query >= 0) {
+                end = Math.min(end, query);
+            }
+            return blankToNull(suffix.substring(0, end));
+        }
+        return value;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

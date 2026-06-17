@@ -5,6 +5,8 @@ public record ArtistProviderLink(
         long artistId,
         String artistName,
         String providerId,
+        String providerArtistId,
+        String providerArtistName,
         String providerUrl,
         boolean enabled,
         String lastCheckedAt,

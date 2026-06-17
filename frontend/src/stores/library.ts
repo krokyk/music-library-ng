@@ -3,7 +3,9 @@ import { apiGet, apiSend, apiText } from '@/api'
 import { formatDateWithJavaPattern } from '@/dateFormat'
 import type {
   Album,
+  AlbumReviewDecision,
   Artist,
+  ArtistProviderCandidate,
   ArtistProviderLink,
   CollectionFolderCandidate,
   CollectionMetadata,
@@ -12,6 +14,7 @@ import type {
   ScanJobStatus,
   ProviderCheckRun,
   ProviderCheckSummary,
+  ProviderRefreshResult,
   ScanEvent,
   ScanRun,
   StatusHistoryEntry,
@@ -31,7 +34,9 @@ interface ArtistPayload {
 interface ProviderLinkPayload {
   id?: number
   providerId: string
-  providerUrl: string
+  providerArtistId?: string | null
+  providerArtistName?: string | null
+  providerUrl?: string | null
   enabled: boolean
 }
 
@@ -834,9 +839,48 @@ export const useLibraryStore = defineStore('library', {
     async loadProviderLinks(artistId: number) {
       this.providerLinks[artistId] = await apiGet<ArtistProviderLink[]>(`/api/artists/${artistId}/provider-links`)
     },
+    async loadArtistProvider(artistId: number) {
+      try {
+        const provider = await apiGet<ArtistProviderLink>(`/api/artists/${artistId}/provider`)
+        this.providerLinks[artistId] = [provider]
+        return provider
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('404 ')) {
+          this.providerLinks[artistId] = []
+          return null
+        }
+        throw error
+      }
+    },
+    async searchMusicBrainzCandidates(artistId: number) {
+      return apiGet<ArtistProviderCandidate[]>(`/api/artists/${artistId}/provider-candidates/musicbrainz`)
+    },
+    async saveArtistProvider(artistId: number, payload: ProviderLinkPayload) {
+      const provider = await apiSend<ArtistProviderLink>(`/api/artists/${artistId}/provider`, 'PUT', {
+        providerId: payload.providerId,
+        providerArtistId: payload.providerArtistId,
+        providerArtistName: payload.providerArtistName,
+        providerUrl: payload.providerUrl,
+        enabled: payload.enabled,
+      })
+      this.providerLinks[artistId] = [provider]
+      this.invalidateCollectionContent()
+      await this.loadArtists()
+      await this.refreshCollectionContext()
+      return provider
+    },
+    async clearArtistProvider(artistId: number) {
+      await apiSend(`/api/artists/${artistId}/provider`, 'DELETE')
+      this.providerLinks[artistId] = []
+      this.invalidateCollectionContent()
+      await this.loadArtists()
+      await this.refreshCollectionContext()
+    },
     async saveProviderLink(artistId: number, payload: ProviderLinkPayload) {
       const body = {
         providerId: payload.providerId,
+        providerArtistId: payload.providerArtistId,
+        providerArtistName: payload.providerArtistName,
         providerUrl: payload.providerUrl,
         enabled: payload.enabled,
       }
@@ -859,6 +903,54 @@ export const useLibraryStore = defineStore('library', {
       this.invalidateCollectionContent()
       await this.loadArtists()
       await this.refreshCollectionContext()
+    },
+    async refreshArtistProvider(artistId: number) {
+      const artistName = this.collectionArtists.find((artist) => artist.id === artistId)?.name
+        ?? this.artists.find((artist) => artist.id === artistId)?.name
+        ?? `artist ${artistId}`
+      this.providerStatus = { running: true, message: `Refreshing MusicBrainz for ${artistName}`, state: 'running' }
+      try {
+        const result = await apiSend<ProviderRefreshResult>(`/api/artists/${artistId}/provider/refresh`, 'POST')
+        this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
+        this.invalidateCollectionContent(this.selectedCollectionId ?? undefined)
+        await this.loadArtists()
+        await this.refreshCollectionContext()
+        this.invalidateCollectionMetadata(this.selectedCollectionId ?? undefined)
+        const detail = result.messages.join(' ').trim()
+        const message = detail || `MusicBrainz refresh complete: ${result.createdAlbumCount} new albums`
+        this.providerStatus = {
+          running: false,
+          message,
+          state: result.reviewRequiredCount > 0 ? 'warning' : 'done',
+        }
+        return result
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.providerStatus = { running: false, message: `MusicBrainz refresh failed: ${message}`, state: 'failed' }
+        throw error
+      }
+    },
+    async applyProviderAlbumDecisions(artistId: number, decisions: AlbumReviewDecision[]) {
+      this.providerStatus = { running: true, message: 'Applying MusicBrainz review decisions', state: 'running' }
+      try {
+        const result = await apiSend<ProviderRefreshResult>(
+          `/api/artists/${artistId}/provider/album-decisions`,
+          'POST',
+          { decisions },
+        )
+        this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
+        this.invalidateCollectionContent(this.selectedCollectionId ?? undefined)
+        await this.loadArtists()
+        await this.refreshCollectionContext()
+        this.invalidateCollectionMetadata(this.selectedCollectionId ?? undefined)
+        const detail = result.messages.join(' ').trim()
+        this.providerStatus = { running: false, message: detail, state: 'done' }
+        return result
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.providerStatus = { running: false, message: `MusicBrainz decisions failed: ${message}`, state: 'failed' }
+        throw error
+      }
     },
     async checkArtistProvider(artistId: number) {
       const artistName = this.collectionArtists.find((artist) => artist.id === artistId)?.name

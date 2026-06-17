@@ -223,7 +223,9 @@ export interface ArtistProviderLink {
   artistId: number
   artistName: string
   providerId: string
-  providerUrl: string
+  providerArtistId?: string | null
+  providerArtistName?: string | null
+  providerUrl?: string | null
   enabled: boolean
   lastCheckedAt?: string | null
   lastSuccessAt?: string | null
@@ -231,6 +233,68 @@ export interface ArtistProviderLink {
   lastErrorMessage?: string | null
   createdAt: string
   updatedAt: string
+}
+
+export interface RemoteReleaseGroup {
+  providerId: string
+  providerReleaseGroupId: string
+  title: string
+  releaseDate?: string | null
+  primaryType?: string | null
+  secondaryTypes: string[]
+  providerUrl?: string | null
+}
+
+export interface ArtistProviderCandidate {
+  providerId: string
+  providerArtistId: string
+  providerArtistName: string
+  providerUrl: string
+  type?: string | null
+  country?: string | null
+  disambiguation?: string | null
+  providerScore: number
+  matchScore: number
+  matchedLocalAlbums: string[]
+  releaseGroups: RemoteReleaseGroup[]
+}
+
+export interface AlbumMatchOption {
+  albumId: number
+  title: string
+  releaseDate?: string | null
+  matchScore: number
+  reason: string
+}
+
+export interface AlbumImportCandidate {
+  releaseGroup: RemoteReleaseGroup
+  decision: string
+  matchedAlbumId?: number | null
+  matchedAlbumTitle?: string | null
+  reason: string
+  options: AlbumMatchOption[]
+}
+
+export interface ProviderRefreshResult {
+  runId: number
+  artistId: number
+  artistName: string
+  providerId: string
+  foundReleaseGroupCount: number
+  linkedExistingCount: number
+  createdAlbumCount: number
+  reviewRequiredCount: number
+  skippedCount: number
+  reviewCandidates: AlbumImportCandidate[]
+  messages: string[]
+}
+
+export interface AlbumReviewDecision {
+  providerId: string
+  providerReleaseGroupId: string
+  action: 'LINK_EXISTING' | 'CREATE' | 'SKIP'
+  albumId?: number | null
 }
 
 export interface ProviderCheckSummary {

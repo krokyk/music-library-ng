@@ -23,6 +23,8 @@ The app is designed for a single user who runs it on one PC at a time while the 
 - Tracks disk presence separately from the listened flag.
 - Allows artists to be assigned to collections even before any local album folder exists.
 - Refreshes artist discographies from provider links and adds new albums as unchecked.
+- Supports one MusicBrainz provider identity per artist.
+- Searches MusicBrainz artist candidates, stores the accepted artist MBID, imports release groups as albums, and sends ambiguous matches to review.
 
 ## Tooling
 
@@ -316,6 +318,21 @@ Fuller values, such as `2006-03-13`, are shown in a tooltip using `music-library
 
 The app accepts Windows-style paths such as `<drive>:/<path-to-music-root>` and resolves them to WSL mounts when running under WSL.
 
+### MusicBrainz Provider Defaults
+
+MusicBrainz provider settings are first-run application defaults, not runtime UI preferences.
+The configured User-Agent is sent exactly on every MusicBrainz API request.
+All MusicBrainz requests in one app process are serialized and rate-limited through the same limiter.
+
+```properties
+music-library.providers.musicbrainz.base-url=https://musicbrainz.org/ws/2
+music-library.providers.musicbrainz.site-url=https://musicbrainz.org
+music-library.providers.musicbrainz.user-agent=music-library-ng (peter.krokavec@gmail.com)
+music-library.providers.musicbrainz.request-min-interval-ms=1100
+music-library.providers.musicbrainz.search-candidate-limit=5
+music-library.providers.musicbrainz.release-group-page-size=100
+```
+
 ### Music Root Detection
 
 The database stores only paths relative to the runtime music root.
@@ -400,7 +417,7 @@ New collections start as artist-centric.
 Change the collection type with the pencil action in the Collections pane.
 
 Artist-centric collections scan direct child folders and create artists only.
-The current flat parser expects:
+The flat album folder parser expects:
 
 ```text
 artist - release date - album
@@ -412,6 +429,23 @@ Example:
 Dark Tranquillity - 2007 - Fiction
 ```
 
+When a direct child folder does not match that flat shape, scans treat it as an artist folder if it has parseable nested album folders or no regular files directly inside.
+The nested album folder parser expects:
+
+```text
+artist/release date - album
+```
+
+Examples:
+
+```text
+GLOBUS/2006 - Epicon
+ANTTI MARTIKAINEN/2014 - Eternal Saga
+```
+
+Mixed flat and nested artist collections are supported during migration.
+Empty nested artist folders are accepted by collection scans so artists can exist before local album folders are added.
+
 Only the artist part is inserted during the collection scan.
 Album data is handled later by artist/provider/album workflows.
 
@@ -421,6 +455,14 @@ Artist-centric album maintenance is explicit:
 - Row-level `Scan local albums` is scoped to one artist.
 - Title-bar `Scan local albums` is scoped to the selected collection.
 - `Scan providers` checks online provider links and adds remote albums as unchecked.
+
+Scanner jobs observe disk state and update DB paths, but they do not infer manual folder renames as identity-preserving moves.
+Identity-preserving folder rename and collection reorganization should be explicit preview/apply workflows that update the filesystem and the stored local path in one operation.
+
+The Artists screen has the first MusicBrainz workflow.
+Select an artist, use `Match MB` to search MusicBrainz candidates, accept the right MBID, then use `Refresh` to import release groups.
+Exact safe matches are linked to existing albums, clearly new release groups are created as unchecked albums, and ambiguous release groups are returned for review.
+Provider-created MusicBrainz albums are artist-level albums and are not assigned to a collection by default.
 
 Clicking an artist only selects it and loads known albums.
 It does not scan or modify data.
@@ -447,6 +489,10 @@ Clash of the Titans
 
 Parsed title metadata can be edited manually.
 Manual edits are marked as manual metadata and later scans update the seen/path state without overwriting the edited title, artist, release date, or sort key.
+
+For title-centric collection scans, the collection-relative folder path is the release identity.
+A new folder creates a separate album row even when parsed title or release metadata matches another folder.
+A rescan of the same folder updates the same row through its local path.
 
 When a title-centric folder has a parsed or manually entered artist, the app also creates or updates the corresponding artist, album, and local album path.
 Ambiguous title-only folders stay as title rows until artist metadata is added.
@@ -487,6 +533,26 @@ Check provider links for the selected collection scope:
 
 ```bash
 curl -X POST http://localhost:8795/api/provider-checks/collection/melodeath
+```
+
+Search MusicBrainz candidates for one artist:
+
+```bash
+curl http://localhost:8795/api/artists/1/provider-candidates/musicbrainz
+```
+
+Accept a MusicBrainz artist identity:
+
+```bash
+curl -X PUT http://localhost:8795/api/artists/1/provider \
+  -H 'Content-Type: application/json' \
+  -d '{"providerId":"musicbrainz","providerArtistId":"36b891ab-5e89-4f17-bb91-f189764de5ff","providerArtistName":"Antti Martikainen","enabled":true}'
+```
+
+Refresh one artist from MusicBrainz:
+
+```bash
+curl -X POST http://localhost:8795/api/artists/1/provider/refresh
 ```
 
 Remove a title-centric local path while keeping the linked library album:
