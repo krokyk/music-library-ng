@@ -46,6 +46,12 @@ body,
   width: var(--app-vw);
 }
 
+.v-label.v-field-label:not(.v-field-label--floating) {
+  color: rgba(255, 255, 255, 0.22) !important;
+  /* font-size: 0.9167em !important; */ /* 11px */
+  font-weight: 400 !important;
+}
+
 .app-bar {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
