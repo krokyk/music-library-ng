@@ -10,6 +10,14 @@ export interface Artist {
   uncheckedAlbumCount: number
   localAlbumCount: number
   providerLinkCount: number
+  providerId?: string | null
+  providerArtistId?: string | null
+  providerArtistName?: string | null
+  providerUrl?: string | null
+  providerArtistType?: string | null
+  providerArtistCountry?: string | null
+  providerArtistDisambiguation?: string | null
+  providerArtistActive?: boolean | null
   createdAt: string
   updatedAt: string
 }
@@ -225,6 +233,10 @@ export interface ArtistProviderLink {
   providerId: string
   providerArtistId?: string | null
   providerArtistName?: string | null
+  providerArtistType?: string | null
+  providerArtistCountry?: string | null
+  providerArtistDisambiguation?: string | null
+  providerArtistActive?: boolean | null
   providerUrl?: string | null
   enabled: boolean
   lastCheckedAt?: string | null
@@ -253,10 +265,40 @@ export interface ArtistProviderCandidate {
   type?: string | null
   country?: string | null
   disambiguation?: string | null
+  active?: boolean | null
   providerScore: number
   matchScore: number
   matchedLocalAlbums: string[]
   releaseGroups: RemoteReleaseGroup[]
+}
+
+export type ArtistProviderBulkMatchStatus =
+  | 'MATCHED'
+  | 'NEEDS_REVIEW'
+  | 'NO_MATCH'
+  | 'SKIPPED_EXISTING'
+  | 'ERROR'
+
+export interface ArtistProviderBulkMatchItem {
+  artistId: number
+  artistName?: string | null
+  status: ArtistProviderBulkMatchStatus
+  message?: string | null
+  providerLink?: ArtistProviderLink | null
+  acceptedCandidate?: ArtistProviderCandidate | null
+  candidates: ArtistProviderCandidate[]
+}
+
+export interface ArtistProviderBulkMatchResult {
+  requestedArtistCount: number
+  processedArtistCount: number
+  matchedCount: number
+  reviewCount: number
+  noMatchCount: number
+  skippedCount: number
+  errorCount: number
+  items: ArtistProviderBulkMatchItem[]
+  messages: string[]
 }
 
 export interface AlbumMatchOption {

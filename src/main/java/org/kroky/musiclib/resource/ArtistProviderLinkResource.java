@@ -31,6 +31,8 @@ public class ArtistProviderLinkResource {
     public Response create(@PathParam("artistId") long artistId, ProviderLinkRequest request) {
         ArtistProviderLink link = links.upsertForArtist(artistId, request.providerId(), request.providerArtistIdOrUrl(),
                 request.providerArtistName(), request.providerUrl(),
+                request.providerArtistType(), request.providerArtistCountry(), request.providerArtistDisambiguation(),
+                request.providerArtistActive(),
                 request.enabledOrDefault());
         return Response.created(URI.create("/api/artists/" + artistId + "/provider-links/" + link.id()))
                 .entity(link)
@@ -41,7 +43,9 @@ public class ArtistProviderLinkResource {
     @Path("/{linkId}")
     public ArtistProviderLink update(@PathParam("linkId") long linkId, ProviderLinkRequest request) {
         return links.update(linkId, request.providerId(), request.providerArtistIdOrUrl(),
-                request.providerArtistName(), request.providerUrl(), request.enabledOrDefault())
+                request.providerArtistName(), request.providerUrl(),
+                request.providerArtistType(), request.providerArtistCountry(), request.providerArtistDisambiguation(),
+                request.providerArtistActive(), request.enabledOrDefault())
                 .orElseThrow(NotFoundException::new);
     }
 
@@ -53,7 +57,8 @@ public class ArtistProviderLinkResource {
     }
 
     public record ProviderLinkRequest(String providerId, String providerArtistId, String providerArtistName,
-            String providerUrl, Boolean enabled) {
+            String providerUrl, String providerArtistType, String providerArtistCountry,
+            String providerArtistDisambiguation, Boolean providerArtistActive, Boolean enabled) {
         boolean enabledOrDefault() {
             return enabled == null || enabled;
         }

@@ -6,5 +6,6 @@ public record MusicBrainzArtistResult(
         String type,
         String country,
         String disambiguation,
+        Boolean active,
         int score) {
 }

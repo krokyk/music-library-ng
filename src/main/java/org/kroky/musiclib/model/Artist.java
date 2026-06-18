@@ -14,6 +14,14 @@ public record Artist(
         int uncheckedAlbumCount,
         int localAlbumCount,
         int providerLinkCount,
+        String providerId,
+        String providerArtistId,
+        String providerArtistName,
+        String providerUrl,
+        String providerArtistType,
+        String providerArtistCountry,
+        String providerArtistDisambiguation,
+        Boolean providerArtistActive,
         String createdAt,
         String updatedAt) {
 }

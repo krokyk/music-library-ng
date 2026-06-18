@@ -2,10 +2,28 @@
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
-import type { AlbumReviewDecision, Artist, ArtistProviderCandidate, AlbumImportCandidate } from '@/types'
+import type {
+  Artist,
+  ArtistProviderCandidate,
+} from '@/types'
+
+type ProviderId = 'musicbrainz' | 'spirit_of_metal' | 'metal_archives'
+
+interface ProviderDefinition {
+  id: ProviderId
+  label: string
+  icon: string
+  color: string
+}
+
+const providerDefinitions: ProviderDefinition[] = [
+  { id: 'musicbrainz', label: 'MusicBrainz', icon: 'mdi-music-circle', color: 'primary' },
+  { id: 'spirit_of_metal', label: 'Spirit of Metal', icon: 'mdi-fire', color: 'warning' },
+  { id: 'metal_archives', label: 'Metal Archives', icon: 'mdi-archive', color: 'info' },
+]
 
 const store = useLibraryStore()
-const { artists, collections, providerLinks, providerCheckRuns, loading, error } = storeToRefs(store)
+const { artists, albums, collections, providerLinks, error } = storeToRefs(store)
 
 const search = ref('')
 const selectedArtistId = ref<number | null>(null)
@@ -19,13 +37,11 @@ const matchDialog = ref(false)
 const matchLoading = ref(false)
 const providerCandidates = ref<ArtistProviderCandidate[]>([])
 const matchingArtistId = ref<number | null>(null)
-const refreshingArtistId = ref<number | null>(null)
-const reviewDialog = ref(false)
-const reviewArtistId = ref<number | null>(null)
-const reviewCandidates = ref<AlbumImportCandidate[]>([])
-const reviewActions = ref<Record<string, AlbumReviewDecision['action']>>({})
-const reviewAlbumIds = ref<Record<string, number | null>>({})
-const applyingReview = ref(false)
+const providerUrlDialog = ref(false)
+const providerUrlSaving = ref(false)
+const providerUrlArtist = ref<Artist | null>(null)
+const providerUrlProviderId = ref<ProviderId | null>(null)
+const providerUrl = ref('')
 
 const filteredArtists = computed(() => {
   const needle = search.value.trim().toLowerCase()
@@ -34,24 +50,30 @@ const filteredArtists = computed(() => {
 })
 
 const selectedArtist = computed(() => artists.value.find((artist) => artist.id === selectedArtistId.value) ?? null)
-const selectedProvider = computed(() => {
-  if (!selectedArtist.value) return null
-  return providerLinks.value[selectedArtist.value.id]?.[0] ?? null
+const selectedProvider = computed(() => selectedArtist.value ? providerForArtist(selectedArtist.value) : null)
+const selectedAlbums = computed(() => {
+  if (!selectedArtist.value) {
+    return []
+  }
+  const artistId = selectedArtist.value.id
+  return albums.value
+    .filter((album) => album.artistIds.includes(artistId))
+    .slice()
+    .sort((left, right) =>
+      (left.releaseDate ?? '').localeCompare(right.releaseDate ?? '')
+      || left.title.localeCompare(right.title),
+    )
 })
+const providerUrlDefinition = computed(() =>
+  providerUrlProviderId.value ? providerDefinition(providerUrlProviderId.value) : null,
+)
 
 async function selectArtist(artist: Artist) {
+  if (deletingArtistId.value === artist.id) {
+    return
+  }
   selectedArtistId.value = artist.id
   await store.loadArtistProvider(artist.id)
-}
-
-async function checkArtist(artistId: number) {
-  const summary = await store.checkArtistProvider(artistId)
-  lastMessage.value = summary.messages.join(' ')
-}
-
-async function checkAll() {
-  const summary = await store.checkAllProviders()
-  lastMessage.value = summary.messages.join(' ')
 }
 
 async function openMusicBrainzMatch(artist: Artist) {
@@ -76,6 +98,10 @@ async function useCandidate(candidate: ArtistProviderCandidate) {
     providerId: 'musicbrainz',
     providerArtistId: candidate.providerArtistId,
     providerArtistName: candidate.providerArtistName,
+    providerArtistType: candidate.type,
+    providerArtistCountry: candidate.country,
+    providerArtistDisambiguation: candidate.disambiguation,
+    providerArtistActive: candidate.active,
     providerUrl: candidate.providerUrl,
     enabled: true,
   })
@@ -83,90 +109,146 @@ async function useCandidate(candidate: ArtistProviderCandidate) {
   lastMessage.value = `MusicBrainz provider saved for ${candidate.providerArtistName}.`
 }
 
-async function clearSelectedProvider() {
-  if (!selectedArtist.value) return
-  await store.clearArtistProvider(selectedArtist.value.id)
-  lastMessage.value = `Provider cleared for ${selectedArtist.value.name}.`
-}
-
-async function refreshProvider(artist: Artist) {
-  selectedArtistId.value = artist.id
-  refreshingArtistId.value = artist.id
-  try {
-    const provider = await store.loadArtistProvider(artist.id)
-    if (provider?.providerId === 'musicbrainz') {
-      const result = await store.refreshArtistProvider(artist.id)
-      lastMessage.value = result.messages.join(' ')
-      if (result.reviewCandidates.length > 0) {
-        openReviewDialog(artist.id, result.reviewCandidates)
-      }
-      return
-    }
-    await checkArtist(artist.id)
-  } catch (error) {
-    store.error = error instanceof Error ? error.message : String(error)
-  } finally {
-    refreshingArtistId.value = null
+async function startProviderSetup(artist: Artist, providerId: ProviderId) {
+  await selectArtist(artist)
+  if (providerId === 'musicbrainz') {
+    await openMusicBrainzMatch(artist)
+    return
   }
+  providerUrlArtist.value = artist
+  providerUrlProviderId.value = providerId
+  providerUrl.value = ''
+  providerUrlDialog.value = true
 }
 
-function openReviewDialog(artistId: number, candidates: AlbumImportCandidate[]) {
-  reviewArtistId.value = artistId
-  reviewCandidates.value = candidates
-  const actions: Record<string, AlbumReviewDecision['action']> = {}
-  const albumIds: Record<string, number | null> = {}
-  for (const candidate of candidates) {
-    const key = reviewKey(candidate)
-    actions[key] = candidate.matchedAlbumId ? 'LINK_EXISTING' : 'SKIP'
-    albumIds[key] = candidate.matchedAlbumId ?? candidate.options[0]?.albumId ?? null
+async function saveUrlProvider() {
+  if (!providerUrlArtist.value || !providerUrlProviderId.value) {
+    return
   }
-  reviewActions.value = actions
-  reviewAlbumIds.value = albumIds
-  reviewDialog.value = true
-}
-
-async function applyReviewDecisions() {
-  if (!reviewArtistId.value) return
-  applyingReview.value = true
+  const url = providerUrl.value.trim()
+  if (!url) {
+    return
+  }
+  providerUrlSaving.value = true
   try {
-    const decisions = reviewCandidates.value.map((candidate) => {
-      const key = reviewKey(candidate)
-      const action = reviewActions.value[key] ?? 'SKIP'
-      return {
-        providerId: candidate.releaseGroup.providerId,
-        providerReleaseGroupId: candidate.releaseGroup.providerReleaseGroupId,
-        action,
-        albumId: action === 'LINK_EXISTING' ? reviewAlbumIds.value[key] : null,
-      }
+    const provider = providerDefinition(providerUrlProviderId.value)
+    await store.saveArtistProvider(providerUrlArtist.value.id, {
+      providerId: providerUrlProviderId.value,
+      providerUrl: url,
+      enabled: true,
     })
-    const result = await store.applyProviderAlbumDecisions(reviewArtistId.value, decisions)
-    lastMessage.value = result.messages.join(' ')
-    reviewDialog.value = false
+    lastMessage.value = `${provider.label} provider saved for ${providerUrlArtist.value.name}.`
+    providerUrlDialog.value = false
   } catch (error) {
     store.error = error instanceof Error ? error.message : String(error)
   } finally {
-    applyingReview.value = false
+    providerUrlSaving.value = false
   }
 }
 
-function reviewKey(candidate: AlbumImportCandidate) {
-  return candidate.releaseGroup.providerReleaseGroupId
+async function clearArtistProvider(artist: Artist) {
+  await store.clearArtistProvider(artist.id)
+  lastMessage.value = `Provider cleared for ${artist.name}.`
+}
+
+function providerForArtist(artist: Artist) {
+  const cached = providerLinks.value[artist.id]?.[0]
+  if (cached) {
+    return cached
+  }
+  if (!artist.providerId) {
+    return null
+  }
+  return {
+    providerId: artist.providerId,
+    providerArtistId: artist.providerArtistId,
+    providerArtistName: artist.providerArtistName,
+    providerArtistType: artist.providerArtistType,
+    providerArtistCountry: artist.providerArtistCountry,
+    providerArtistDisambiguation: artist.providerArtistDisambiguation,
+    providerArtistActive: artist.providerArtistActive,
+    providerUrl: artist.providerUrl,
+    lastErrorMessage: null,
+  }
+}
+
+function providerDefinition(providerId?: string | null) {
+  return providerDefinitions.find((provider) => provider.id === providerId)
+    ?? { id: 'musicbrainz' as ProviderId, label: providerId ?? 'Provider', icon: 'mdi-link-variant', color: 'default' }
+}
+
+function providerActionsForArtist(artist: Artist) {
+  const selectedProviderId = providerForArtist(artist)?.providerId
+  return providerDefinitions.filter((provider) => provider.id !== selectedProviderId)
 }
 
 function providerChipText(artist: Artist) {
-  const cached = providerLinks.value[artist.id]?.[0]
-  if (cached?.lastErrorMessage) return 'Error'
-  if (cached?.providerId === 'musicbrainz') return 'MB'
-  if (cached) return 'Provider'
-  return artist.providerLinkCount > 0 ? 'Provider' : 'None'
+  const provider = providerForArtist(artist)
+  return provider ? providerDefinition(provider.providerId).label : 'None'
 }
 
 function providerChipColor(artist: Artist) {
-  const label = providerChipText(artist)
-  if (label === 'Error') return 'error'
-  if (label === 'MB') return 'primary'
-  if (label === 'Provider') return 'info'
-  return 'default'
+  const provider = providerForArtist(artist)
+  if (provider?.lastErrorMessage) return 'error'
+  return provider ? providerDefinition(provider.providerId).color : 'default'
+}
+
+function providerChipIcon(artist: Artist) {
+  const provider = providerForArtist(artist)
+  return provider ? providerDefinition(provider.providerId).icon : undefined
+}
+
+function providerIdentityLabel() {
+  if (!selectedProvider.value) {
+    return null
+  }
+  return selectedProvider.value.providerArtistName
+    || selectedProvider.value.providerArtistId
+    || selectedProvider.value.providerUrl
+    || null
+}
+
+function artistCountry(artist: Artist) {
+  return providerForArtist(artist)?.providerArtistCountry ?? artist.providerArtistCountry ?? null
+}
+
+function artistCountryLabel(artist: Artist) {
+  const country = artistCountry(artist)
+  if (!country) {
+    return 'Unknown'
+  }
+  const normalized = country.trim().toUpperCase()
+  const flag = countryFlag(normalized)
+  return flag ? `${flag} ${normalized}` : normalized
+}
+
+function countryFlag(country: string) {
+  if (!/^[A-Z]{2}$/.test(country)) {
+    return ''
+  }
+  return String.fromCodePoint(
+    ...[...country].map((character) => 0x1f1e6 + character.charCodeAt(0) - 65),
+  )
+}
+
+function artistType(artist: Artist) {
+  return providerForArtist(artist)?.providerArtistType ?? artist.providerArtistType ?? null
+}
+
+function artistStatus(artist: Artist) {
+  const active = providerForArtist(artist)?.providerArtistActive ?? artist.providerArtistActive
+  if (active === true) {
+    return 'Active'
+  }
+  if (active === false) {
+    return 'Inactive'
+  }
+  return 'Unknown'
+}
+
+function candidateInfo(candidate: ArtistProviderCandidate) {
+  const status = candidate.active === true ? 'Active' : candidate.active === false ? 'Inactive' : null
+  return [candidate.type, candidate.country, status, candidate.disambiguation].filter(Boolean).join(' · ')
 }
 
 function openExternal(url?: string | null) {
@@ -254,9 +336,6 @@ onMounted(() => store.loadAll())
           <span>{{ artists.reduce((sum, artist) => sum + artist.providerLinkCount, 0) }} providers</span>
         </div>
       </div>
-      <v-btn :loading="loading" color="primary" prepend-icon="mdi-cloud-search" @click="checkAll">
-        Check all
-      </v-btn>
     </div>
 
     <v-row dense>
@@ -277,6 +356,9 @@ onMounted(() => store.loadAll())
             <thead>
               <tr>
                 <th>Artist</th>
+                <th>Country</th>
+                <th>Type</th>
+                <th>Status</th>
                 <th>Albums</th>
                 <th>Unchecked</th>
                 <th>Local</th>
@@ -288,7 +370,12 @@ onMounted(() => store.loadAll())
               <tr
                 v-for="artist in filteredArtists"
                 :key="artist.id"
-                :class="{ 'music-table-row--deleting': deletingArtistId === artist.id }"
+                :class="{
+                  'music-table-row--deleting': deletingArtistId === artist.id,
+                  'music-table-row--selectable': deletingArtistId !== artist.id,
+                  'music-table-row--selected': selectedArtistId === artist.id,
+                }"
+                @click="selectArtist(artist)"
               >
                 <td class="cell-strong">
                   <span class="artist-delete-cell">
@@ -301,6 +388,23 @@ onMounted(() => store.loadAll())
                     <span>{{ artist.name }}</span>
                   </span>
                 </td>
+                <td>
+                  <span :class="{ 'cell-muted': !artistCountry(artist) }">{{ artistCountryLabel(artist) }}</span>
+                </td>
+                <td>
+                  <span :class="{ 'cell-muted': !artistType(artist) }">{{ artistType(artist) || 'Unknown' }}</span>
+                </td>
+                <td>
+                  <v-chip
+                    v-if="artistStatus(artist) !== 'Unknown'"
+                    :color="artistStatus(artist) === 'Active' ? 'success' : 'default'"
+                    size="x-small"
+                    variant="tonal"
+                  >
+                    {{ artistStatus(artist) }}
+                  </v-chip>
+                  <span v-else class="cell-muted">Unknown</span>
+                </td>
                 <td>{{ artist.albumCount }}</td>
                 <td>
                   <v-chip :color="artist.uncheckedAlbumCount > 0 ? 'warning' : 'default'" size="small" variant="tonal">
@@ -309,39 +413,36 @@ onMounted(() => store.loadAll())
                 </td>
                 <td>{{ artist.localAlbumCount }}</td>
                 <td>
-                  <v-chip :color="providerChipColor(artist)" size="small" variant="tonal">
+                  <v-chip
+                    v-if="providerForArtist(artist)"
+                    :color="providerChipColor(artist)"
+                    size="small"
+                    variant="tonal"
+                    :prepend-icon="providerChipIcon(artist)"
+                    closable
+                    close-icon="mdi-trash-can-outline"
+                    @click:close.stop="clearArtistProvider(artist)"
+                  >
                     {{ providerChipText(artist) }}
                   </v-chip>
+                  <span v-else class="cell-muted">None</span>
                 </td>
                 <td class="text-right">
-                  <v-btn
-                    size="small"
-                    variant="text"
-                    :disabled="deletingArtistId === artist.id"
-                    @click="selectArtist(artist)"
-                  >
-                    Provider
-                  </v-btn>
-                  <v-btn
-                    size="small"
-                    variant="text"
-                    prepend-icon="mdi-magnify"
-                    :loading="matchingArtistId === artist.id"
-                    :disabled="deletingArtistId === artist.id"
-                    @click="openMusicBrainzMatch(artist)"
-                  >
-                    Match MB
-                  </v-btn>
-                  <v-btn
-                    size="small"
-                    variant="text"
-                    prepend-icon="mdi-cloud-search"
-                    :loading="refreshingArtistId === artist.id"
-                    :disabled="deletingArtistId === artist.id || refreshingArtistId !== null"
-                    @click="refreshProvider(artist)"
-                  >
-                    Refresh
-                  </v-btn>
+                  <div class="artist-provider-actions">
+                    <v-btn
+                      v-for="provider in providerActionsForArtist(artist)"
+                      :key="provider.id"
+                      class="artist-provider-action"
+                      size="small"
+                      variant="text"
+                      :prepend-icon="provider.icon"
+                      :loading="provider.id === 'musicbrainz' && matchingArtistId === artist.id"
+                      :disabled="deletingArtistId === artist.id"
+                      @click.stop="startProviderSetup(artist, provider.id)"
+                    >
+                      <span class="artist-provider-action__label">{{ provider.label }}</span>
+                    </v-btn>
+                  </div>
                   <v-btn
                     size="small"
                     variant="text"
@@ -349,7 +450,7 @@ onMounted(() => store.loadAll())
                     prepend-icon="mdi-trash-can-outline"
                     :loading="deletingArtistId === artist.id"
                     :disabled="deletingArtistId !== null && deletingArtistId !== artist.id"
-                    @click="askDeleteArtist(artist)"
+                    @click.stop="askDeleteArtist(artist)"
                   >
                     Delete
                   </v-btn>
@@ -362,57 +463,73 @@ onMounted(() => store.loadAll())
 
       <v-col cols="12" lg="4">
         <v-sheet class="panel pa-4 mb-4">
-          <div class="panel-title">Provider</div>
-          <div v-if="!selectedArtist" class="cell-muted">Select an artist to manage its provider.</div>
+          <div class="panel-title">Artist Info</div>
+          <div v-if="!selectedArtist" class="cell-muted">Select an artist row to view details.</div>
           <template v-else>
             <div class="mb-3 cell-strong">{{ selectedArtist.name }}</div>
-            <template v-if="selectedProvider">
-              <div class="provider-list mb-3">
-                <div class="cell-muted">{{ selectedProvider.providerId === 'musicbrainz' ? 'MusicBrainz' : selectedProvider.providerId }}</div>
-                <div class="cell-strong">{{ selectedProvider.providerArtistName || selectedProvider.artistName }}</div>
-                <div v-if="selectedProvider.providerArtistId" class="mono-path">{{ selectedProvider.providerArtistId }}</div>
-                <div v-if="selectedProvider.lastErrorMessage" class="text-error">{{ selectedProvider.lastErrorMessage }}</div>
-              </div>
+            <div class="artist-info-grid">
+              <div class="cell-muted">Sort name</div>
+              <div>{{ selectedArtist.sortName || 'None' }}</div>
+              <div class="cell-muted">Country</div>
+              <div :class="{ 'cell-muted': !artistCountry(selectedArtist) }">{{ artistCountryLabel(selectedArtist) }}</div>
+              <div class="cell-muted">Type</div>
+              <div :class="{ 'cell-muted': !artistType(selectedArtist) }">{{ artistType(selectedArtist) || 'Unknown' }}</div>
+              <div class="cell-muted">Status</div>
+              <div :class="{ 'cell-muted': artistStatus(selectedArtist) === 'Unknown' }">{{ artistStatus(selectedArtist) }}</div>
+              <div class="cell-muted">Collections</div>
               <div class="dialog-chip-row">
-                <v-btn size="small" color="primary" prepend-icon="mdi-magnify" @click="openMusicBrainzMatch(selectedArtist)">
-                  Change
-                </v-btn>
-                <v-btn size="small" color="primary" variant="tonal" prepend-icon="mdi-cloud-search" @click="refreshProvider(selectedArtist)">
-                  Refresh
-                </v-btn>
-                <v-btn size="small" variant="text" prepend-icon="mdi-open-in-new" :disabled="!selectedProvider.providerUrl" @click="openExternal(selectedProvider.providerUrl)">
-                  Open
-                </v-btn>
-                <v-btn size="small" color="error" variant="text" prepend-icon="mdi-link-off" @click="clearSelectedProvider">
-                  Clear
-                </v-btn>
-              </div>
-            </template>
-            <template v-else>
-              <div class="cell-muted mb-3">No provider</div>
-              <v-btn color="primary" prepend-icon="mdi-magnify" @click="openMusicBrainzMatch(selectedArtist)">
-                Match MusicBrainz
-              </v-btn>
-            </template>
-          </template>
-        </v-sheet>
-
-        <v-sheet class="panel pa-4">
-          <div class="panel-title">Recent Checks</div>
-          <v-list density="compact" class="provider-list">
-            <v-list-item v-for="run in providerCheckRuns" :key="run.id">
-              <template #prepend>
                 <v-chip
+                  v-for="collectionId in selectedArtist.collectionIds"
+                  :key="collectionId"
                   size="x-small"
-                  :color="run.status === 'DONE' ? 'success' : run.status === 'FAILED' ? 'error' : 'warning'"
+                  variant="tonal"
                 >
-                  {{ run.status }}
+                  {{ collections.find((collection) => collection.id === collectionId)?.name ?? collectionId }}
                 </v-chip>
-              </template>
-              <v-list-item-title>{{ run.message ?? `${run.newAlbumCount} new albums` }}</v-list-item-title>
-              <v-list-item-subtitle>{{ run.startedAt }}</v-list-item-subtitle>
-            </v-list-item>
-          </v-list>
+                <span v-if="selectedArtist.collectionIds.length === 0" class="cell-muted">None</span>
+              </div>
+              <div class="cell-muted">Albums</div>
+              <div>{{ selectedArtist.albumCount }} total, {{ selectedArtist.uncheckedAlbumCount }} unchecked</div>
+              <div class="cell-muted">Provider</div>
+              <div>
+                <v-chip
+                  v-if="selectedProvider"
+                  size="small"
+                  variant="tonal"
+                  :color="providerChipColor(selectedArtist)"
+                  :prepend-icon="providerChipIcon(selectedArtist)"
+                >
+                  {{ providerChipText(selectedArtist) }}
+                </v-chip>
+                <span v-else class="cell-muted">None</span>
+              </div>
+            </div>
+
+            <div v-if="selectedProvider" class="provider-list mt-4">
+              <div v-if="providerIdentityLabel()" class="cell-strong">{{ providerIdentityLabel() }}</div>
+              <div v-if="selectedProvider.providerUrl" class="mono-path">{{ selectedProvider.providerUrl }}</div>
+              <div v-if="selectedProvider.lastErrorMessage" class="text-error">{{ selectedProvider.lastErrorMessage }}</div>
+              <v-btn
+                class="mt-2"
+                size="small"
+                variant="text"
+                prepend-icon="mdi-open-in-new"
+                :disabled="!selectedProvider.providerUrl"
+                @click="openExternal(selectedProvider.providerUrl)"
+              >
+                Open
+              </v-btn>
+            </div>
+
+            <div class="panel-title mt-5">Known Albums</div>
+            <div v-if="selectedAlbums.length === 0" class="cell-muted">No known albums.</div>
+            <v-list v-else density="compact" class="provider-list artist-info-albums">
+              <v-list-item v-for="album in selectedAlbums" :key="album.id">
+                <v-list-item-title>{{ album.title }}</v-list-item-title>
+                <v-list-item-subtitle>{{ album.releaseDate || 'No date' }}</v-list-item-subtitle>
+              </v-list-item>
+            </v-list>
+          </template>
         </v-sheet>
       </v-col>
     </v-row>
@@ -430,7 +547,7 @@ onMounted(() => store.loadAll())
                 <v-chip size="x-small" color="primary" variant="tonal" class="ml-2">{{ candidate.matchScore }}</v-chip>
               </v-list-item-title>
               <v-list-item-subtitle>
-                {{ [candidate.type, candidate.country, candidate.disambiguation].filter(Boolean).join(' · ') }}
+                {{ candidateInfo(candidate) }}
               </v-list-item-subtitle>
               <div class="mono-path">{{ candidate.providerArtistId }}</div>
               <div v-if="candidate.matchedLocalAlbums.length" class="dialog-chip-row mt-2">
@@ -462,66 +579,26 @@ onMounted(() => store.loadAll())
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="reviewDialog" max-width="1100">
+    <v-dialog v-model="providerUrlDialog" max-width="560">
       <v-card class="dialog-card">
-        <v-card-title>MusicBrainz Review</v-card-title>
+        <v-card-title>{{ providerUrlDefinition?.label }} Provider</v-card-title>
         <v-card-text class="edit-form">
-          <v-table class="music-table" density="compact">
-            <thead>
-              <tr>
-                <th>Remote title</th>
-                <th>Date</th>
-                <th>Type</th>
-                <th>Reason</th>
-                <th>Action</th>
-                <th>Album</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="candidate in reviewCandidates" :key="candidate.releaseGroup.providerReleaseGroupId">
-                <td class="cell-strong">{{ candidate.releaseGroup.title }}</td>
-                <td>{{ candidate.releaseGroup.releaseDate || '' }}</td>
-                <td>
-                  {{ [candidate.releaseGroup.primaryType, ...candidate.releaseGroup.secondaryTypes].filter(Boolean).join(', ') }}
-                </td>
-                <td>{{ candidate.reason }}</td>
-                <td>
-                  <v-select
-                    v-model="reviewActions[reviewKey(candidate)]"
-                    :items="['LINK_EXISTING', 'CREATE', 'SKIP']"
-                    density="compact"
-                    hide-details
-                  ></v-select>
-                </td>
-                <td>
-                  <v-select
-                    v-model="reviewAlbumIds[reviewKey(candidate)]"
-                    :items="candidate.options"
-                    item-title="title"
-                    item-value="albumId"
-                    density="compact"
-                    hide-details
-                    :disabled="reviewActions[reviewKey(candidate)] !== 'LINK_EXISTING'"
-                  ></v-select>
-                </td>
-                <td class="text-right">
-                  <v-btn
-                    size="small"
-                    variant="text"
-                    icon="mdi-open-in-new"
-                    :disabled="!candidate.releaseGroup.providerUrl"
-                    @click="openExternal(candidate.releaseGroup.providerUrl)"
-                  ></v-btn>
-                </td>
-              </tr>
-            </tbody>
-          </v-table>
+          <div class="cell-muted">{{ providerUrlArtist?.name }}</div>
+          <v-text-field
+            v-model="providerUrl"
+            label="URL"
+            prepend-inner-icon="mdi-link-variant"
+            autofocus
+            hide-details
+            @keyup.enter="saveUrlProvider"
+          ></v-text-field>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
-          <v-btn variant="text" @click="reviewDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="applyingReview" @click="applyReviewDecisions">Apply</v-btn>
+          <v-btn variant="text" @click="providerUrlDialog = false">Cancel</v-btn>
+          <v-btn color="primary" :loading="providerUrlSaving" :disabled="!providerUrl.trim()" @click="saveUrlProvider">
+            Save
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

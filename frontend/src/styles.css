@@ -649,6 +649,18 @@ body,
   background: rgba(255, 255, 255, 0.035);
 }
 
+.music-table-row--selectable {
+  cursor: pointer;
+}
+
+.music-table .v-table__wrapper > table > tbody > tr.music-table-row--selected > td {
+  background: rgba(0, 213, 255, 0.1);
+}
+
+.music-table .v-table__wrapper > table > tbody > tr.music-table-row--selected:hover > td {
+  background: rgba(0, 213, 255, 0.14);
+}
+
 .music-table-row--deleting > td {
   color: rgba(255, 255, 255, 0.42);
   font-style: italic;
@@ -659,6 +671,40 @@ body,
   display: inline-flex;
   gap: 8px;
   min-width: 0;
+}
+
+.artist-provider-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+  vertical-align: middle;
+}
+
+.artist-provider-action {
+  min-width: 0;
+}
+
+.artist-provider-action__label {
+  white-space: nowrap;
+}
+
+.artist-info-grid {
+  align-items: start;
+  display: grid;
+  gap: 8px 12px;
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+
+.artist-info-albums {
+  max-height: 360px;
+  overflow: auto;
+}
+
+@media (max-width: 1280px) {
+  .artist-provider-action__label {
+    display: none;
+  }
 }
 
 .collections-workspace {
@@ -1504,6 +1550,11 @@ body.is-pane-resizing {
   gap: 6px;
 }
 
+.bulk-match-dialog__table {
+  max-height: calc(var(--app-vh) - 290px);
+  overflow: auto;
+}
+
 .dialog-card .v-card-actions {
   gap: 8px;
   padding: 10px 22px 18px;
@@ -1542,24 +1593,6 @@ body.is-pane-resizing {
   letter-spacing: 0;
   margin: 0;
   text-transform: uppercase;
-}
-
-.provider-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.provider-editor-row {
-  align-items: center;
-  display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(145px, 0.7fr) minmax(220px, 1.6fr) 112px 36px 36px;
-}
-
-.provider-editor-row--new {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 10px;
 }
 
 .cell-strong {
@@ -1616,10 +1649,6 @@ body.is-pane-resizing {
 
   .pane {
     min-height: 320px;
-  }
-
-  .provider-editor-row {
-    grid-template-columns: 1fr;
   }
 
   .settings-pane {

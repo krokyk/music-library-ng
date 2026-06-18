@@ -105,12 +105,34 @@ CREATE TABLE user_preferences (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE providers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    url_required INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (url_required IN (0, 1)),
+    CHECK (enabled IN (0, 1))
+);
+
+INSERT INTO providers (id, name, url_required, enabled, sort_order)
+VALUES
+    ('musicbrainz', 'MusicBrainz', 0, 1, 10),
+    ('spirit_of_metal', 'Spirit of Metal', 1, 1, 20),
+    ('metal_archives', 'Metal Archives', 1, 1, 30);
+
 CREATE TABLE artist_provider_links (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     artist_id INTEGER NOT NULL,
     provider_id TEXT NOT NULL,
     provider_artist_id TEXT,
     provider_artist_name TEXT,
+    provider_artist_type TEXT,
+    provider_artist_country TEXT,
+    provider_artist_disambiguation TEXT,
+    provider_artist_active INTEGER,
     provider_url TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     last_checked_at TEXT,
@@ -120,7 +142,9 @@ CREATE TABLE artist_provider_links (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
+    FOREIGN KEY (provider_id) REFERENCES providers(id),
     CHECK (enabled IN (0, 1)),
+    CHECK (provider_artist_active IN (0, 1)),
     UNIQUE (artist_id),
     UNIQUE (provider_id, provider_artist_id)
 );

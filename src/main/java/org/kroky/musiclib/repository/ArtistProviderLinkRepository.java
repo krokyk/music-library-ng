@@ -108,15 +108,35 @@ public class ArtistProviderLinkRepository {
 
     public ArtistProviderLink upsertForArtist(long artistId, String providerId, String providerArtistId,
             String providerArtistName, String providerUrl, boolean enabled) {
+        return upsertForArtist(artistId, providerId, providerArtistId, providerArtistName, providerUrl,
+                null, null, null, null, enabled);
+    }
+
+    public ArtistProviderLink upsertForArtist(long artistId, String providerId, String providerArtistId,
+            String providerArtistName, String providerUrl, String providerArtistType, String providerArtistCountry,
+            String providerArtistDisambiguation, Boolean providerArtistActive, boolean enabled) {
         String sql = """
                 INSERT INTO artist_provider_links (
-                    artist_id, provider_id, provider_artist_id, provider_artist_name, provider_url, enabled
+                    artist_id,
+                    provider_id,
+                    provider_artist_id,
+                    provider_artist_name,
+                    provider_artist_type,
+                    provider_artist_country,
+                    provider_artist_disambiguation,
+                    provider_artist_active,
+                    provider_url,
+                    enabled
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(artist_id) DO UPDATE SET
                     provider_id = excluded.provider_id,
                     provider_artist_id = excluded.provider_artist_id,
                     provider_artist_name = excluded.provider_artist_name,
+                    provider_artist_type = excluded.provider_artist_type,
+                    provider_artist_country = excluded.provider_artist_country,
+                    provider_artist_disambiguation = excluded.provider_artist_disambiguation,
+                    provider_artist_active = excluded.provider_artist_active,
                     provider_url = excluded.provider_url,
                     enabled = excluded.enabled,
                     last_error_message = NULL,
@@ -128,8 +148,12 @@ public class ArtistProviderLinkRepository {
             statement.setString(2, providerId);
             statement.setString(3, blankToNull(providerArtistId));
             statement.setString(4, blankToNull(providerArtistName));
-            statement.setString(5, blankToNull(providerUrl));
-            statement.setInt(6, enabled ? 1 : 0);
+            statement.setString(5, blankToNull(providerArtistType));
+            statement.setString(6, blankToNull(providerArtistCountry));
+            statement.setString(7, blankToNull(providerArtistDisambiguation));
+            setNullableBoolean(statement, 8, providerArtistActive);
+            statement.setString(9, blankToNull(providerUrl));
+            statement.setInt(10, enabled ? 1 : 0);
             statement.executeUpdate();
             return findByArtist(artistId).orElseThrow();
         } catch (Exception e) {
@@ -143,11 +167,22 @@ public class ArtistProviderLinkRepository {
 
     public Optional<ArtistProviderLink> update(long id, String providerId, String providerArtistId,
             String providerArtistName, String providerUrl, boolean enabled) {
+        return update(id, providerId, providerArtistId, providerArtistName, providerUrl,
+                null, null, null, null, enabled);
+    }
+
+    public Optional<ArtistProviderLink> update(long id, String providerId, String providerArtistId,
+            String providerArtistName, String providerUrl, String providerArtistType, String providerArtistCountry,
+            String providerArtistDisambiguation, Boolean providerArtistActive, boolean enabled) {
         String sql = """
                 UPDATE artist_provider_links
                 SET provider_id = ?,
                     provider_artist_id = ?,
                     provider_artist_name = ?,
+                    provider_artist_type = ?,
+                    provider_artist_country = ?,
+                    provider_artist_disambiguation = ?,
+                    provider_artist_active = ?,
                     provider_url = ?,
                     enabled = ?,
                     updated_at = CURRENT_TIMESTAMP
@@ -158,9 +193,13 @@ public class ArtistProviderLinkRepository {
             statement.setString(1, providerId);
             statement.setString(2, blankToNull(providerArtistId));
             statement.setString(3, blankToNull(providerArtistName));
-            statement.setString(4, blankToNull(providerUrl));
-            statement.setInt(5, enabled ? 1 : 0);
-            statement.setLong(6, id);
+            statement.setString(4, blankToNull(providerArtistType));
+            statement.setString(5, blankToNull(providerArtistCountry));
+            statement.setString(6, blankToNull(providerArtistDisambiguation));
+            setNullableBoolean(statement, 7, providerArtistActive);
+            statement.setString(8, blankToNull(providerUrl));
+            statement.setInt(9, enabled ? 1 : 0);
+            statement.setLong(10, id);
             statement.executeUpdate();
             return find(id);
         } catch (Exception e) {
@@ -230,7 +269,10 @@ public class ArtistProviderLinkRepository {
     private static String baseSelect() {
         return """
                 SELECT apl.id, apl.artist_id, ar.name AS artist_name, apl.provider_id,
-                       apl.provider_artist_id, apl.provider_artist_name, apl.provider_url, apl.enabled,
+                       apl.provider_artist_id, apl.provider_artist_name,
+                       apl.provider_artist_type, apl.provider_artist_country,
+                       apl.provider_artist_disambiguation, apl.provider_artist_active,
+                       apl.provider_url, apl.enabled,
                        apl.last_checked_at, apl.last_success_at, apl.last_error_at, apl.last_error_message,
                        apl.created_at, apl.updated_at
                 FROM artist_provider_links apl
@@ -246,6 +288,10 @@ public class ArtistProviderLinkRepository {
                 rs.getString("provider_id"),
                 rs.getString("provider_artist_id"),
                 rs.getString("provider_artist_name"),
+                rs.getString("provider_artist_type"),
+                rs.getString("provider_artist_country"),
+                rs.getString("provider_artist_disambiguation"),
+                nullableBoolean(rs, "provider_artist_active"),
                 rs.getString("provider_url"),
                 rs.getInt("enabled") == 1,
                 rs.getString("last_checked_at"),
@@ -283,6 +329,19 @@ public class ArtistProviderLinkRepository {
             return blankToNull(suffix.substring(0, end));
         }
         return value;
+    }
+
+    private static void setNullableBoolean(PreparedStatement statement, int index, Boolean value) throws Exception {
+        if (value == null) {
+            statement.setObject(index, null);
+            return;
+        }
+        statement.setInt(index, value ? 1 : 0);
+    }
+
+    private static Boolean nullableBoolean(ResultSet rs, String column) throws Exception {
+        int value = rs.getInt(column);
+        return rs.wasNull() ? null : value == 1;
     }
 
     private static String blankToNull(String value) {

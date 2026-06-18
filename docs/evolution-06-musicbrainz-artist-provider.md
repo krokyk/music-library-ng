@@ -52,6 +52,15 @@ The app should support one artist at a time first.
 - Do not solve provider conflicts across multiple sources.
 - Do not auto-delete local albums that disappear from a provider response.
 
+## Post-MVP Bulk Matching
+
+Bulk MusicBrainz matching is now available from Settings as a focused follow-up to the one-artist workflow.
+The bulk matcher reuses the same MusicBrainz candidate search and scores candidates with MusicBrainz score, artist-name similarity, local album title matches, and local title-plus-year matches.
+The app auto-links only high-confidence candidates with local album evidence and enough separation from the runner-up candidate.
+Candidates without enough evidence are returned as `NEEDS_REVIEW` so the existing one-artist candidate chooser can make the final decision.
+Artists that already have a provider identity are skipped instead of being overwritten.
+No-match decisions are not persisted yet, so a later bulk run may try those artists again.
+
 ## External API Notes
 
 Official MusicBrainz API facts verified on 2026-06-15:
@@ -75,41 +84,56 @@ Relevant documentation:
 
 ## Current App State
 
-The app already has a provider concept:
+The app has a provider concept:
 
-- `artist_provider_links` stores provider links for artists.
+- `providers` stores supported provider kinds such as MusicBrainz, Spirit of Metal, and Metal Archives.
+- `artist_provider_links` stores the selected provider identity for an artist.
 - `DiscographyProvider` fetches `RemoteAlbum` rows from a provider URL.
-- `ProviderCheckService` loops enabled provider links and creates missing albums.
+- `ProviderCheckService` loops enabled provider identities and creates missing albums.
 - Existing HTML providers parse pages from Metal Archives and Spirit of Metal.
-- The Artists screen currently calls the UI section "Provider Links".
+- The Artists screen assigns one provider identity per artist from row-level provider buttons.
 
 This milestone changes the semantics:
 
 - the UI should call this "Provider", singular,
 - one artist can have at most one provider identity,
-- provider checks should prefer provider artist IDs over URLs,
+- provider checks should use provider-specific artist identity,
 - MusicBrainz should not be represented as "a pasted URL" internally.
 
 Keep the table name `artist_provider_links` for now to avoid broad churn.
-The table will hold one row per artist and can later return to 1:n by removing
-the unique index on `artist_id`.
+The table holds one row per artist and can later return to 1:n by removing the unique index on `artist_id`.
 
 ## Database Model
 
-Because the project is still treated as fresh-start development, update
-`src/main/resources/db/migration/V1__init.sql` directly.
+Because the project is still treated as fresh-start development, update `src/main/resources/db/migration/V1__init.sql` directly.
 
 ### Artist Provider Identity
 
 Replace the current provider URL-only shape with a provider identity shape:
 
 ```sql
+CREATE TABLE providers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    url_required INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (url_required IN (0, 1)),
+    CHECK (enabled IN (0, 1))
+);
+
 CREATE TABLE artist_provider_links (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     artist_id INTEGER NOT NULL,
     provider_id TEXT NOT NULL,
     provider_artist_id TEXT,
     provider_artist_name TEXT,
+    provider_artist_type TEXT,
+    provider_artist_country TEXT,
+    provider_artist_disambiguation TEXT,
+    provider_artist_active INTEGER,
     provider_url TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     last_checked_at TEXT,
@@ -119,7 +143,9 @@ CREATE TABLE artist_provider_links (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
+    FOREIGN KEY (provider_id) REFERENCES providers(id),
     CHECK (enabled IN (0, 1)),
+    CHECK (provider_artist_active IN (0, 1)),
     UNIQUE (artist_id),
     UNIQUE (provider_id, provider_artist_id)
 );
@@ -129,22 +155,17 @@ CREATE INDEX idx_artist_provider_links_enabled ON artist_provider_links(enabled)
 
 Rules:
 
+- `provider_id` references `providers.id`.
 - `provider_id='musicbrainz'` requires `provider_artist_id`.
 - For MusicBrainz, `provider_artist_id` is the artist MBID.
-- For MusicBrainz, `provider_url` is derived as
-  `https://musicbrainz.org/artist/<mbid>`.
+- For MusicBrainz, `provider_url` is derived as `https://musicbrainz.org/artist/<mbid>`.
+- For Spirit of Metal and Metal Archives, `provider_artist_id` is the concrete artist URL.
+- For URL providers, `provider_url` stores the same concrete artist URL used for fetching.
 - `provider_artist_name` stores the MusicBrainz display name at match time.
+- `provider_artist_type`, `provider_artist_country`, `provider_artist_disambiguation`, and `provider_artist_active` store provider metadata when available.
 - `enabled=false` means the provider identity exists but checks skip it.
 - `UNIQUE (artist_id)` enforces one provider per artist.
-- `UNIQUE (provider_id, provider_artist_id)` prevents two local artists from
-  being linked to the same remote artist by accident.
-
-Open point:
-
-- ??? Existing HTML providers do not expose a stable API artist ID.
-  For them, either keep using `provider_url`, or set `provider_artist_id` to a
-  normalized URL/slug. This should be decided when those providers are brought
-  forward into the new model.
+- `UNIQUE (provider_id, provider_artist_id)` prevents two local artists from being linked to the same remote artist by accident.
 
 ### Album Provider Identity
 
@@ -789,67 +810,32 @@ Rules:
 - `LINK_EXISTING` requires `albumId`.
 - `CREATE` creates unchecked album and links it.
 - `SKIP` does not persist anything in the MVP.
-- Invalid release group IDs must be rejected unless they came from the current
-  refresh response or can be re-fetched safely.
+- Invalid release group IDs must be rejected unless they came from the current refresh response or can be re-fetched safely.
 
 Open point:
 
-- ??? Persisting review candidates between browser refreshes requires either a
-  transient server-side cache or a durable import-run table. MVP can avoid this
-  by requiring the UI to submit decisions from the current response.
+- ??? Persisting review candidates between browser refreshes requires either a transient server-side cache or a durable import-run table.
+  MVP can avoid this by requiring the UI to submit decisions from the current response.
 
 ## Frontend UX
 
-Implement this on the Artists screen first.
+The Artists screen assigns provider identities from the artist row.
+Clicking the row selects the artist and updates the right-side Artist Info panel.
+The row shows provider metadata columns for country, type, and active status when the selected provider supplies them.
+The row shows MusicBrainz, Spirit of Metal, and Metal Archives buttons when no provider is assigned.
+When a provider is assigned, the Provider column shows an icon and label chip with a trash action to clear the provider.
+When a provider is assigned, the selected provider button is removed from that row and the remaining provider buttons replace the provider if used.
+The row delete button keeps the existing artist deletion behavior.
+The previous generic `Provider`, `Match MB`, and row-level refresh buttons are not part of this screen.
+Provider refresh/check actions remain in the collection/provider scan workflow.
 
-Rename the right panel from:
-
-```text
-Provider Links
-```
-
-to:
-
-```text
-Provider
-```
-
-Artist row additions:
-
-- provider status column or compact chip:
-  - `None`
-  - `MB`
-  - `Error`
-- row actions:
-  - `Match MB`
-  - `Refresh`
-
-Provider panel for selected artist:
-
-```text
-Provider
-Antti Martikainen
-
-MusicBrainz
-Antti Martikainen
-36b891ab-5e89-4f17-bb91-f189764de5ff
-
-Change
-Clear
-Refresh
-Open
-```
-
-When no provider is assigned:
-
-```text
-No provider
-Match MusicBrainz
-```
+The right-side panel is read-only artist information.
+It shows the selected artist name, sort name, country, type, active status, collections, album counts, selected provider identity, provider URL, provider error, and known albums.
+It does not edit provider links.
 
 ### Match Dialog
 
-Triggered by `Match MB`.
+Triggered by the MusicBrainz row button.
 
 Layout:
 
@@ -883,7 +869,7 @@ Matched albums: many
 
 ### Refresh Result Dialog
 
-Triggered by `Refresh`.
+Triggered by provider scan or the provider refresh endpoint.
 
 After the refresh:
 
@@ -922,7 +908,7 @@ Do not add a browser-level vertical scrollbar.
 1. Start from a fresh DB schema with no provider for Antti Martikainen.
 2. Open `Artists`.
 3. Select or locate `Antti Martikainen`.
-4. Click `Match MB`.
+4. Click the `MusicBrainz` row button.
 5. Backend searches MusicBrainz for artist name.
 6. Backend returns candidate:
 
@@ -940,11 +926,13 @@ artist_id = 95
 provider_id = musicbrainz
 provider_artist_id = 36b891ab-5e89-4f17-bb91-f189764de5ff
 provider_artist_name = Antti Martikainen
+provider_artist_type = Person
+provider_artist_country = FI
 provider_url = https://musicbrainz.org/artist/36b891ab-5e89-4f17-bb91-f189764de5ff
 enabled = true
 ```
 
-9. User clicks `Refresh`.
+9. User runs the provider scan from the collection/provider workflow.
 10. Backend fetches MusicBrainz release groups for that MBID.
 11. Backend auto-links clear existing albums.
 12. Backend auto-creates clear missing albums as unchecked.
@@ -1029,17 +1017,15 @@ Compilation-classified release groups
 6. Add artist provider match service.
 7. Add album matching/import service.
 8. Add artist provider REST resource endpoints.
-9. Update `ProviderCheckService` or add a single-artist provider refresh
-   service that reuses provider check run logging.
+9. Update `ProviderCheckService` or add a single-artist provider refresh service that reuses provider check run logging.
 10. Update frontend types and Pinia store.
 11. Update Artists screen:
-    - singular Provider panel,
-    - Match MB dialog,
-    - Refresh action,
-    - album review dialog.
+    - row-level provider assignment buttons,
+    - MusicBrainz candidate dialog,
+    - read-only Artist Info panel,
+    - album review dialog in provider scan workflow.
 12. Test Antti Martikainen end-to-end.
-13. Only after the one-artist loop works, consider a one-off script for initial
-    high-confidence matching of the rest of the library.
+13. Only after the one-artist loop works, consider a one-off script for initial high-confidence matching of the rest of the library.
 
 ## Verification Plan
 
@@ -1067,18 +1053,17 @@ Manual functional check:
 2. Add or scan artists so `Antti Martikainen` exists.
 3. Match MusicBrainz provider.
 4. Confirm DB has one `artist_provider_links` row for the artist.
-5. Refresh provider.
+5. Run provider scan or the provider refresh endpoint.
 6. Confirm safe existing albums are linked.
 7. Confirm safe missing albums are created unchecked.
 8. Confirm ambiguous albums are shown for review.
 9. Apply at least one manual link decision.
 10. Confirm `album_provider_links.match_source='MANUAL'`.
-11. Refresh again and confirm already linked release groups are skipped.
+11. Run provider scan or the provider refresh endpoint again and confirm already linked release groups are skipped.
 
 UI layout check:
 
-- Run `scripts/check-ui-layout.ps1` if the Artists screen layout, dialogs, pane
-  scroll behavior, or provider review UI affects page fit.
+- Run `scripts/check-ui-layout.ps1` if the Artists screen layout, dialogs, pane scroll behavior, or provider review UI affects page fit.
 - Treat a browser-level vertical scrollbar as a failure.
 
 ## Implementation Notes
@@ -1087,7 +1072,8 @@ UI layout check:
 - The old `/api/artists/{artistId}/provider-links` endpoints remain for compatibility, but the schema now enforces one provider row per artist.
 - MusicBrainz provider identity uses `provider_artist_id` for the artist MBID and `album_provider_links` for release-group mappings.
 - Existing HTML providers can still use URL-oriented calls, with the URL acting as the legacy provider identity when no stable provider artist ID is supplied.
-- The Artists screen owns the first MusicBrainz matching and refresh UI.
+- The Artists screen owns provider assignment, selected-artist provider info, and known album display.
+- Provider refresh/check workflows remain collection/provider scan actions.
 - Provider-created MusicBrainz albums are currently artist-level albums and are not assigned to a collection by default.
 - Review decisions are applied by re-fetching the artist's current MusicBrainz release groups, not by persisting a transient import-run cache.
 - Permanent ignore decisions remain future work.

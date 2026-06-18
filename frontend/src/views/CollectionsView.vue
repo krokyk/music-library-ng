@@ -14,13 +14,6 @@ interface ArtistForm {
   collectionIds: string[]
 }
 
-interface ProviderLinkForm {
-  id?: number
-  providerId: string
-  providerUrl: string
-  enabled: boolean
-}
-
 type SortDirection = 'asc' | 'desc'
 type ArtistSortKey = 'name'
 type AlbumSortKey = 'name' | 'releaseDate'
@@ -43,7 +36,6 @@ const {
   collectionMetadataLoading,
   selectedCollectionId,
   selectedArtistId,
-  providerLinks,
   providerStatus,
   scanJob,
   uiSettings,
@@ -164,14 +156,27 @@ const suppressHeaderSortUntil = ref(0)
 
 const columnWidthSaveTimers = new Map<string, number>()
 const columnWidthPreferenceKeys = {
-  artist: 'collections.columns.artist',
-  album: 'collections.columns.album',
-  title: 'collections.columns.title',
+  artist: {
+    name: 'collections-screen.artists-pane.name',
+  },
+  album: {
+    name: 'collections-screen.albums-pane.name',
+    releaseDate: 'collections-screen.albums-pane.release-date',
+    checked: 'collections-screen.albums-pane.checked',
+    collections: 'collections-screen.albums-pane.also-in',
+    action: 'collections-screen.albums-pane.action',
+  },
+  title: {
+    title: 'collections-screen.titles-pane.title',
+    artist: 'collections-screen.titles-pane.artist',
+    releaseDate: 'collections-screen.titles-pane.release-date',
+    action: 'collections-screen.titles-pane.action',
+  },
 } as const
 
 const presencePreferenceKeys = {
-  artist: 'collections.presence.artist',
-  title: 'collections.presence.title',
+  artist: 'collections-screen.artists-pane.presence-filter',
+  title: 'collections-screen.titles-pane.presence-filter',
 } as const
 
 const paneHeaderMinimumWidths = {
@@ -200,18 +205,6 @@ const artistForm = reactive<ArtistForm>({
   notes: '',
   collectionIds: [],
 })
-
-const providerLinkForms = ref<ProviderLinkForm[]>([])
-const newProviderLink = reactive<ProviderLinkForm>({
-  providerId: 'spirit_of_metal',
-  providerUrl: '',
-  enabled: true,
-})
-
-const providerIds = [
-  { title: 'Spirit of Metal', value: 'spirit_of_metal' },
-  { title: 'Metal Archives', value: 'metal_archives' },
-]
 
 const selectedCollection = computed(() =>
   collections.value.find((collection) => collection.id === selectedCollectionId.value) ?? null,
@@ -266,10 +259,9 @@ const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
 const collectionScanIsRunning = computed(() => scanIsRunning.value && scanJob.value?.kind !== 'LOCAL_ALBUMS')
 const localAlbumScanIsRunning = computed(() => scanIsRunning.value && scanJob.value?.kind === 'LOCAL_ALBUMS')
 const providerIsRunning = computed(() => providerStatus.value.running)
-const legacyPaneLayoutPreferenceKey = 'collections.paneLayout'
 const paneLayoutPreferenceKeys = {
-  artist: 'collections.paneLayout.artist',
-  title: 'collections.paneLayout.title',
+  artist: 'collections-screen.artist-layout.panes',
+  title: 'collections-screen.title-layout.panes',
 } as const
 
 const sortedCollectionArtists = computed(() =>
@@ -1120,10 +1112,7 @@ async function loadPaneLayouts() {
 }
 
 async function loadPaneLayout(kind: PaneLayoutKind) {
-  let preference = await store.loadPreference(paneLayoutPreferenceKeys[kind])
-  if (!preference?.value && kind === 'artist') {
-    preference = await store.loadPreference(legacyPaneLayoutPreferenceKey)
-  }
+  const preference = await store.loadPreference(paneLayoutPreferenceKeys[kind])
   if (!preference?.value) {
     return
   }
@@ -1292,24 +1281,27 @@ function savePresenceFilter(scope: keyof typeof presencePreferenceKeys, value: P
 }
 
 async function loadColumnWidthPreference(table: keyof typeof columnWidthPreferenceKeys) {
-  const preference = await store.loadPreference(columnWidthPreferenceKeys[table])
-  if (!preference?.value) {
-    return
-  }
-  try {
-    const parsed = JSON.parse(preference.value)
-    if (!parsed || typeof parsed !== 'object') {
-      return
-    }
-    const widths = columnWidthState(table)
-    Object.entries(parsed as Record<string, unknown>).forEach(([key, value]) => {
-      if (typeof value === 'number' && Number.isFinite(value) && key in widths) {
-        widths[key] = Math.max(columnMinimumWidth(table, key), Math.round(value))
+  const widths = columnWidthState(table)
+  await Promise.all(
+    Object.entries(columnWidthPreferenceKeys[table]).map(async ([key, preferenceKey]) => {
+      const preference = await store.loadPreference(preferenceKey)
+      if (!preference?.value || !(key in widths)) {
+        return
       }
-    })
-  } catch (error) {
-    // Ignore invalid stored UI state and keep the default widths.
+      const value = parseColumnWidthPreference(preference.value)
+      if (value !== null) {
+        widths[key] = Math.max(columnMinimumWidth(table, key), value)
+      }
+    }),
+  )
+}
+
+function parseColumnWidthPreference(value: string) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    return null
   }
+  return Math.round(parsed)
 }
 
 function columnWidthState(table: keyof typeof columnWidthPreferenceKeys) {
@@ -1474,7 +1466,12 @@ function saveColumnWidths(table: keyof typeof columnWidthPreferenceKeys) {
     window.clearTimeout(existing)
     columnWidthSaveTimers.delete(table)
   }
-  void store.savePreference(columnWidthPreferenceKeys[table], JSON.stringify(columnWidthState(table)))
+  const widths = columnWidthState(table)
+  void Promise.all(
+    Object.entries(columnWidthPreferenceKeys[table]).map(([key, preferenceKey]) =>
+      store.savePreference(preferenceKey, String(Math.round(widths[key] ?? columnMinimumWidth(table, key)))),
+    ),
+  )
 }
 
 function columnMinimumWidth(table: keyof typeof columnWidthPreferenceKeys, key: string) {
@@ -1518,25 +1515,7 @@ async function openArtistDialog(artist?: Artist) {
     : selectedCollectionId.value
       ? [selectedCollectionId.value]
       : []
-  providerLinkForms.value = []
-  newProviderLink.providerId = 'spirit_of_metal'
-  newProviderLink.providerUrl = ''
-  newProviderLink.enabled = true
   artistDialog.value = true
-
-  if (artist?.id) {
-    await reloadProviderLinkForms(artist.id)
-  }
-}
-
-async function reloadProviderLinkForms(artistId: number) {
-  await store.loadProviderLinks(artistId)
-  providerLinkForms.value = (providerLinks.value[artistId] ?? []).map((link) => ({
-    id: link.id,
-    providerId: link.providerId,
-    providerUrl: link.providerUrl ?? '',
-    enabled: link.enabled,
-  }))
 }
 
 async function saveArtistDetails() {
@@ -1560,7 +1539,6 @@ async function saveArtistDetails() {
       }
       await store.selectArtist(artist.id)
     }
-    await reloadProviderLinkForms(artist.id)
   } finally {
     savingArtist.value = false
   }
@@ -1572,38 +1550,6 @@ async function removeArtistFromCollection(artist: Artist) {
   } catch (error) {
     store.error = error instanceof Error ? error.message : String(error)
   }
-}
-
-async function saveProviderLink(link: ProviderLinkForm) {
-  if (!artistForm.id || !link.providerUrl.trim()) {
-    return
-  }
-  await store.saveProviderLink(artistForm.id, {
-    ...link,
-    providerUrl: link.providerUrl.trim(),
-  })
-  await reloadProviderLinkForms(artistForm.id)
-}
-
-async function addProviderLink() {
-  if (!artistForm.id || !newProviderLink.providerUrl.trim()) {
-    return
-  }
-  await store.saveProviderLink(artistForm.id, {
-    providerId: newProviderLink.providerId,
-    providerUrl: newProviderLink.providerUrl.trim(),
-    enabled: newProviderLink.enabled,
-  })
-  newProviderLink.providerUrl = ''
-  await reloadProviderLinkForms(artistForm.id)
-}
-
-async function deleteProviderLink(link: ProviderLinkForm) {
-  if (!artistForm.id || !link.id) {
-    return
-  }
-  await store.deleteProviderLink(artistForm.id, link.id)
-  await reloadProviderLinkForms(artistForm.id)
 }
 
 async function refreshArtist(artist: Artist) {
@@ -2773,48 +2719,6 @@ watch(titlePresence, (value) => {
             </v-col>
           </v-row>
 
-          <div class="edit-form__section">
-            <div class="modal-section-title">Provider Links</div>
-            <div v-if="!artistForm.id" class="cell-muted">Save the artist before adding provider links.</div>
-            <div v-else class="provider-editor">
-              <div v-for="link in providerLinkForms" :key="link.id" class="provider-editor-row">
-                <v-select
-                  v-model="link.providerId"
-                  :items="providerIds"
-                  label="Provider"
-                  hide-details
-                ></v-select>
-                <v-text-field v-model="link.providerUrl" label="URL" hide-details></v-text-field>
-                <v-checkbox v-model="link.enabled" label="Enabled" color="primary" density="compact" hide-details></v-checkbox>
-                <v-btn icon="mdi-content-save" size="small" color="primary" variant="text" @click="saveProviderLink(link)"></v-btn>
-                <v-btn
-                  icon="mdi-trash-can-outline"
-                  size="small"
-                  variant="text"
-                  color="error"
-                  @click="deleteProviderLink(link)"
-                ></v-btn>
-              </div>
-
-              <div class="provider-editor-row provider-editor-row--new">
-                <v-select
-                  v-model="newProviderLink.providerId"
-                  :items="providerIds"
-                  label="Provider"
-                  hide-details
-                ></v-select>
-                <v-text-field
-                  v-model="newProviderLink.providerUrl"
-                  label="URL"
-                  hide-details
-                  @keyup.enter="addProviderLink"
-                ></v-text-field>
-                <v-checkbox v-model="newProviderLink.enabled" label="Enabled" color="primary" density="compact" hide-details></v-checkbox>
-                <v-btn icon="mdi-plus" size="small" color="primary" variant="text" @click="addProviderLink"></v-btn>
-                <span></span>
-              </div>
-            </div>
-          </div>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>

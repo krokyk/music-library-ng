@@ -16,10 +16,12 @@ This roadmap tracks product capabilities and useful next steps.
 - Local scan for `artist - year - album` folders.
 - Local scan for mixed artist collections with `artist/year - album` nested folders.
 - Local scan for `title (artist, year)` soundtrack/musical folders.
-- Provider links and provider check history.
+- Provider identities and provider check history.
 - Provider checks that add newly discovered albums as unchecked.
-- One MusicBrainz provider identity per artist with MBID-backed artist matching.
+- One provider identity per artist with a provider lookup row and provider-specific artist identity.
+- MusicBrainz provider identity uses MBID-backed artist matching and stores provider metadata such as country, type, and active status.
 - MusicBrainz release-group refresh with exact auto-linking, safe unchecked album creation, and review candidates for ambiguous matches.
+- Bulk MusicBrainz artist matching with conservative auto-linking and review results for uncertain candidates.
 - Three-pane Collections workspace.
 - Global Library and Artists views.
 - Read-only Settings view for effective runtime configuration.
@@ -36,7 +38,6 @@ This roadmap tracks product capabilities and useful next steps.
 - Add screenshots.
 - Document release packaging.
 - Decide how to represent compilations with multiple artists.
-- Add bulk MusicBrainz matching after the one-artist flow is stable.
 - Add permanent ignore decisions for unwanted provider release groups if review noise becomes a problem.
 - Add duplicate-detection workflow for slightly different album names.
 - Add identity-preserving folder rename workflow with preview and stored local-path update.
@@ -55,5 +56,5 @@ This roadmap tracks product capabilities and useful next steps.
 - Verify manual artist creation with collection membership.
 - Verify manual album creation and checked toggling.
 - Verify scan parser behavior with sample directories.
-- Verify provider link creation and provider check run history.
+- Verify provider identity assignment and provider check run history.
 - Verify the Vue frontend build.

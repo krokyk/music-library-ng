@@ -123,14 +123,25 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 
 ## Pane Layout Rules
 
+- Runtime DB preference keys should be hierarchical and semantic:
+  - screen-scoped pane/table state: `<screen>.<pane>.<thing>`
+  - table column widths: `<screen>.<pane>.<column>`
+  - coupled pane layouts: `<screen>.<layout-kind>.panes`
+  - global UI state: `ui.<area>.<thing>`
+  Do not add new flat keys such as `collections.columns.album`.
 - Workspace screens use pane layouts, not marketing/landing layouts.
 - Panes are resizable along the full vertical divider, not only at a corner.
+- Pane layout is persisted as percentages, not pixels, so browser resize keeps proportions.
+- Artist-centric and title-centric collection layouts are persisted independently.
+  Current preference keys are `collections-screen.artist-layout.panes` and `collections-screen.title-layout.panes`.
 - Pane resizing should behave like block movement:
   - resizing the collections pane moves the remaining panes as a block
   - resizing the middle pane moves the right pane as a block
   - rightmost pane absorbs remaining width
 - Pane minimum widths must keep the pane title and required icon-only controls visible.
 - Panes must not shrink so far that their title bar becomes unusable.
+- Pane resizing must not mutate stored table column widths inside those panes.
+  The rightmost/flexible table column visually absorbs pane width changes.
 - Collection pane dropdowns should anchor under the triggering button.
   They should grow to available pane height, then scroll internally.
 - Add-folder dropdowns should list folder names only and be only as wide as needed for the widest name, with the right edge aligned to the collection pane.
@@ -139,8 +150,14 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 
 - Workspace pane tables that need resizing or sticky headers use the custom CSS grid pattern, not Vuetify `v-table`.
 - Use explicit pixel column widths from defaults/preferences.
+- Column width defaults come from `application.properties`; user-adjusted widths are stored as DB preferences.
+  Future screens should follow the same shape, for example `artists-screen.artists-pane.name`.
+  Current collection-screen column keys include `collections-screen.artists-pane.name`, `collections-screen.albums-pane.name`, `collections-screen.albums-pane.release-date`, `collections-screen.albums-pane.checked`, `collections-screen.albums-pane.also-in`, `collections-screen.albums-pane.action`, `collections-screen.titles-pane.title`, `collections-screen.titles-pane.artist`, `collections-screen.titles-pane.release-date`, and `collections-screen.titles-pane.action`.
+- Non-rightmost columns keep fixed pixel widths.
+  The rightmost column uses remaining available space.
 - Each column boundary has one resize handle.
-- Dragging a column boundary resizes the column to the left of the boundary and moves all columns to the right as a block.
+- Dragging a column boundary resizes the column immediately to the left of the boundary.
+  Columns to the right move as a block; the rightmost/flexible column absorbs or gives up width.
 - Column resizing must not trigger sorting.
 - Double-click auto-fit on column boundaries is disabled unless it can be made reliable.
 - All non-action columns share the configured minimum table grid column width.
@@ -157,6 +174,11 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 - Row actions are hover/focus visible unless the workflow needs persistent controls.
 - Inline row actions use the centralized row action button style.
 - Prefer icon plus short label when pane width allows it; collapse to icon-only based on configurable pane-width thresholds.
+  Current threshold keys are `collections-screen.collections-pane.action-label-threshold`, `collections-screen.artists-pane.action-label-threshold`, `collections-screen.albums-pane.action-label-threshold`, and `collections-screen.titles-pane.action-label-threshold`.
+- Controls that can collapse must keep their icons visible.
+  When space gets tight, remove labels first; never allow the pane, row, or action column to shrink below the width required to show all required icons.
+- Pane-local filters use pane-scoped keys, for example `collections-screen.artists-pane.presence-filter` and `collections-screen.titles-pane.presence-filter`.
+- Pane-local scan indicators use pane-scoped keys, for example `collections-screen.collections-pane.scan-spinner-enabled`, `collections-screen.collections-pane.scan-progress-enabled`, and `collections-screen.artists-pane.scan-spinner-enabled`.
 - Use clear, short labels:
   - `Edit`
   - `Local`
@@ -220,6 +242,7 @@ Nonlocal and other-collection rows use `calc(1em - 1px)`.
 
 - Defaults belong in `src/main/resources/application.properties`.
 - Runtime user preferences belong in the DB.
+- Global runtime preference keys use the `ui.<area>.<thing>` shape, for example `ui.status-message.visible-ms`, `ui.scan-progress.poll-interval-ms`, and `ui.status-bar.location`.
 - Settings shown in the Settings screen should be useful at runtime.
   Do not add visible settings with no real effect.
 - A DB value equal to the current default should behave as default, not custom.

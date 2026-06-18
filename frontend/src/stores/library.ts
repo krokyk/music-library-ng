@@ -5,6 +5,7 @@ import type {
   Album,
   AlbumReviewDecision,
   Artist,
+  ArtistProviderBulkMatchResult,
   ArtistProviderCandidate,
   ArtistProviderLink,
   CollectionFolderCandidate,
@@ -36,6 +37,10 @@ interface ProviderLinkPayload {
   providerId: string
   providerArtistId?: string | null
   providerArtistName?: string | null
+  providerArtistType?: string | null
+  providerArtistCountry?: string | null
+  providerArtistDisambiguation?: string | null
+  providerArtistActive?: boolean | null
   providerUrl?: string | null
   enabled: boolean
 }
@@ -855,11 +860,53 @@ export const useLibraryStore = defineStore('library', {
     async searchMusicBrainzCandidates(artistId: number) {
       return apiGet<ArtistProviderCandidate[]>(`/api/artists/${artistId}/provider-candidates/musicbrainz`)
     },
+    async bulkMatchMusicBrainz(artistIds: number[]) {
+      const count = artistIds.length
+      this.providerStatus = {
+        running: true,
+        message: `Matching MusicBrainz for ${count} artist${count === 1 ? '' : 's'}`,
+        state: 'running',
+      }
+      try {
+        const result = await apiSend<ArtistProviderBulkMatchResult>(
+          '/api/provider-matches/musicbrainz/artists',
+          'POST',
+          { artistIds },
+        )
+        for (const item of result.items) {
+          if (item.providerLink) {
+            this.providerLinks[item.artistId] = [item.providerLink]
+          }
+        }
+        this.invalidateCollectionContent()
+        await this.loadArtists()
+        await this.refreshCollectionContext()
+        this.invalidateCollectionMetadata()
+        const detail = result.messages.join(' ').trim()
+        const message = detail || `MusicBrainz bulk match complete: ${result.matchedCount} matched`
+        this.providerStatus = {
+          running: false,
+          message,
+          state: result.errorCount > 0 ? 'failed'
+            : result.reviewCount > 0 || result.noMatchCount > 0 ? 'warning'
+              : 'done',
+        }
+        return result
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.providerStatus = { running: false, message: `MusicBrainz bulk match failed: ${message}`, state: 'failed' }
+        throw error
+      }
+    },
     async saveArtistProvider(artistId: number, payload: ProviderLinkPayload) {
       const provider = await apiSend<ArtistProviderLink>(`/api/artists/${artistId}/provider`, 'PUT', {
         providerId: payload.providerId,
         providerArtistId: payload.providerArtistId,
         providerArtistName: payload.providerArtistName,
+        providerArtistType: payload.providerArtistType,
+        providerArtistCountry: payload.providerArtistCountry,
+        providerArtistDisambiguation: payload.providerArtistDisambiguation,
+        providerArtistActive: payload.providerArtistActive,
         providerUrl: payload.providerUrl,
         enabled: payload.enabled,
       })
@@ -881,6 +928,10 @@ export const useLibraryStore = defineStore('library', {
         providerId: payload.providerId,
         providerArtistId: payload.providerArtistId,
         providerArtistName: payload.providerArtistName,
+        providerArtistType: payload.providerArtistType,
+        providerArtistCountry: payload.providerArtistCountry,
+        providerArtistDisambiguation: payload.providerArtistDisambiguation,
+        providerArtistActive: payload.providerArtistActive,
         providerUrl: payload.providerUrl,
         enabled: payload.enabled,
       }

@@ -54,6 +54,7 @@ public class MusicBrainzClient {
                     text(item, "type"),
                     text(item, "country"),
                     text(item, "disambiguation"),
+                    active(item),
                     item.path("score").asInt(0)));
         }
         return results;
@@ -210,6 +211,14 @@ public class MusicBrainzClient {
     private static String text(JsonNode node, String field) {
         JsonNode value = node.path(field);
         return value.isTextual() && !value.asText().isBlank() ? value.asText().trim() : null;
+    }
+
+    private static Boolean active(JsonNode node) {
+        JsonNode lifeSpan = node.path("life-span");
+        if (!lifeSpan.isObject()) {
+            return null;
+        }
+        return !lifeSpan.path("ended").asBoolean(false);
     }
 
     private static String normalizeDate(String value) {

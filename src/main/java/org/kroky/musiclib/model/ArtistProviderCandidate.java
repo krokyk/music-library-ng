@@ -10,6 +10,7 @@ public record ArtistProviderCandidate(
         String type,
         String country,
         String disambiguation,
+        Boolean active,
         int providerScore,
         int matchScore,
         List<String> matchedLocalAlbums,

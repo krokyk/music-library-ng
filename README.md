@@ -22,9 +22,9 @@ The app is designed for a single user who runs it on one PC at a time while the 
 - Tracks one album listening flag: `checked=true` means listened.
 - Tracks disk presence separately from the listened flag.
 - Allows artists to be assigned to collections even before any local album folder exists.
-- Refreshes artist discographies from provider links and adds new albums as unchecked.
-- Supports one MusicBrainz provider identity per artist.
-- Searches MusicBrainz artist candidates, stores the accepted artist MBID, imports release groups as albums, and sends ambiguous matches to review.
+- Refreshes artist discographies from selected provider identities and adds new albums as unchecked.
+- Supports one provider identity per artist, with MusicBrainz MBIDs and URL identities for Spirit of Metal and Metal Archives.
+- Searches MusicBrainz artist candidates, stores the accepted artist MBID, stores provider metadata such as country/type/status, imports release groups as albums, and sends ambiguous matches to review.
 
 ## Tooling
 
@@ -454,14 +454,17 @@ Artist-centric album maintenance is explicit:
 - `Scan local albums` parses local album folders in the selected collection and upserts albums plus local paths.
 - Row-level `Scan local albums` is scoped to one artist.
 - Title-bar `Scan local albums` is scoped to the selected collection.
-- `Scan providers` checks online provider links and adds remote albums as unchecked.
+- `Scan providers` checks online provider identities and adds remote albums as unchecked.
 
 Scanner jobs observe disk state and update DB paths, but they do not infer manual folder renames as identity-preserving moves.
 Identity-preserving folder rename and collection reorganization should be explicit preview/apply workflows that update the filesystem and the stored local path in one operation.
 
-The Artists screen has the first MusicBrainz workflow.
-Select an artist, use `Match MB` to search MusicBrainz candidates, accept the right MBID, then use `Refresh` to import release groups.
-Exact safe matches are linked to existing albums, clearly new release groups are created as unchecked albums, and ambiguous release groups are returned for review.
+The Artists screen owns provider assignment.
+Select an artist row to view artist info, provider metadata, and known albums.
+Use the row-level provider buttons to choose MusicBrainz, Spirit of Metal, or Metal Archives.
+MusicBrainz searches artist candidates and stores the accepted MBID.
+Spirit of Metal and Metal Archives prompt for the concrete artist URL, which becomes the provider-specific artist identity.
+When provider scans or refreshes run, exact safe matches are linked to existing albums, clearly new release groups are created as unchecked albums, and ambiguous release groups are returned for review.
 Provider-created MusicBrainz albums are artist-level albums and are not assigned to a collection by default.
 
 Clicking an artist only selects it and loads known albums.
@@ -529,7 +532,7 @@ curl -X POST 'http://localhost:8795/api/scan/jobs/local-albums?collectionId=melo
 curl -X POST 'http://localhost:8795/api/scan/jobs/local-albums?collectionId=melodeath&artistId=1'
 ```
 
-Check provider links for the selected collection scope:
+Check provider identities for the selected collection scope:
 
 ```bash
 curl -X POST http://localhost:8795/api/provider-checks/collection/melodeath

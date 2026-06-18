@@ -80,6 +80,7 @@ public class ArtistProviderMatchService {
                 result.type(),
                 result.country(),
                 result.disambiguation(),
+                result.active(),
                 result.score(),
                 matchScore,
                 matchedAlbums,

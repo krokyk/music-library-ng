@@ -17,16 +17,16 @@ import jakarta.ws.rs.Path;
 public class SettingsResource {
 
     private static final Logger LOG = Logger.getLogger(SettingsResource.class);
-    private static final String STATUS_VISIBLE_KEY = "ui.statusCompleteVisibleMs";
-    private static final String SCAN_POLL_KEY = "ui.scanPollIntervalMs";
-    private static final String COLLECTION_SPINNER_KEY = "ui.collectionScanSpinnerEnabled";
-    private static final String ARTIST_SPINNER_KEY = "ui.artistScanSpinnerEnabled";
-    private static final String COLLECTION_PROGRESS_KEY = "ui.collectionScanProgressEnabled";
-    private static final String STATUS_BAR_LOCATION_KEY = "ui.statusBarLocation";
-    private static final String COLLECTION_ACTION_LABEL_THRESHOLD_KEY = "ui.actionLabelThreshold.collections";
-    private static final String ARTIST_ACTION_LABEL_THRESHOLD_KEY = "ui.actionLabelThreshold.artists";
-    private static final String ALBUM_ACTION_LABEL_THRESHOLD_KEY = "ui.actionLabelThreshold.albums";
-    private static final String TITLE_ACTION_LABEL_THRESHOLD_KEY = "ui.actionLabelThreshold.titles";
+    private static final String STATUS_VISIBLE_KEY = "ui.status-message.visible-ms";
+    private static final String SCAN_POLL_KEY = "ui.scan-progress.poll-interval-ms";
+    private static final String COLLECTION_SPINNER_KEY = "collections-screen.collections-pane.scan-spinner-enabled";
+    private static final String ARTIST_SPINNER_KEY = "collections-screen.artists-pane.scan-spinner-enabled";
+    private static final String COLLECTION_PROGRESS_KEY = "collections-screen.collections-pane.scan-progress-enabled";
+    private static final String STATUS_BAR_LOCATION_KEY = "ui.status-bar.location";
+    private static final String COLLECTION_ACTION_LABEL_THRESHOLD_KEY = "collections-screen.collections-pane.action-label-threshold";
+    private static final String ARTIST_ACTION_LABEL_THRESHOLD_KEY = "collections-screen.artists-pane.action-label-threshold";
+    private static final String ALBUM_ACTION_LABEL_THRESHOLD_KEY = "collections-screen.albums-pane.action-label-threshold";
+    private static final String TITLE_ACTION_LABEL_THRESHOLD_KEY = "collections-screen.titles-pane.action-label-threshold";
     private static final int STATUS_VISIBLE_MIN = 0;
     private static final int STATUS_VISIBLE_MAX = 30_000;
     private static final int SCAN_POLL_MIN = 100;
