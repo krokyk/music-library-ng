@@ -161,7 +161,6 @@ let presencePreferencesLoaded = false
 let paneResizeActive = false
 const suppressHeaderSortUntil = ref(0)
 
-const columnWidthSaveTimers = new Map<string, number>()
 const columnWidthPreferenceKeys = {
   artist: {
     name: 'collections-screen.artists-pane.name',
@@ -906,9 +905,13 @@ async function deleteCollection() {
   if (!collectionToDelete.value) {
     return
   }
-  await store.deleteCollection(collectionToDelete.value.id)
-  deleteCollectionDialog.value = false
-  collectionToDelete.value = null
+  try {
+    await store.deleteCollection(collectionToDelete.value.id)
+    deleteCollectionDialog.value = false
+    collectionToDelete.value = null
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to delete collection')
+  }
 }
 
 async function toggleAddCollectionDropdown() {
@@ -916,12 +919,20 @@ async function toggleAddCollectionDropdown() {
     addCollectionDropdownOpen.value = false
     return
   }
-  await store.loadCollectionCandidates()
-  addCollectionDropdownOpen.value = true
+  try {
+    await store.loadCollectionCandidates()
+    addCollectionDropdownOpen.value = true
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to load collection folders')
+  }
 }
 
 async function addCollection(candidate: CollectionFolderCandidate) {
-  await store.createCollection(candidate.relativePath)
+  try {
+    await store.createCollection(candidate.relativePath)
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to add collection')
+  }
 }
 
 function closeAddCollectionDropdown() {
@@ -949,10 +960,14 @@ async function saveCollectionEdit(collection: MusicCollection) {
   if (name === collection.name && collectionEditForm.type === collection.type) {
     return
   }
-  await store.updateCollection(collection.id, {
-    name,
-    type: collectionEditForm.type,
-  })
+  try {
+    await store.updateCollection(collection.id, {
+      name,
+      type: collectionEditForm.type,
+    })
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to save collection')
+  }
 }
 
 async function saveOpenCollectionEdit() {
@@ -968,7 +983,11 @@ function closeCollectionEdit() {
 }
 
 async function startScan(collectionId: string) {
-  await store.runScanJob(collectionId)
+  try {
+    await store.runScanJob(collectionId)
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to start collection scan')
+  }
 }
 
 function collectionIsScanning(collection: MusicCollection) {
@@ -1220,7 +1239,9 @@ function savePaneLayout() {
     .map((value) => Math.round(value * 100) / 100)
   paneLayoutCache[kind] = rounded
   panePercents.value = rounded
-  void store.savePreference(paneLayoutPreferenceKeys[kind], JSON.stringify(paneLayoutObject(rounded)))
+  void store.savePreference(paneLayoutPreferenceKeys[kind], JSON.stringify(paneLayoutObject(rounded))).catch((error) => {
+    store.showErrorStatus(error, 'Unable to save pane layout')
+  })
 }
 
 function normalizePanePercents(values: number[]) {
@@ -1340,7 +1361,9 @@ function savePresenceFilter(scope: keyof typeof presencePreferenceKeys, value: P
     return
   }
   const normalized = normalizePresenceFilter(value) ?? []
-  void store.savePreference(presencePreferenceKeys[scope], JSON.stringify(normalized))
+  void store.savePreference(presencePreferenceKeys[scope], JSON.stringify(normalized)).catch((error) => {
+    store.showErrorStatus(error, 'Unable to save filter')
+  })
 }
 
 async function loadColumnWidthPreference(table: keyof typeof columnWidthPreferenceKeys) {
@@ -1498,7 +1521,6 @@ function startColumnResize(table: keyof typeof columnWidthPreferenceKeys, key: s
       leftMaximum,
     )
     widths[key] = left
-    scheduleColumnWidthSave(table)
   }
 
   function stop() {
@@ -1507,7 +1529,7 @@ function startColumnResize(table: keyof typeof columnWidthPreferenceKeys, key: s
     window.removeEventListener('pointercancel', stop)
     document.body.classList.remove('is-column-resizing')
     suppressHeaderSortClick()
-    saveColumnWidths(table)
+    saveColumnWidth(table, key)
   }
 
   window.addEventListener('pointermove', move)
@@ -1515,26 +1537,18 @@ function startColumnResize(table: keyof typeof columnWidthPreferenceKeys, key: s
   window.addEventListener('pointercancel', stop)
 }
 
-function scheduleColumnWidthSave(table: keyof typeof columnWidthPreferenceKeys) {
-  const existing = columnWidthSaveTimers.get(table)
-  if (existing !== undefined) {
-    window.clearTimeout(existing)
-  }
-  columnWidthSaveTimers.set(table, window.setTimeout(() => saveColumnWidths(table), 200))
-}
-
-function saveColumnWidths(table: keyof typeof columnWidthPreferenceKeys) {
-  const existing = columnWidthSaveTimers.get(table)
-  if (existing !== undefined) {
-    window.clearTimeout(existing)
-    columnWidthSaveTimers.delete(table)
-  }
+function saveColumnWidth(table: keyof typeof columnWidthPreferenceKeys, key: string) {
   const widths = columnWidthState(table)
-  void Promise.all(
-    Object.entries(columnWidthPreferenceKeys[table]).map(([key, preferenceKey]) =>
-      store.savePreference(preferenceKey, String(Math.round(widths[key] ?? columnMinimumWidth(table, key)))),
-    ),
-  )
+  const preferenceKey = columnWidthPreferenceKeys[table][key as keyof typeof columnWidthPreferenceKeys[typeof table]]
+  if (!preferenceKey) {
+    return
+  }
+  void store.savePreference(
+    preferenceKey,
+    String(Math.round(widths[key] ?? columnMinimumWidth(table, key))),
+  ).catch((error) => {
+    store.showErrorStatus(error, 'Unable to save column width')
+  })
 }
 
 function columnMinimumWidth(table: keyof typeof columnWidthPreferenceKeys, key: string) {
@@ -1602,6 +1616,8 @@ async function saveArtistDetails() {
       }
       await store.selectArtist(artist.id)
     }
+  } catch (error) {
+    store.showErrorStatus(error, artistForm.id === null ? 'Unable to add artist' : 'Unable to save artist')
   } finally {
     savingArtist.value = false
   }
@@ -1611,7 +1627,7 @@ async function removeArtistFromCollection(artist: Artist) {
   try {
     await store.removeArtistFromSelectedCollection(artist.id)
   } catch (error) {
-    store.error = error instanceof Error ? error.message : String(error)
+    store.showErrorStatus(error, 'Unable to remove artist from collection')
   }
 }
 
@@ -1620,7 +1636,9 @@ async function refreshArtist(artist: Artist) {
   try {
     await store.checkArtistProvider(artist.id)
   } catch (error) {
-    store.error = error instanceof Error ? error.message : String(error)
+    if (!store.providerStatus.message?.startsWith('Provider check failed')) {
+      store.showErrorStatus(error, 'Provider check failed')
+    }
   } finally {
     refreshingArtistId.value = null
   }
@@ -1664,7 +1682,7 @@ async function scanLocalAlbumsForArtist(artist: Artist) {
   try {
     await store.runLocalAlbumScanJob(selectedCollectionId.value, artist.id)
   } catch (error) {
-    store.error = error instanceof Error ? error.message : String(error)
+    store.showErrorStatus(error, 'Unable to start local album scan')
   }
 }
 
@@ -1675,7 +1693,7 @@ async function scanLocalAlbumsForCollection() {
   try {
     await store.runLocalAlbumScanJob(selectedCollectionId.value)
   } catch (error) {
-    store.error = error instanceof Error ? error.message : String(error)
+    store.showErrorStatus(error, 'Unable to start local album scan')
   }
 }
 
@@ -1686,7 +1704,9 @@ async function refreshCollectionProviders() {
   try {
     await store.checkCollectionProviders(selectedCollectionId.value)
   } catch (error) {
-    store.error = error instanceof Error ? error.message : String(error)
+    if (!store.providerStatus.message?.startsWith('Provider check failed')) {
+      store.showErrorStatus(error, 'Provider check failed')
+    }
   }
 }
 
@@ -1694,7 +1714,11 @@ async function updateAlbumChecked(album: Album, checked: boolean) {
   if (albumCheckedToggleDisabled(album)) {
     return
   }
-  await store.updateAlbum({ ...album, checked })
+  try {
+    await store.updateAlbum({ ...album, checked })
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to update album')
+  }
 }
 
 function albumCheckedValue(album: Album) {
@@ -1732,7 +1756,7 @@ async function saveAlbumTitle() {
     albumEditDialog.value = false
     albumToEdit.value = null
   } catch (error) {
-    store.error = error instanceof Error ? error.message : String(error)
+    store.showErrorStatus(error, 'Unable to save album title')
   } finally {
     albumEditSaving.value = false
   }
@@ -1745,7 +1769,7 @@ async function untrackMissingAlbumLocalPaths(album: Album) {
   try {
     await store.untrackMissingAlbumLocalPaths(album.id, selectedCollectionId.value)
   } catch (error) {
-    store.error = error instanceof Error ? error.message : String(error)
+    store.showErrorStatus(error, 'Unable to untrack missing album path')
   }
 }
 
@@ -1758,9 +1782,13 @@ async function deleteAlbum() {
   if (!albumToDelete.value) {
     return
   }
-  await store.deleteAlbum(albumToDelete.value.id)
-  deleteDialog.value = false
-  albumToDelete.value = null
+  try {
+    await store.deleteAlbum(albumToDelete.value.id)
+    deleteDialog.value = false
+    albumToDelete.value = null
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to delete album')
+  }
 }
 
 function openTitleItemDialog(item?: Album) {
@@ -1792,6 +1820,8 @@ async function saveTitleItem() {
     }
     titleItemDialog.value = false
     titleItemToEdit.value = null
+  } catch (error) {
+    store.showErrorStatus(error, titleItemToEdit.value ? 'Unable to save title' : 'Unable to add title')
   } finally {
     titleItemSaving.value = false
   }
@@ -1801,7 +1831,7 @@ async function deleteTitleLocalPath(item: Album) {
   try {
     await store.deleteTitleLocalPath(item)
   } catch (error) {
-    store.error = error instanceof Error ? error.message : String(error)
+    store.showErrorStatus(error, 'Unable to delete title local path')
   }
 }
 
@@ -1833,8 +1863,6 @@ onBeforeUnmount(() => {
   if (paneLayoutSaveTimer.value !== null) {
     savePaneLayout()
   }
-  columnWidthSaveTimers.forEach((timer) => window.clearTimeout(timer))
-  columnWidthSaveTimers.clear()
 })
 
 watch(selectedCollectionIsTitle, () => {

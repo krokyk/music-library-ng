@@ -32,7 +32,6 @@ const { artists, albums, collections, providerLinks, uiSettings, loading, error 
 
 const search = ref('')
 const selectedArtistId = ref<number | null>(null)
-const lastMessage = ref('')
 const artistToDelete = ref<Artist | null>(null)
 const deleteArtistDialog = ref(false)
 const deleteArtistWarningDialog = ref(false)
@@ -121,7 +120,6 @@ const artistsGridScrollTop = ref(0)
 const artistsGridViewportHeight = ref(0)
 let artistsPaneWidthObserver: ResizeObserver | null = null
 let artistsPaneResizeActive = false
-let artistsScreenColumnWidthSaveTimer: number | null = null
 
 const filteredArtists = computed(() => {
   const needle = search.value.trim().toLowerCase()
@@ -399,7 +397,6 @@ function startArtistScreenColumnResize(key: ArtistScreenColumnKey, event: Pointe
       leftMaximum,
     )
     artistsScreenColumnWidths[key] = left
-    scheduleArtistsScreenColumnWidthSave()
   }
 
   function stop() {
@@ -408,7 +405,7 @@ function startArtistScreenColumnResize(key: ArtistScreenColumnKey, event: Pointe
     window.removeEventListener('pointercancel', stop)
     document.body.classList.remove('is-column-resizing')
     suppressHeaderSortClick()
-    saveArtistsScreenColumnWidths()
+    saveArtistsScreenColumnWidth(key)
   }
 
   window.addEventListener('pointermove', move)
@@ -416,26 +413,13 @@ function startArtistScreenColumnResize(key: ArtistScreenColumnKey, event: Pointe
   window.addEventListener('pointercancel', stop)
 }
 
-function scheduleArtistsScreenColumnWidthSave() {
-  if (artistsScreenColumnWidthSaveTimer !== null) {
-    window.clearTimeout(artistsScreenColumnWidthSaveTimer)
-  }
-  artistsScreenColumnWidthSaveTimer = window.setTimeout(saveArtistsScreenColumnWidths, 200)
-}
-
-function saveArtistsScreenColumnWidths() {
-  if (artistsScreenColumnWidthSaveTimer !== null) {
-    window.clearTimeout(artistsScreenColumnWidthSaveTimer)
-    artistsScreenColumnWidthSaveTimer = null
-  }
-  void Promise.all(
-    artistsScreenColumnOrder.map((key) =>
-      store.savePreference(
-        artistsScreenColumnWidthPreferenceKeys[key],
-        String(Math.round(artistsScreenColumnWidths[key] ?? artistsScreenColumnMinimumWidth(key))),
-      ),
-    ),
-  )
+function saveArtistsScreenColumnWidth(key: ArtistScreenColumnKey) {
+  void store.savePreference(
+    artistsScreenColumnWidthPreferenceKeys[key],
+    String(Math.round(artistsScreenColumnWidths[key] ?? artistsScreenColumnMinimumWidth(key))),
+  ).catch((error) => {
+    store.showErrorStatus(error, 'Unable to save column width')
+  })
 }
 
 function applyArtistsScreenColumnDefaults() {
@@ -567,7 +551,9 @@ function saveArtistsPaneLayout() {
   void store.savePreference(artistsPaneLayoutPreferenceKey, JSON.stringify({
     [artistsPaneNames[0]]: rounded[0],
     [artistsPaneNames[1]]: rounded[1],
-  }))
+  })).catch((error) => {
+    store.showErrorStatus(error, 'Unable to save pane layout')
+  })
 }
 
 function isArtistsPaneLayoutObject(value: unknown): value is Record<(typeof artistsPaneNames)[number], number> {
@@ -623,7 +609,11 @@ async function selectArtist(artist: Artist) {
     return
   }
   selectedArtistId.value = artist.id
-  await store.loadArtistProvider(artist.id)
+  try {
+    await store.loadArtistProvider(artist.id)
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to load artist provider')
+  }
 }
 
 async function openMusicBrainzMatch(artist: Artist) {
@@ -635,7 +625,7 @@ async function openMusicBrainzMatch(artist: Artist) {
   try {
     providerCandidates.value = await store.searchMusicBrainzCandidates(artist.id)
   } catch (error) {
-    store.error = error instanceof Error ? error.message : String(error)
+    store.showErrorStatus(error, 'Unable to search MusicBrainz')
   } finally {
     matchLoading.value = false
     matchingArtistId.value = null
@@ -644,19 +634,23 @@ async function openMusicBrainzMatch(artist: Artist) {
 
 async function useCandidate(candidate: ArtistProviderCandidate) {
   if (!selectedArtistId.value) return
-  await store.saveArtistProvider(selectedArtistId.value, {
-    providerId: 'musicbrainz',
-    providerArtistId: candidate.providerArtistId,
-    providerArtistName: candidate.providerArtistName,
-    providerArtistType: candidate.type,
-    providerArtistCountry: candidate.country,
-    providerArtistDisambiguation: candidate.disambiguation,
-    providerArtistActive: candidate.active,
-    providerUrl: candidate.providerUrl,
-    enabled: true,
-  })
-  matchDialog.value = false
-  lastMessage.value = `MusicBrainz provider saved for ${candidate.providerArtistName}.`
+  try {
+    await store.saveArtistProvider(selectedArtistId.value, {
+      providerId: 'musicbrainz',
+      providerArtistId: candidate.providerArtistId,
+      providerArtistName: candidate.providerArtistName,
+      providerArtistType: candidate.type,
+      providerArtistCountry: candidate.country,
+      providerArtistDisambiguation: candidate.disambiguation,
+      providerArtistActive: candidate.active,
+      providerUrl: candidate.providerUrl,
+      enabled: true,
+    })
+    matchDialog.value = false
+    store.showStatus(`MusicBrainz provider saved for ${candidate.providerArtistName}.`, 'done')
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to save MusicBrainz provider')
+  }
 }
 
 async function startProviderSetup(artist: Artist, providerId: ProviderId) {
@@ -687,18 +681,22 @@ async function saveUrlProvider() {
       providerUrl: url,
       enabled: true,
     })
-    lastMessage.value = `${provider.label} provider saved for ${providerUrlArtist.value.name}.`
+    store.showStatus(`${provider.label} provider saved for ${providerUrlArtist.value.name}.`, 'done')
     providerUrlDialog.value = false
   } catch (error) {
-    store.error = error instanceof Error ? error.message : String(error)
+    store.showErrorStatus(error, 'Unable to save provider')
   } finally {
     providerUrlSaving.value = false
   }
 }
 
 async function clearArtistProvider(artist: Artist) {
-  await store.clearArtistProvider(artist.id)
-  lastMessage.value = `Provider cleared for ${artist.name}.`
+  try {
+    await store.clearArtistProvider(artist.id)
+    store.showStatus(`Provider cleared for ${artist.name}.`, 'done')
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to clear provider')
+  }
 }
 
 function providerForArtist(artist: Artist) {
@@ -862,7 +860,7 @@ async function deleteArtist() {
     deleteArtistWarningDialog.value = false
     artistToDelete.value = null
   } catch (error) {
-    store.error = error instanceof Error ? error.message : String(error)
+    store.showErrorStatus(error, 'Unable to delete artist')
   } finally {
     deletingArtist.value = false
     deletingArtistId.value = null
@@ -897,10 +895,6 @@ onBeforeUnmount(() => {
   if (artistsPaneLayoutSaveTimer.value !== null) {
     saveArtistsPaneLayout()
   }
-  if (artistsScreenColumnWidthSaveTimer !== null) {
-    window.clearTimeout(artistsScreenColumnWidthSaveTimer)
-    artistsScreenColumnWidthSaveTimer = null
-  }
 })
 
 watch(search, () => {
@@ -915,7 +909,6 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
 <template>
   <v-container fluid class="app-page artists-page">
     <v-alert v-if="error" type="error" variant="tonal" class="mb-3">{{ error }}</v-alert>
-    <v-alert v-if="lastMessage" type="info" variant="tonal" class="mb-3">{{ lastMessage }}</v-alert>
 
     <div ref="artistsScreenElement" class="artists-two-pane">
       <v-sheet ref="artistsTablePaneElement" class="pane artists-table-pane" :style="artistsPaneStyle(0)">

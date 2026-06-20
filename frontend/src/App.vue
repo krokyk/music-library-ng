@@ -194,7 +194,7 @@ function openReportRun(runId: number) {
   activeReportRunId.value = runId
   reportDialog.value = true
   void store.loadScanReport(runId).catch((error) => {
-    store.error = error instanceof Error ? error.message : String(error)
+    store.showErrorStatus(error, 'Unable to load scan report')
   })
 }
 

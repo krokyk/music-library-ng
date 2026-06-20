@@ -101,7 +101,11 @@ function collectionIsScanning(collectionId: string) {
 }
 
 async function scanCollection(collectionId: string) {
-  await store.runScanJob(collectionId)
+  try {
+    await store.runScanJob(collectionId)
+  } catch (scanError) {
+    store.showErrorStatus(scanError, 'Unable to start collection scan')
+  }
 }
 
 async function runBulkMusicBrainzMatch() {
@@ -119,7 +123,9 @@ async function runBulkMusicBrainzMatch() {
     bulkMatchResult.value = result
     bulkMatchDialog.value = true
   } catch (matchError) {
-    store.error = matchError instanceof Error ? matchError.message : String(matchError)
+    if (!store.providerStatus.message?.startsWith('MusicBrainz bulk match failed')) {
+      store.showErrorStatus(matchError, 'MusicBrainz bulk match failed')
+    }
   } finally {
     bulkMatchLoading.value = false
   }
@@ -159,8 +165,9 @@ async function useBulkCandidate(item: ArtistProviderBulkMatchItem) {
           }
         : current),
     }
+    store.showStatus(`MusicBrainz provider saved for ${candidate.providerArtistName}.`, 'done')
   } catch (saveError) {
-    store.error = saveError instanceof Error ? saveError.message : String(saveError)
+    store.showErrorStatus(saveError, 'Unable to save MusicBrainz provider')
   }
 }
 
@@ -276,7 +283,7 @@ async function saveUiSettingsNow(key?: EditableUiSettingKey) {
     await store.saveUiSettings(uiSettingsPayload([...keysToSave]))
     syncUiForm()
   } catch (saveError) {
-    store.error = saveError instanceof Error ? saveError.message : String(saveError)
+    store.showErrorStatus(saveError, 'Unable to save UI settings')
   } finally {
     savingUiSettings.value = false
   }
@@ -362,7 +369,7 @@ async function resetUiSettings() {
     await store.resetUiSettings()
     syncUiForm()
   } catch (resetError) {
-    store.error = resetError instanceof Error ? resetError.message : String(resetError)
+    store.showErrorStatus(resetError, 'Unable to reset UI settings')
   } finally {
     savingUiSettings.value = false
   }

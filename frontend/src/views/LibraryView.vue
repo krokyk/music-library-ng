@@ -70,25 +70,37 @@ async function addArtist() {
   if (!artistName.value.trim()) {
     return
   }
-  await store.addArtist(artistName.value.trim())
-  artistName.value = ''
+  try {
+    await store.addArtist(artistName.value.trim())
+    artistName.value = ''
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to add artist')
+  }
 }
 
 async function addAlbum() {
   if (!albumArtistId.value || !albumTitle.value.trim()) {
     return
   }
-  await store.addAlbum(albumArtistId.value, albumTitle.value.trim(), albumReleaseDate.value.trim() || null, albumChecked.value)
-  albumTitle.value = ''
-  albumReleaseDate.value = ''
-  albumChecked.value = true
+  try {
+    await store.addAlbum(albumArtistId.value, albumTitle.value.trim(), albumReleaseDate.value.trim() || null, albumChecked.value)
+    albumTitle.value = ''
+    albumReleaseDate.value = ''
+    albumChecked.value = true
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to add album')
+  }
 }
 
 async function updateAlbum(album: Album, patch: Partial<Album>) {
   if (albumCheckedToggleDisabled(album) && patch.checked !== undefined) {
     return
   }
-  await store.updateAlbum({ ...album, ...patch })
+  try {
+    await store.updateAlbum({ ...album, ...patch })
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to update album')
+  }
 }
 
 function albumCheckedValue(album: Album) {

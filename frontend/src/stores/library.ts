@@ -389,6 +389,10 @@ export const useLibraryStore = defineStore('library', {
         state,
       }
     },
+    showErrorStatus(error: unknown, prefix = 'Operation failed') {
+      const detail = error instanceof Error ? error.message : String(error)
+      this.showStatus(prefix ? `${prefix}: ${detail}` : detail, 'failed')
+    },
     async loadArtists(search?: string) {
       this.artists = await apiGet<Artist[]>(withQuery('/api/artists', { search }))
     },
@@ -798,7 +802,7 @@ export const useLibraryStore = defineStore('library', {
           }
         } catch (error) {
           this.stopScanJobPolling()
-          this.error = error instanceof Error ? error.message : String(error)
+          this.showErrorStatus(error, 'Unable to poll scan status')
         }
       }
       scanJobPoller = window.setInterval(() => void poll(), intervalMs)

@@ -54,7 +54,7 @@ public class UserPreferenceRepository {
             statement.setString(1, key);
             statement.setString(2, value);
             statement.executeUpdate();
-            return find(key).orElseThrow();
+            return find(connection, key).orElseThrow();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to save user preference " + key, e);
         }
@@ -86,6 +86,20 @@ public class UserPreferenceRepository {
             statement.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to initialize user preferences", e);
+        }
+    }
+
+    private static Optional<UserPreference> find(Connection connection, String key) throws Exception {
+        String sql = """
+                SELECT key, value, updated_at
+                FROM user_preferences
+                WHERE key = ?
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, key);
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next() ? Optional.of(map(rs)) : Optional.empty();
+            }
         }
     }
 
