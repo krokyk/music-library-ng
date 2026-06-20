@@ -143,7 +143,7 @@ public class MusicBrainzClient {
             }
             HttpRequest request = HttpRequest.newBuilder(uri)
                     .timeout(Duration.ofSeconds(30))
-                    .header("User-Agent", config.providers().musicbrainz().userAgent())
+                    .header("User-Agent", config.providers().musicbrainz().userAgent().orElseThrow())
                     .header("Accept", "application/json")
                     .GET()
                     .build();

@@ -328,16 +328,26 @@ Fuller values, such as `2006-03-13`, are shown in a tooltip using `music-library
 
 The app accepts Windows-style paths such as `<drive>:/<path-to-music-root>` and resolves them to WSL mounts when running under WSL.
 
-### MusicBrainz Provider Defaults
+### MusicBrainz Provider Configuration
 
-MusicBrainz provider settings are first-run application defaults, not runtime UI preferences.
+MusicBrainz provider settings are application config, not runtime UI preferences.
 The configured User-Agent is sent exactly on every MusicBrainz API request.
+The committed application defaults do not include a MusicBrainz User-Agent because it must contain a private contact email.
+Create ignored local config at `./config/application.properties` before running provider features.
+The app fails startup when `music-library.providers.musicbrainz.user-agent` is missing or does not match `music-library-ng (<email>)`.
 All MusicBrainz requests in one app process are serialized and rate-limited through the same limiter.
+
+Local config:
+
+```properties
+music-library.providers.musicbrainz.user-agent=music-library-ng (<email>)
+```
+
+Committed defaults:
 
 ```properties
 music-library.providers.musicbrainz.base-url=https://musicbrainz.org/ws/2
 music-library.providers.musicbrainz.site-url=https://musicbrainz.org
-music-library.providers.musicbrainz.user-agent=music-library-ng (peter.krokavec@gmail.com)
 music-library.providers.musicbrainz.request-min-interval-ms=1100
 music-library.providers.musicbrainz.search-candidate-limit=5
 music-library.providers.musicbrainz.release-group-page-size=100

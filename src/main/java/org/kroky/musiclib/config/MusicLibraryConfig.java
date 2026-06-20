@@ -120,8 +120,7 @@ public interface MusicLibraryConfig {
         String siteUrl();
 
         @WithName("user-agent")
-        @WithDefault("music-library-ng (peter.krokavec@gmail.com)")
-        String userAgent();
+        Optional<String> userAgent();
 
         @WithName("request-min-interval-ms")
         @WithDefault("1100")

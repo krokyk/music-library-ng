@@ -70,8 +70,10 @@ Official MusicBrainz API facts verified on 2026-06-15:
 - Search is required when only an artist name is known.
 - Browse or lookup requires an MBID.
 - Public clients must use a meaningful User-Agent.
-- This app must use `music-library-ng (peter.krokavec@gmail.com)` unless
-  explicitly overridden in external config.
+- This app must use the configured `music-library.providers.musicbrainz.user-agent` exactly.
+- The committed defaults must not include a personal email address.
+- Private contact values belong in ignored external config.
+- Startup must fail when the MusicBrainz User-Agent is missing or does not match `music-library-ng (<email>)`.
 - Public clients must not exceed one request per second.
 - Browse/search results are paginated; use `limit` and `offset`.
 
@@ -217,10 +219,15 @@ Add first-run defaults to `application.properties`.
 ```properties
 music-library.providers.musicbrainz.base-url=https://musicbrainz.org/ws/2
 music-library.providers.musicbrainz.site-url=https://musicbrainz.org
-music-library.providers.musicbrainz.user-agent=music-library-ng (peter.krokavec@gmail.com)
 music-library.providers.musicbrainz.request-min-interval-ms=1100
 music-library.providers.musicbrainz.search-candidate-limit=5
 music-library.providers.musicbrainz.release-group-page-size=100
+```
+
+Put the required private User-Agent in ignored local config such as `./config/application.properties`.
+
+```properties
+music-library.providers.musicbrainz.user-agent=music-library-ng (<email>)
 ```
 
 Notes:
@@ -350,7 +357,8 @@ Release group fetch rules:
 
 HTTP/rate-limit rules:
 
-- Use `music-library-ng (peter.krokavec@gmail.com)` by default.
+- Do not commit the private User-Agent value.
+- Require the private User-Agent value from external config.
 - Use the configured value exactly; do not append extra framework tokens.
 - There must be one process-wide limiter for all MusicBrainz calls.
 - The limiter must apply to artist searches, release-group browse pages,
