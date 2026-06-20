@@ -109,6 +109,18 @@ const defaultWorkspaceColumnDefaults = {
   },
 }
 
+const defaultArtistsScreenColumnDefaults = {
+  name: 250,
+  country: 76,
+  type: 80,
+  status: 84,
+  albums: 68,
+  unchecked: 86,
+  local: 64,
+  provider: 110,
+  action: 104,
+}
+
 const defaultActionLabelThresholds = {
   collections: 600,
   artists: 900,
@@ -167,6 +179,7 @@ export const useLibraryStore = defineStore('library', {
       statusBarLocation: 'top',
       actionLabelThresholds: defaultActionLabelThresholds,
       workspaceColumnDefaults: defaultWorkspaceColumnDefaults,
+      artistsScreenColumnDefaults: defaultArtistsScreenColumnDefaults,
       tableGridColumnMinWidth: 40,
       actionLabelThresholdConstraints: defaultActionLabelThresholdConstraints,
       defaults: {
@@ -180,6 +193,7 @@ export const useLibraryStore = defineStore('library', {
         statusBarLocation: 'top',
         actionLabelThresholds: defaultActionLabelThresholds,
         workspaceColumnDefaults: defaultWorkspaceColumnDefaults,
+        artistsScreenColumnDefaults: defaultArtistsScreenColumnDefaults,
         tableGridColumnMinWidth: 40,
       },
       overrides: {

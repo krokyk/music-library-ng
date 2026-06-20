@@ -149,6 +149,9 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 ## Grid And Table Rules
 
 - Workspace pane tables that need resizing or sticky headers use the custom CSS grid pattern, not Vuetify `v-table`.
+- Workspace pane tables with unbounded or scan/provider-populated row counts must be virtualized.
+- The Collections screen Artists, Albums, and Titles tables must all remain virtualized.
+- Future library-management screens with full-library tables, including the main Artists screen, should use the same virtualized grid pattern before row counts become large.
 - Use explicit pixel column widths from defaults/preferences.
 - Column width defaults come from `application.properties`; user-adjusted widths are stored as DB preferences.
   Future screens should follow the same shape, for example `artists-screen.artists-pane.name`.

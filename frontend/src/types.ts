@@ -148,6 +148,7 @@ export interface UiSettingsValues {
   statusBarLocation: 'top' | 'bottom'
   actionLabelThresholds: ActionLabelThresholds
   workspaceColumnDefaults: WorkspaceColumnWidths
+  artistsScreenColumnDefaults: ArtistsScreenColumnWidths
   tableGridColumnMinWidth: number
 }
 
@@ -202,6 +203,18 @@ export interface WorkspaceColumnWidths {
     releaseDate: number
     action: number
   }
+}
+
+export interface ArtistsScreenColumnWidths {
+  name: number
+  country: number
+  type: number
+  status: number
+  albums: number
+  unchecked: number
+  local: number
+  provider: number
+  action: number
 }
 
 export interface StatusHistoryEntry {

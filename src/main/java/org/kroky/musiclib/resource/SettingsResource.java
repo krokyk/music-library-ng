@@ -190,6 +190,7 @@ public class SettingsResource {
                         .orElse(defaultStatusBarLocation),
                 effectiveActionLabelThresholds,
                 defaultWorkspaceColumnWidths(),
+                defaultArtistsScreenColumnWidths(),
                 tableGridColumnMinWidth,
                 new UiSettings.ActionLabelThresholdConstraints(
                         minActionLabelThresholds,
@@ -206,6 +207,7 @@ public class SettingsResource {
                         defaultStatusBarLocation,
                         defaultActionLabelThresholds,
                         defaultWorkspaceColumnWidths(),
+                        defaultArtistsScreenColumnWidths(),
                         tableGridColumnMinWidth),
                 new UiSettings.Overrides(
                         statusVisible
@@ -305,6 +307,20 @@ public class SettingsResource {
                         defaults.title().artist(),
                         defaults.title().releaseDate(),
                         defaults.title().action()));
+    }
+
+    private UiSettings.ArtistsScreenColumnWidths defaultArtistsScreenColumnWidths() {
+        var defaults = config.ui().defaultArtistsScreenColumnWidths();
+        return new UiSettings.ArtistsScreenColumnWidths(
+                defaults.name(),
+                defaults.country(),
+                defaults.type(),
+                defaults.status(),
+                defaults.albums(),
+                defaults.unchecked(),
+                defaults.local(),
+                defaults.provider(),
+                defaults.action());
     }
 
     private UiSettings.ActionLabelThresholds defaultActionLabelThresholds() {

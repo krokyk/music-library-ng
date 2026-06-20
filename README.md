@@ -302,16 +302,26 @@ music-library.ui.default-workspace-column-widths.artist.name=280
 music-library.ui.default-workspace-column-widths.album.name=360
 music-library.ui.default-workspace-column-widths.album.release-date=145
 music-library.ui.default-workspace-column-widths.album.checked=120
+music-library.ui.default-workspace-column-widths.album.collections=180
 music-library.ui.default-workspace-column-widths.album.action=122
 music-library.ui.default-workspace-column-widths.title.title=460
 music-library.ui.default-workspace-column-widths.title.artist=220
 music-library.ui.default-workspace-column-widths.title.release-date=145
-music-library.ui.default-workspace-column-widths.title.status=120
 music-library.ui.default-workspace-column-widths.title.action=178
+music-library.ui.default-artists-screen-column-widths.name=250
+music-library.ui.default-artists-screen-column-widths.country=76
+music-library.ui.default-artists-screen-column-widths.type=80
+music-library.ui.default-artists-screen-column-widths.status=84
+music-library.ui.default-artists-screen-column-widths.albums=68
+music-library.ui.default-artists-screen-column-widths.unchecked=86
+music-library.ui.default-artists-screen-column-widths.local=64
+music-library.ui.default-artists-screen-column-widths.provider=110
+music-library.ui.default-artists-screen-column-widths.action=104
 ```
 
 `music-library.ui.table-grid-column-min-width` is the shared hard minimum for table data columns.
 Action columns are the exception; their minimum is based on the icon controls they must display.
+Artists screen column widths use `music-library.ui.default-artists-screen-column-widths.*` for first-run defaults and `artists-screen.artists-pane.*` DB preferences after a user resizes columns.
 
 Release date columns display the year in the table.
 Fuller values, such as `2006-03-13`, are shown in a tooltip using `music-library.release.date.display.format`.

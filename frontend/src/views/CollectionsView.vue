@@ -58,6 +58,7 @@ const artistsPaneElement = ref<unknown>(null)
 const albumsPaneElement = ref<unknown>(null)
 const titlesPaneElement = ref<unknown>(null)
 const artistGridElement = ref<HTMLElement | null>(null)
+const albumGridElement = ref<HTMLElement | null>(null)
 const titleGridElement = ref<HTMLElement | null>(null)
 const addCollectionAnchor = ref<HTMLElement | null>(null)
 const addCollectionDropdown = ref<HTMLElement | null>(null)
@@ -71,6 +72,10 @@ const titleGridFallbackViewportHeight = 900
 const artistGridRowHeight = 42
 const artistGridBufferRows = 12
 const artistGridFallbackViewportHeight = 900
+const albumGridHeaderHeight = 38
+const albumGridRowHeight = 42
+const albumGridBufferRows = 12
+const albumGridFallbackViewportHeight = 900
 const panePercents = ref([...defaultPanePercents])
 const paneLayoutCache = reactive<Record<PaneLayoutKind, number[]>>({
   artist: [...defaultPanePercents],
@@ -148,6 +153,8 @@ const artistPresence = ref<PresenceFilter[]>(['local', 'nonLocal'])
 const titlePresence = ref<PresenceFilter[]>(['local'])
 const artistGridScrollTop = ref(0)
 const artistGridViewportHeight = ref(0)
+const albumGridScrollTop = ref(0)
+const albumGridViewportHeight = ref(0)
 const titleGridScrollTop = ref(0)
 const titleGridViewportHeight = ref(0)
 let presencePreferencesLoaded = false
@@ -324,6 +331,37 @@ const showAlbumCollectionsColumn = computed(() =>
   sortedCollectionAlbums.value.some((album) => albumExtraCollections(album).length > 0),
 )
 
+const albumVirtualViewportHeight = computed(() =>
+  Math.max(albumGridViewportHeight.value, albumGridFallbackViewportHeight),
+)
+
+const albumVirtualRowCount = computed(() =>
+  Math.ceil(albumVirtualViewportHeight.value / albumGridRowHeight) + albumGridBufferRows * 2,
+)
+
+const albumVirtualStartIndex = computed(() => {
+  const total = sortedCollectionAlbums.value.length
+  const maximumStart = Math.max(0, total - albumVirtualRowCount.value)
+  const visibleStart = Math.floor(Math.max(0, albumGridScrollTop.value - albumGridHeaderHeight) / albumGridRowHeight)
+  return Math.min(Math.max(0, visibleStart - albumGridBufferRows), maximumStart)
+})
+
+const albumVirtualEndIndex = computed(() =>
+  Math.min(sortedCollectionAlbums.value.length, albumVirtualStartIndex.value + albumVirtualRowCount.value),
+)
+
+const visibleAlbumRows = computed(() =>
+  sortedCollectionAlbums.value.slice(albumVirtualStartIndex.value, albumVirtualEndIndex.value),
+)
+
+const albumVirtualTopSpacerHeight = computed(() =>
+  albumVirtualStartIndex.value * albumGridRowHeight,
+)
+
+const albumVirtualBottomSpacerHeight = computed(() =>
+  Math.max(0, sortedCollectionAlbums.value.length - albumVirtualEndIndex.value) * albumGridRowHeight,
+)
+
 const visibleCollectionTitleItems = computed(() => {
   return collectionTitleItems.value.filter((item) =>
     matchesPresenceFilter(albumIsLocalToSelectedCollection(item), titlePresence.value),
@@ -493,6 +531,14 @@ function handleArtistGridScroll(event: Event) {
   updateArtistGridViewport(element)
 }
 
+function handleAlbumGridScroll(event: Event) {
+  const element = event.currentTarget
+  if (!(element instanceof HTMLElement)) {
+    return
+  }
+  updateAlbumGridViewport(element)
+}
+
 function handleTitleGridScroll(event: Event) {
   const element = event.currentTarget
   if (!(element instanceof HTMLElement)) {
@@ -513,6 +559,18 @@ function resetArtistGridScroll() {
   })
 }
 
+function resetAlbumGridScroll() {
+  albumGridScrollTop.value = 0
+  void nextTick(() => {
+    if (!albumGridElement.value) {
+      albumGridViewportHeight.value = 0
+      return
+    }
+    albumGridElement.value.scrollTop = 0
+    updateAlbumGridViewport(albumGridElement.value)
+  })
+}
+
 function resetTitleGridScroll() {
   titleGridScrollTop.value = 0
   void nextTick(() => {
@@ -528,6 +586,11 @@ function resetTitleGridScroll() {
 function updateArtistGridViewport(element: HTMLElement) {
   artistGridScrollTop.value = element.scrollTop
   artistGridViewportHeight.value = element.clientHeight
+}
+
+function updateAlbumGridViewport(element: HTMLElement) {
+  albumGridScrollTop.value = element.scrollTop
+  albumGridViewportHeight.value = element.clientHeight
 }
 
 function updateTitleGridViewport(element: HTMLElement) {
@@ -1777,13 +1840,19 @@ onBeforeUnmount(() => {
 watch(selectedCollectionIsTitle, () => {
   activatePaneLayout(activePaneLayoutKind())
   resetArtistGridScroll()
+  resetAlbumGridScroll()
   resetTitleGridScroll()
   void nextTick(setupPaneWidthObserver)
 })
 
 watch(selectedCollectionId, () => {
   resetArtistGridScroll()
+  resetAlbumGridScroll()
   resetTitleGridScroll()
+})
+
+watch(selectedArtistId, () => {
+  resetAlbumGridScroll()
 })
 
 watch(selectedCollectionArtistsLoading, (loading) => {
@@ -1798,6 +1867,12 @@ watch(selectedCollectionTitlesLoading, (loading) => {
   }
 })
 
+watch(selectedArtistAlbumsLoading, (loading) => {
+  if (!loading && selectedCollectionIsArtist.value) {
+    resetAlbumGridScroll()
+  }
+})
+
 watch([titlePresence, () => titleSort.key, () => titleSort.direction, titleSortMode], () => {
   resetTitleGridScroll()
 }, { deep: true })
@@ -1809,6 +1884,10 @@ watch(artistPresence, (value) => {
 
 watch([() => artistSort.key, () => artistSort.direction], () => {
   resetArtistGridScroll()
+})
+
+watch([() => albumSort.key, () => albumSort.direction, showAlbumCollectionsColumn], () => {
+  resetAlbumGridScroll()
 })
 
 watch(titlePresence, (value) => {
@@ -2499,7 +2578,13 @@ watch(titlePresence, (value) => {
             </v-btn>
           </div>
         </div>
-        <div v-else class="workspace-grid" :style="columnGridStyle('album')">
+        <div
+          v-else
+          ref="albumGridElement"
+          class="workspace-grid"
+          :style="columnGridStyle('album')"
+          @scroll="handleAlbumGridScroll"
+        >
           <div class="workspace-grid__row workspace-grid__header">
             <div
               class="workspace-grid__cell workspace-grid__header-cell sortable-header"
@@ -2558,7 +2643,13 @@ watch(titlePresence, (value) => {
                 ></span>
             </div>
           </div>
-          <div v-for="album in sortedCollectionAlbums" :key="album.id" class="workspace-grid__row workspace-row">
+          <div
+            v-if="albumVirtualTopSpacerHeight > 0"
+            class="workspace-grid__virtual-spacer"
+            :style="{ height: `${albumVirtualTopSpacerHeight}px` }"
+            aria-hidden="true"
+          ></div>
+          <div v-for="album in visibleAlbumRows" :key="album.id" class="workspace-grid__row workspace-row">
               <div data-column="album.name" class="workspace-grid__cell truncate-cell">
                 <div class="album-cell">
                   <span :class="albumPresenceClass(album)">{{ album.title }}</span>
@@ -2679,6 +2770,12 @@ watch(titlePresence, (value) => {
                 </div>
               </div>
           </div>
+          <div
+            v-if="albumVirtualBottomSpacerHeight > 0"
+            class="workspace-grid__virtual-spacer"
+            :style="{ height: `${albumVirtualBottomSpacerHeight}px` }"
+            aria-hidden="true"
+          ></div>
         </div>
       </v-sheet>
       </template>

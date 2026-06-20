@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 import type {
   Artist,
   ArtistProviderCandidate,
 } from '@/types'
+import type { CSSProperties } from 'vue'
 
 type ProviderId = 'musicbrainz' | 'spirit_of_metal' | 'metal_archives'
+type SortDirection = 'asc' | 'desc'
+type ArtistSortKey = 'name' | 'country' | 'type' | 'status' | 'albumCount' | 'uncheckedAlbumCount' | 'localAlbumCount' | 'provider'
+type ArtistScreenColumnKey = 'name' | 'country' | 'type' | 'status' | 'albums' | 'unchecked' | 'local' | 'provider' | 'action'
+type ArtistsPaneKey = 'artists' | 'details'
 
 interface ProviderDefinition {
   id: ProviderId
@@ -23,7 +28,7 @@ const providerDefinitions: ProviderDefinition[] = [
 ]
 
 const store = useLibraryStore()
-const { artists, albums, collections, providerLinks, error } = storeToRefs(store)
+const { artists, albums, collections, providerLinks, uiSettings, loading, error } = storeToRefs(store)
 
 const search = ref('')
 const selectedArtistId = ref<number | null>(null)
@@ -42,12 +47,128 @@ const providerUrlSaving = ref(false)
 const providerUrlArtist = ref<Artist | null>(null)
 const providerUrlProviderId = ref<ProviderId | null>(null)
 const providerUrl = ref('')
+const artistsScreenElement = ref<HTMLElement | null>(null)
+const artistsTablePaneElement = ref<unknown>(null)
+const artistDetailsPaneElement = ref<unknown>(null)
+const artistsGridElement = ref<HTMLElement | null>(null)
+const defaultArtistsPanePercents = [70, 30]
+const paneResizerWidth = 10
+const artistsGridHeaderHeight = 38
+const artistsGridRowHeight = 42
+const artistsGridBufferRows = 12
+const artistsGridFallbackViewportHeight = 900
+const artistsPanePercents = ref([...defaultArtistsPanePercents])
+const artistsPaneLayoutSaveTimer = ref<number | null>(null)
+const artistsPaneNames = ['artists', 'details'] as const
+const artistsPaneLayoutPreferenceKey = 'artists-screen.layout.panes'
+const artistsPaneWidths = reactive<Record<ArtistsPaneKey, number>>({
+  artists: 0,
+  details: 0,
+})
+const artistSort = reactive<{ key: ArtistSortKey; direction: SortDirection }>({
+  key: 'name',
+  direction: 'asc',
+})
+const suppressHeaderSortUntil = ref(0)
+const artistsScreenColumnWidths = reactive<Record<ArtistScreenColumnKey, number>>({
+  name: 250,
+  country: 76,
+  type: 80,
+  status: 84,
+  albums: 68,
+  unchecked: 86,
+  local: 64,
+  provider: 110,
+  action: 104,
+})
+const artistsScreenColumnOrder = [
+  'name',
+  'country',
+  'type',
+  'status',
+  'albums',
+  'unchecked',
+  'local',
+  'provider',
+  'action',
+] as const satisfies readonly ArtistScreenColumnKey[]
+const artistsScreenHeaders: Array<{ key: ArtistSortKey; column: Exclude<ArtistScreenColumnKey, 'action'>; label: string }> = [
+  { key: 'name', column: 'name', label: 'Artist' },
+  { key: 'country', column: 'country', label: 'Country' },
+  { key: 'type', column: 'type', label: 'Type' },
+  { key: 'status', column: 'status', label: 'Status' },
+  { key: 'albumCount', column: 'albums', label: 'Albums' },
+  { key: 'uncheckedAlbumCount', column: 'unchecked', label: 'Unchecked' },
+  { key: 'localAlbumCount', column: 'local', label: 'Local' },
+  { key: 'provider', column: 'provider', label: 'Provider' },
+]
+const artistsScreenColumnWidthPreferenceKeys: Record<ArtistScreenColumnKey, string> = {
+  name: 'artists-screen.artists-pane.name',
+  country: 'artists-screen.artists-pane.country',
+  type: 'artists-screen.artists-pane.type',
+  status: 'artists-screen.artists-pane.status',
+  albums: 'artists-screen.artists-pane.albums',
+  unchecked: 'artists-screen.artists-pane.unchecked',
+  local: 'artists-screen.artists-pane.local',
+  provider: 'artists-screen.artists-pane.provider',
+  action: 'artists-screen.artists-pane.action',
+}
+const artistsScreenActionColumnWidths = {
+  icon: 104,
+  labeled: 390,
+}
+const artistsGridScrollTop = ref(0)
+const artistsGridViewportHeight = ref(0)
+let artistsPaneWidthObserver: ResizeObserver | null = null
+let artistsPaneResizeActive = false
+let artistsScreenColumnWidthSaveTimer: number | null = null
 
 const filteredArtists = computed(() => {
   const needle = search.value.trim().toLowerCase()
   if (!needle) return artists.value
   return artists.value.filter((artist) => artist.name.toLowerCase().includes(needle))
 })
+
+const sortedArtists = computed(() =>
+  [...filteredArtists.value].sort(compareArtistRows),
+)
+
+const artistsVirtualViewportHeight = computed(() =>
+  Math.max(artistsGridViewportHeight.value, artistsGridFallbackViewportHeight),
+)
+
+const artistsVirtualRowCount = computed(() =>
+  Math.ceil(artistsVirtualViewportHeight.value / artistsGridRowHeight) + artistsGridBufferRows * 2,
+)
+
+const artistsVirtualStartIndex = computed(() => {
+  const total = sortedArtists.value.length
+  const maximumStart = Math.max(0, total - artistsVirtualRowCount.value)
+  const visibleStart = Math.floor(Math.max(0, artistsGridScrollTop.value - artistsGridHeaderHeight) / artistsGridRowHeight)
+  return Math.min(Math.max(0, visibleStart - artistsGridBufferRows), maximumStart)
+})
+
+const artistsVirtualEndIndex = computed(() =>
+  Math.min(sortedArtists.value.length, artistsVirtualStartIndex.value + artistsVirtualRowCount.value),
+)
+
+const visibleArtistRows = computed(() =>
+  sortedArtists.value.slice(artistsVirtualStartIndex.value, artistsVirtualEndIndex.value),
+)
+
+const artistsVirtualTopSpacerHeight = computed(() =>
+  artistsVirtualStartIndex.value * artistsGridRowHeight,
+)
+
+const artistsVirtualBottomSpacerHeight = computed(() =>
+  Math.max(0, sortedArtists.value.length - artistsVirtualEndIndex.value) * artistsGridRowHeight,
+)
+
+const artistStats = computed(() => ({
+  total: artists.value.length,
+  unchecked: artists.value.reduce((sum, artist) => sum + artist.uncheckedAlbumCount, 0),
+  providers: artists.value.reduce((sum, artist) => sum + artist.providerLinkCount, 0),
+}))
 
 const selectedArtist = computed(() => artists.value.find((artist) => artist.id === selectedArtistId.value) ?? null)
 const selectedProvider = computed(() => selectedArtist.value ? providerForArtist(selectedArtist.value) : null)
@@ -67,6 +188,435 @@ const selectedAlbums = computed(() => {
 const providerUrlDefinition = computed(() =>
   providerUrlProviderId.value ? providerDefinition(providerUrlProviderId.value) : null,
 )
+
+function compareArtistRows(left: Artist, right: Artist) {
+  const leftValue = artistSortValue(left, artistSort.key)
+  const rightValue = artistSortValue(right, artistSort.key)
+  const result = typeof leftValue === 'number' && typeof rightValue === 'number'
+    ? compareNumber(leftValue, rightValue)
+    : compareText(String(leftValue), String(rightValue))
+  return applyDirection(result || compareText(left.name, right.name), artistSort.direction)
+}
+
+function artistSortValue(artist: Artist, key: ArtistSortKey) {
+  if (key === 'country') return artistCountry(artist) ?? ''
+  if (key === 'type') return artistType(artist) ?? ''
+  if (key === 'status') return artistStatus(artist)
+  if (key === 'albumCount') return artist.albumCount
+  if (key === 'uncheckedAlbumCount') return artist.uncheckedAlbumCount
+  if (key === 'localAlbumCount') return artist.localAlbumCount
+  if (key === 'provider') return providerChipText(artist)
+  return artist.name
+}
+
+function compareText(left: string | null | undefined, right: string | null | undefined) {
+  return (left ?? '').localeCompare(right ?? '', undefined, { numeric: true, sensitivity: 'base' })
+}
+
+function compareNumber(left: number, right: number) {
+  return left - right
+}
+
+function applyDirection(result: number, direction: SortDirection) {
+  return direction === 'asc' ? result : -result
+}
+
+function oppositeDirection(direction: SortDirection) {
+  return direction === 'asc' ? 'desc' : 'asc'
+}
+
+function sortIcon(direction: SortDirection) {
+  return direction === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+}
+
+function handleArtistsGridScroll(event: Event) {
+  const element = event.currentTarget
+  if (!(element instanceof HTMLElement)) {
+    return
+  }
+  updateArtistsGridViewport(element)
+}
+
+function resetArtistsGridScroll() {
+  artistsGridScrollTop.value = 0
+  void nextTick(() => {
+    if (!artistsGridElement.value) {
+      artistsGridViewportHeight.value = 0
+      return
+    }
+    artistsGridElement.value.scrollTop = 0
+    updateArtistsGridViewport(artistsGridElement.value)
+  })
+}
+
+function updateArtistsGridViewport(element: HTMLElement) {
+  artistsGridScrollTop.value = element.scrollTop
+  artistsGridViewportHeight.value = element.clientHeight
+}
+
+function toggleArtistSort(key: ArtistSortKey) {
+  if (artistSort.key === key) {
+    artistSort.direction = oppositeDirection(artistSort.direction)
+    return
+  }
+  artistSort.key = key
+  artistSort.direction = 'asc'
+}
+
+function handleArtistHeaderClick(key: ArtistSortKey, event: MouseEvent) {
+  if (shouldSuppressHeaderSort(event)) {
+    return
+  }
+  toggleArtistSort(key)
+}
+
+function shouldSuppressHeaderSort(event: MouseEvent) {
+  if (Date.now() < suppressHeaderSortUntil.value) {
+    event.preventDefault()
+    event.stopPropagation()
+    return true
+  }
+  const target = event.target
+  if (target instanceof Element && target.closest('.column-resize-handle')) {
+    event.preventDefault()
+    event.stopPropagation()
+    return true
+  }
+  return false
+}
+
+function suppressHeaderSortClick(event?: Event) {
+  event?.preventDefault()
+  event?.stopPropagation()
+  suppressHeaderSortUntil.value = Date.now() + 250
+}
+
+function releaseDateYearLabel(releaseDate: string | null | undefined) {
+  if (releaseDate && /^\d{4}/.test(releaseDate)) {
+    return releaseDate.slice(0, 4)
+  }
+  return ''
+}
+
+function artistsScreenColumnGridStyle() {
+  const columns = artistsScreenColumnOrder
+    .map((key, index) => (
+      index === artistsScreenColumnOrder.length - 1
+        ? `minmax(${artistsScreenColumnMinimumWidth(key)}px, 1fr)`
+        : `${artistsScreenRenderedColumnWidth(key)}px`
+    ))
+    .join(' ')
+  return {
+    '--workspace-grid-columns': columns,
+    '--workspace-grid-min-width': `${artistsScreenMinimumGridWidth()}px`,
+  }
+}
+
+function artistsScreenRenderedColumnWidth(key: ArtistScreenColumnKey) {
+  return Math.max(artistsScreenColumnMinimumWidth(key), artistsScreenColumnWidths[key])
+}
+
+function artistsScreenFixedColumnsWidth() {
+  return artistsScreenColumnOrder
+    .slice(0, -1)
+    .reduce((sum, key) => sum + artistsScreenRenderedColumnWidth(key), 0)
+}
+
+function artistsScreenMinimumGridWidth() {
+  return artistsScreenFixedColumnsWidth() + artistsScreenColumnMinimumWidth('action')
+}
+
+function artistsScreenTableAvailableWidth() {
+  const grid = document.querySelector('.artists-table-pane .workspace-grid')
+  if (grid instanceof HTMLElement) {
+    return grid.clientWidth
+  }
+  return artistsPaneWidths.artists > 0 ? Math.max(0, artistsPaneWidths.artists - 2) : 0
+}
+
+function artistsScreenRightmostColumnAvailableWidth() {
+  const available = artistsScreenTableAvailableWidth()
+  if (available <= 0) {
+    return artistsScreenColumnMinimumWidth('action')
+  }
+  return Math.max(artistsScreenColumnMinimumWidth('action'), available - artistsScreenFixedColumnsWidth())
+}
+
+function artistsScreenColumnMinimumWidth(key: ArtistScreenColumnKey) {
+  if (key === 'action') {
+    return artistsScreenActionColumnWidths.icon
+  }
+  return Math.max(1, uiSettings.value.tableGridColumnMinWidth)
+}
+
+function showArtistsScreenActionLabels() {
+  return artistsPaneWidths.artists >= uiSettings.value.actionLabelThresholds.artists
+    && artistsScreenRightmostColumnAvailableWidth() >= artistsScreenActionColumnWidths.labeled
+}
+
+function artistScreenRowActionClass() {
+  return [actionLabelClassFor(showArtistsScreenActionLabels()), 'workspace-row-action']
+}
+
+function actionLabelClassFor(showLabels: boolean) {
+  return {
+    'action-button--labeled': showLabels,
+    'action-button--icon-only': !showLabels,
+  }
+}
+
+function startArtistScreenColumnResize(key: ArtistScreenColumnKey, event: PointerEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  suppressHeaderSortClick(event)
+  const leftIndex = artistsScreenColumnOrder.indexOf(key)
+  if (leftIndex < 0 || leftIndex >= artistsScreenColumnOrder.length - 1) {
+    return
+  }
+  const rendered = Object.fromEntries(
+    artistsScreenColumnOrder.map((columnKey) => [columnKey, artistsScreenRenderedColumnWidth(columnKey)]),
+  ) as Record<ArtistScreenColumnKey, number>
+  const leftStart = rendered[key]
+  const startX = event.clientX
+  document.body.classList.add('is-column-resizing')
+
+  const beforeWidth = artistsScreenColumnOrder
+    .slice(0, leftIndex)
+    .reduce((sum, columnKey) => sum + rendered[columnKey], 0)
+  const rightDataBlockWidth = artistsScreenColumnOrder
+    .slice(leftIndex + 1, -1)
+    .reduce((sum, columnKey) => sum + rendered[columnKey], 0)
+  const leftMinimum = artistsScreenColumnMinimumWidth(key)
+  const rightmostMinimum = artistsScreenColumnMinimumWidth('action')
+  const available = artistsScreenTableAvailableWidth()
+  const leftMaximum = available > 0
+    ? Math.max(leftMinimum, available - beforeWidth - rightDataBlockWidth - rightmostMinimum)
+    : Number.POSITIVE_INFINITY
+
+  function move(pointerEvent: PointerEvent) {
+    const left = Math.min(
+      Math.max(leftMinimum, Math.round(leftStart + pointerEvent.clientX - startX)),
+      leftMaximum,
+    )
+    artistsScreenColumnWidths[key] = left
+    scheduleArtistsScreenColumnWidthSave()
+  }
+
+  function stop() {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', stop)
+    window.removeEventListener('pointercancel', stop)
+    document.body.classList.remove('is-column-resizing')
+    suppressHeaderSortClick()
+    saveArtistsScreenColumnWidths()
+  }
+
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', stop)
+  window.addEventListener('pointercancel', stop)
+}
+
+function scheduleArtistsScreenColumnWidthSave() {
+  if (artistsScreenColumnWidthSaveTimer !== null) {
+    window.clearTimeout(artistsScreenColumnWidthSaveTimer)
+  }
+  artistsScreenColumnWidthSaveTimer = window.setTimeout(saveArtistsScreenColumnWidths, 200)
+}
+
+function saveArtistsScreenColumnWidths() {
+  if (artistsScreenColumnWidthSaveTimer !== null) {
+    window.clearTimeout(artistsScreenColumnWidthSaveTimer)
+    artistsScreenColumnWidthSaveTimer = null
+  }
+  void Promise.all(
+    artistsScreenColumnOrder.map((key) =>
+      store.savePreference(
+        artistsScreenColumnWidthPreferenceKeys[key],
+        String(Math.round(artistsScreenColumnWidths[key] ?? artistsScreenColumnMinimumWidth(key))),
+      ),
+    ),
+  )
+}
+
+function applyArtistsScreenColumnDefaults() {
+  const defaults = uiSettings.value.artistsScreenColumnDefaults
+  artistsScreenColumnOrder.forEach((key) => {
+    artistsScreenColumnWidths[key] = Math.max(artistsScreenColumnMinimumWidth(key), defaults[key])
+  })
+}
+
+async function loadArtistsScreenColumnWidths() {
+  await Promise.all(
+    artistsScreenColumnOrder.map(async (key) => {
+      const preference = await store.loadPreference(artistsScreenColumnWidthPreferenceKeys[key])
+      if (!preference?.value) {
+        return
+      }
+      const value = parseColumnWidthPreference(preference.value)
+      if (value !== null) {
+        artistsScreenColumnWidths[key] = Math.max(artistsScreenColumnMinimumWidth(key), value)
+      }
+    }),
+  )
+}
+
+function parseColumnWidthPreference(value: string) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+  return Math.round(parsed)
+}
+
+function artistsPaneStyle(index: number) {
+  return {
+    display: 'flex',
+    flex: artistsPaneFlexValue(index, artistsPanePercents.value),
+    flexDirection: 'column',
+    minWidth: '0',
+    overflow: 'hidden',
+  } satisfies CSSProperties
+}
+
+function artistsPaneFlexValue(index: number, percents: number[], totalResizerWidth = paneResizerWidth) {
+  const percent = percents[index]
+  const resizerShare = (totalResizerWidth * percent) / 100
+  return `0 0 calc(${percent}% - ${resizerShare}px)`
+}
+
+function startArtistsPaneResize(event: PointerEvent) {
+  event.preventDefault()
+  if (!artistsScreenElement.value) {
+    return
+  }
+  const startX = event.clientX
+  const startPercents = [...artistsPanePercents.value]
+  const paneAreaWidth = Math.max(1, artistsScreenElement.value.clientWidth - paneResizerWidth)
+  const [leftMinimumPx, rightMinimumPx] = artistsPaneMinimums(paneAreaWidth)
+  const leftMinimum = (leftMinimumPx / paneAreaWidth) * 100
+  const rightMinimum = (rightMinimumPx / paneAreaWidth) * 100
+  const leftMaximum = Math.max(leftMinimum, 100 - rightMinimum)
+
+  function move(pointerEvent: PointerEvent) {
+    const deltaPercent = ((pointerEvent.clientX - startX) / paneAreaWidth) * 100
+    const left = Math.min(Math.max(leftMinimum, startPercents[0] + deltaPercent), leftMaximum)
+    artistsPanePercents.value = normalizeArtistsPanePercents([left, 100 - left])
+  }
+
+  function stop() {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', stop)
+    window.removeEventListener('pointercancel', stop)
+    artistsPaneResizeActive = false
+    document.body.classList.remove('is-pane-resizing')
+    saveArtistsPaneLayout()
+    void nextTick(setupArtistsPaneWidthObserver)
+  }
+
+  artistsPaneResizeActive = true
+  artistsPaneWidthObserver?.disconnect()
+  document.body.classList.add('is-pane-resizing')
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', stop)
+  window.addEventListener('pointercancel', stop)
+}
+
+function artistsPaneMinimums(areaWidth: number) {
+  const raw = [Math.max(420, artistsScreenMinimumGridWidth()), 280]
+  const total = raw[0] + raw[1]
+  if (total <= areaWidth) {
+    return raw
+  }
+  return raw.map((value) => Math.max(1, (value / total) * areaWidth))
+}
+
+function normalizeArtistsPanePercents(values: number[]) {
+  const cleaned = values.map((value) => (Number.isFinite(value) && value > 0 ? value : 0))
+  const total = cleaned.reduce((sum, value) => sum + value, 0)
+  if (total <= 0) {
+    return [...defaultArtistsPanePercents]
+  }
+  const first = Math.round((cleaned[0] / total) * 10000) / 100
+  return [first, Math.round((100 - first) * 100) / 100]
+}
+
+async function loadArtistsPaneLayout() {
+  const preference = await store.loadPreference(artistsPaneLayoutPreferenceKey)
+  if (!preference?.value) {
+    return
+  }
+  try {
+    const parsed = JSON.parse(preference.value)
+    if (isArtistsPaneLayoutObject(parsed)) {
+      artistsPanePercents.value = normalizeArtistsPanePercents([parsed.artists, parsed.details])
+    } else if (Array.isArray(parsed) && parsed.length === 2 && parsed.every((value) => typeof value === 'number')) {
+      artistsPanePercents.value = normalizeArtistsPanePercents(parsed)
+    }
+  } catch (error) {
+    // Ignore invalid stored UI state and keep the default layout.
+  }
+}
+
+function saveArtistsPaneLayout() {
+  if (artistsPaneLayoutSaveTimer.value !== null) {
+    window.clearTimeout(artistsPaneLayoutSaveTimer.value)
+    artistsPaneLayoutSaveTimer.value = null
+  }
+  const rounded = normalizeArtistsPanePercents(artistsPanePercents.value)
+  artistsPanePercents.value = rounded
+  void store.savePreference(artistsPaneLayoutPreferenceKey, JSON.stringify({
+    [artistsPaneNames[0]]: rounded[0],
+    [artistsPaneNames[1]]: rounded[1],
+  }))
+}
+
+function isArtistsPaneLayoutObject(value: unknown): value is Record<(typeof artistsPaneNames)[number], number> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const layout = value as Record<string, unknown>
+  return artistsPaneNames.every((name) => typeof layout[name] === 'number')
+}
+
+function setupArtistsPaneWidthObserver() {
+  artistsPaneWidthObserver?.disconnect()
+  artistsPaneWidthObserver = new ResizeObserver((entries) => {
+    if (artistsPaneResizeActive) {
+      return
+    }
+    entries.forEach((entry) => {
+      const pane = (entry.target as HTMLElement).dataset.paneKey as ArtistsPaneKey | undefined
+      if (pane) {
+        artistsPaneWidths[pane] = Math.round(entry.contentRect.width)
+      }
+    })
+  })
+  observeArtistsPaneWidth('artists', artistsTablePaneElement.value)
+  observeArtistsPaneWidth('details', artistDetailsPaneElement.value)
+}
+
+function observeArtistsPaneWidth(pane: ArtistsPaneKey, paneRef: unknown) {
+  const element = resolveElement(paneRef)
+  if (!element || !artistsPaneWidthObserver) {
+    return
+  }
+  element.dataset.paneKey = pane
+  artistsPaneWidths[pane] = Math.round(element.getBoundingClientRect().width)
+  artistsPaneWidthObserver.observe(element)
+}
+
+function resolveElement(value: unknown) {
+  if (value instanceof HTMLElement) {
+    return value
+  }
+  if (value && typeof value === 'object' && '$el' in value) {
+    const candidate = (value as { $el?: unknown }).$el
+    if (candidate instanceof HTMLElement) {
+      return candidate
+    }
+  }
+  return null
+}
 
 async function selectArtist(artist: Artist) {
   if (deletingArtistId.value === artist.id) {
@@ -319,154 +869,246 @@ async function deleteArtist() {
   }
 }
 
-onMounted(() => store.loadAll())
+function artistScreenRowClass(artist: Artist) {
+  return {
+    'is-selected': selectedArtistId.value === artist.id,
+    'workspace-row--deleting': deletingArtistId.value === artist.id,
+  }
+}
+
+onMounted(async () => {
+  await store.loadUiSettings()
+  applyArtistsScreenColumnDefaults()
+  await Promise.all([
+    loadArtistsScreenColumnWidths(),
+    loadArtistsPaneLayout(),
+    store.loadAll(),
+  ])
+  await nextTick()
+  setupArtistsPaneWidthObserver()
+})
+
+onBeforeUnmount(() => {
+  artistsPaneResizeActive = false
+  document.body.classList.remove('is-pane-resizing')
+  document.body.classList.remove('is-column-resizing')
+  artistsPaneWidthObserver?.disconnect()
+  artistsPaneWidthObserver = null
+  if (artistsPaneLayoutSaveTimer.value !== null) {
+    saveArtistsPaneLayout()
+  }
+  if (artistsScreenColumnWidthSaveTimer !== null) {
+    window.clearTimeout(artistsScreenColumnWidthSaveTimer)
+    artistsScreenColumnWidthSaveTimer = null
+  }
+})
+
+watch(search, () => {
+  resetArtistsGridScroll()
+})
+
+watch([() => artistSort.key, () => artistSort.direction], () => {
+  resetArtistsGridScroll()
+})
 </script>
 
 <template>
   <v-container fluid class="app-page artists-page">
-    <v-alert v-if="error" type="error" variant="tonal" class="mb-4">{{ error }}</v-alert>
-    <v-alert v-if="lastMessage" type="info" variant="tonal" class="mb-4">{{ lastMessage }}</v-alert>
+    <v-alert v-if="error" type="error" variant="tonal" class="mb-3">{{ error }}</v-alert>
+    <v-alert v-if="lastMessage" type="info" variant="tonal" class="mb-3">{{ lastMessage }}</v-alert>
 
-    <div class="page-header">
-      <div>
-        <div class="page-title">Artists</div>
-        <div class="stat-strip">
-          <span>{{ artists.length }} artists</span>
-          <span>{{ artists.reduce((sum, artist) => sum + artist.uncheckedAlbumCount, 0) }} unchecked albums</span>
-          <span>{{ artists.reduce((sum, artist) => sum + artist.providerLinkCount, 0) }} providers</span>
+    <div ref="artistsScreenElement" class="artists-two-pane">
+      <v-sheet ref="artistsTablePaneElement" class="pane artists-table-pane" :style="artistsPaneStyle(0)">
+        <div class="pane-header">
+          <div class="pane-header__primary">
+            <span class="pane-header__title">Artists</span>
+            <span class="pane-header__meta">
+              {{ artistStats.total }} artists / {{ artistStats.unchecked }} unchecked / {{ artistStats.providers }} providers
+            </span>
+          </div>
         </div>
-      </div>
-    </div>
 
-    <v-row dense>
-      <v-col cols="12" lg="8">
-        <v-sheet class="panel table-wrap">
-          <div class="data-toolbar">
-            <v-text-field
-              v-model="search"
-              class="data-toolbar__search"
-              prepend-inner-icon="mdi-magnify"
-              density="compact"
-              label="Search artists"
-              hide-details
-            ></v-text-field>
+        <div class="pane-filter-bar artists-search-bar">
+          <v-text-field
+            v-model="search"
+            class="artists-search-field"
+            prepend-inner-icon="mdi-magnify"
+            density="compact"
+            label="Search artists"
+            hide-details
+          ></v-text-field>
+        </div>
+
+        <div v-if="loading && sortedArtists.length === 0" class="pane-loading">
+          <v-progress-circular indeterminate size="60" width="5"></v-progress-circular>
+        </div>
+        <div
+          v-else
+          ref="artistsGridElement"
+          class="workspace-grid artists-screen-grid"
+          :style="artistsScreenColumnGridStyle()"
+          @scroll="handleArtistsGridScroll"
+        >
+          <div class="workspace-grid__row workspace-grid__header">
+            <div
+              v-for="header in artistsScreenHeaders"
+              :key="header.column"
+              class="workspace-grid__cell workspace-grid__header-cell sortable-header"
+              :data-column="`artists.${header.column}`"
+              @click="handleArtistHeaderClick(header.key, $event)"
+            >
+              <span class="sortable-header__label">{{ header.label }}</span>
+              <v-icon
+                v-if="artistSort.key === header.key"
+                :icon="sortIcon(artistSort.direction)"
+                size="14"
+                class="sort-direction-icon"
+              ></v-icon>
+              <span
+                class="column-resize-handle"
+                @pointerdown="startArtistScreenColumnResize(header.column, $event)"
+                @click="suppressHeaderSortClick($event)"
+              ></span>
+            </div>
           </div>
 
-          <v-table class="music-table" density="compact" fixed-header height="calc(var(--app-vh) - 230px)">
-            <thead>
-              <tr>
-                <th>Artist</th>
-                <th>Country</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Albums</th>
-                <th>Unchecked</th>
-                <th>Local</th>
-                <th>Provider</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="artist in filteredArtists"
-                :key="artist.id"
-                :class="{
-                  'music-table-row--deleting': deletingArtistId === artist.id,
-                  'music-table-row--selectable': deletingArtistId !== artist.id,
-                  'music-table-row--selected': selectedArtistId === artist.id,
-                }"
-                @click="selectArtist(artist)"
+          <div
+            v-if="artistsVirtualTopSpacerHeight > 0"
+            class="workspace-grid__virtual-spacer"
+            :style="{ height: `${artistsVirtualTopSpacerHeight}px` }"
+            aria-hidden="true"
+          ></div>
+          <div
+            v-for="artist in visibleArtistRows"
+            :key="artist.id"
+            class="workspace-grid__row workspace-row"
+            :class="artistScreenRowClass(artist)"
+            @click="selectArtist(artist)"
+          >
+            <div data-column="artists.name" class="workspace-grid__cell truncate-cell">
+              <div class="artist-cell">
+                <v-progress-circular
+                  v-if="deletingArtistId === artist.id"
+                  indeterminate
+                  size="14"
+                  width="2"
+                  class="artist-cell__spinner"
+                ></v-progress-circular>
+                <span class="cell-strong" :title="artist.name">{{ artist.name }}</span>
+              </div>
+            </div>
+            <div data-column="artists.country" class="workspace-grid__cell truncate-cell">
+              <span :class="{ 'cell-muted': !artistCountry(artist) }">{{ artistCountryLabel(artist) }}</span>
+            </div>
+            <div data-column="artists.type" class="workspace-grid__cell truncate-cell">
+              <span :class="{ 'cell-muted': !artistType(artist) }">{{ artistType(artist) || 'Unknown' }}</span>
+            </div>
+            <div data-column="artists.status" class="workspace-grid__cell">
+              <v-chip
+                v-if="artistStatus(artist) !== 'Unknown'"
+                :color="artistStatus(artist) === 'Active' ? 'success' : 'default'"
+                size="x-small"
+                variant="tonal"
               >
-                <td class="cell-strong">
-                  <span class="artist-delete-cell">
-                    <v-progress-circular
-                      v-if="deletingArtistId === artist.id"
-                      indeterminate
-                      size="14"
-                      width="2"
-                    ></v-progress-circular>
-                    <span>{{ artist.name }}</span>
-                  </span>
-                </td>
-                <td>
-                  <span :class="{ 'cell-muted': !artistCountry(artist) }">{{ artistCountryLabel(artist) }}</span>
-                </td>
-                <td>
-                  <span :class="{ 'cell-muted': !artistType(artist) }">{{ artistType(artist) || 'Unknown' }}</span>
-                </td>
-                <td>
-                  <v-chip
-                    v-if="artistStatus(artist) !== 'Unknown'"
-                    :color="artistStatus(artist) === 'Active' ? 'success' : 'default'"
-                    size="x-small"
-                    variant="tonal"
-                  >
-                    {{ artistStatus(artist) }}
-                  </v-chip>
-                  <span v-else class="cell-muted">Unknown</span>
-                </td>
-                <td>{{ artist.albumCount }}</td>
-                <td>
-                  <v-chip :color="artist.uncheckedAlbumCount > 0 ? 'warning' : 'default'" size="small" variant="tonal">
-                    {{ artist.uncheckedAlbumCount }}
-                  </v-chip>
-                </td>
-                <td>{{ artist.localAlbumCount }}</td>
-                <td>
-                  <v-chip
-                    v-if="providerForArtist(artist)"
-                    :color="providerChipColor(artist)"
-                    size="small"
-                    variant="tonal"
-                    :prepend-icon="providerChipIcon(artist)"
-                    closable
-                    close-icon="mdi-trash-can-outline"
-                    @click:close.stop="clearArtistProvider(artist)"
-                  >
-                    {{ providerChipText(artist) }}
-                  </v-chip>
-                  <span v-else class="cell-muted">None</span>
-                </td>
-                <td class="text-right">
-                  <div class="artist-provider-actions">
+                {{ artistStatus(artist) }}
+              </v-chip>
+              <span v-else class="cell-muted">Unknown</span>
+            </div>
+            <div data-column="artists.albums" class="workspace-grid__cell artists-count-cell">
+              <span>{{ artist.albumCount }}</span>
+            </div>
+            <div data-column="artists.unchecked" class="workspace-grid__cell artists-count-cell">
+              <v-chip :color="artist.uncheckedAlbumCount > 0 ? 'warning' : 'default'" size="x-small" variant="tonal">
+                {{ artist.uncheckedAlbumCount }}
+              </v-chip>
+            </div>
+            <div data-column="artists.local" class="workspace-grid__cell artists-count-cell">
+              <span>{{ artist.localAlbumCount }}</span>
+            </div>
+            <div data-column="artists.provider" class="workspace-grid__cell truncate-cell">
+              <v-chip
+                v-if="providerForArtist(artist)"
+                class="artists-provider-chip"
+                :color="providerChipColor(artist)"
+                size="small"
+                variant="tonal"
+                :prepend-icon="providerChipIcon(artist)"
+                closable
+                close-icon="mdi-trash-can-outline"
+                @click.stop
+                @click:close.stop="clearArtistProvider(artist)"
+              >
+                {{ providerChipText(artist) }}
+              </v-chip>
+              <span v-else class="cell-muted">None</span>
+            </div>
+            <div data-column="artists.action" class="workspace-grid__cell row-action-cell">
+              <div class="row-actions">
+                <v-tooltip
+                  v-for="provider in providerActionsForArtist(artist)"
+                  :key="provider.id"
+                  :text="provider.label"
+                  location="top"
+                >
+                  <template #activator="{ props }">
                     <v-btn
-                      v-for="provider in providerActionsForArtist(artist)"
-                      :key="provider.id"
-                      class="artist-provider-action"
-                      size="small"
-                      variant="text"
+                      v-bind="props"
                       :prepend-icon="provider.icon"
+                      size="x-small"
+                      variant="text"
+                      color="primary"
+                      :class="artistScreenRowActionClass()"
                       :loading="provider.id === 'musicbrainz' && matchingArtistId === artist.id"
                       :disabled="deletingArtistId === artist.id"
                       @click.stop="startProviderSetup(artist, provider.id)"
                     >
-                      <span class="artist-provider-action__label">{{ provider.label }}</span>
+                      <span v-if="showArtistsScreenActionLabels()">{{ provider.label }}</span>
                     </v-btn>
-                  </div>
-                  <v-btn
-                    size="small"
-                    variant="text"
-                    color="error"
-                    prepend-icon="mdi-trash-can-outline"
-                    :loading="deletingArtistId === artist.id"
-                    :disabled="deletingArtistId !== null && deletingArtistId !== artist.id"
-                    @click.stop="askDeleteArtist(artist)"
-                  >
-                    Delete
-                  </v-btn>
-                </td>
-              </tr>
-            </tbody>
-          </v-table>
-        </v-sheet>
-      </v-col>
+                  </template>
+                </v-tooltip>
+                <v-tooltip text="Delete artist" location="top">
+                  <template #activator="{ props }">
+                    <v-btn
+                      v-bind="props"
+                      prepend-icon="mdi-trash-can-outline"
+                      size="x-small"
+                      variant="text"
+                      color="error"
+                      :class="artistScreenRowActionClass()"
+                      :loading="deletingArtistId === artist.id"
+                      :disabled="deletingArtistId !== null && deletingArtistId !== artist.id"
+                      @click.stop="askDeleteArtist(artist)"
+                    >
+                      <span v-if="showArtistsScreenActionLabels()">Delete</span>
+                    </v-btn>
+                  </template>
+                </v-tooltip>
+              </div>
+            </div>
+          </div>
+          <div
+            v-if="artistsVirtualBottomSpacerHeight > 0"
+            class="workspace-grid__virtual-spacer"
+            :style="{ height: `${artistsVirtualBottomSpacerHeight}px` }"
+            aria-hidden="true"
+          ></div>
+        </div>
+      </v-sheet>
 
-      <v-col cols="12" lg="4">
-        <v-sheet class="panel pa-4 mb-4">
-          <div class="panel-title">Artist Info</div>
-          <div v-if="!selectedArtist" class="cell-muted">Select an artist row to view details.</div>
-          <template v-else>
-            <div class="mb-3 cell-strong">{{ selectedArtist.name }}</div>
+      <div class="pane-resizer" @pointerdown="startArtistsPaneResize"></div>
+
+      <v-sheet ref="artistDetailsPaneElement" class="pane artist-details-pane" :style="artistsPaneStyle(1)">
+        <div class="pane-header">
+          <div class="pane-header__primary">
+            <span class="pane-header__title">Artist Info</span>
+            <span v-if="selectedArtist" class="pane-header__meta">{{ selectedArtist.name }}</span>
+          </div>
+        </div>
+
+        <div v-if="!selectedArtist" class="pane-empty">Select an artist.</div>
+        <div v-else class="artist-details-pane__body">
+          <section class="artist-details-section">
+            <div class="artist-details-heading">{{ selectedArtist.name }}</div>
             <div class="artist-info-grid">
               <div class="cell-muted">Sort name</div>
               <div>{{ selectedArtist.sortName || 'None' }}</div>
@@ -504,35 +1146,55 @@ onMounted(() => store.loadAll())
                 <span v-else class="cell-muted">None</span>
               </div>
             </div>
+          </section>
 
-            <div v-if="selectedProvider" class="provider-list mt-4">
-              <div v-if="providerIdentityLabel()" class="cell-strong">{{ providerIdentityLabel() }}</div>
-              <div v-if="selectedProvider.providerUrl" class="mono-path">{{ selectedProvider.providerUrl }}</div>
-              <div v-if="selectedProvider.lastErrorMessage" class="text-error">{{ selectedProvider.lastErrorMessage }}</div>
-              <v-btn
-                class="mt-2"
-                size="small"
-                variant="text"
-                prepend-icon="mdi-open-in-new"
-                :disabled="!selectedProvider.providerUrl"
-                @click="openExternal(selectedProvider.providerUrl)"
-              >
-                Open
-              </v-btn>
-            </div>
+          <section v-if="selectedProvider" class="artist-details-section artist-provider-section">
+            <a
+              v-if="selectedProvider.providerUrl && providerIdentityLabel()"
+              class="artist-link artist-link--name"
+              :href="selectedProvider.providerUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {{ providerIdentityLabel() }}
+            </a>
+            <div v-else-if="providerIdentityLabel()" class="cell-strong">{{ providerIdentityLabel() }}</div>
+            <a
+              v-if="selectedProvider.providerUrl"
+              class="mono-path artist-link artist-link--url"
+              :href="selectedProvider.providerUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {{ selectedProvider.providerUrl }}
+            </a>
+            <div v-if="selectedProvider.lastErrorMessage" class="text-error">{{ selectedProvider.lastErrorMessage }}</div>
+            <v-btn
+              size="small"
+              variant="text"
+              prepend-icon="mdi-open-in-new"
+              :disabled="!selectedProvider.providerUrl"
+              @click="openExternal(selectedProvider.providerUrl)"
+            >
+              Open
+            </v-btn>
+          </section>
 
-            <div class="panel-title mt-5">Known Albums</div>
+          <section class="artist-details-section">
+            <div class="panel-title">Known Albums</div>
             <div v-if="selectedAlbums.length === 0" class="cell-muted">No known albums.</div>
-            <v-list v-else density="compact" class="provider-list artist-info-albums">
-              <v-list-item v-for="album in selectedAlbums" :key="album.id">
-                <v-list-item-title>{{ album.title }}</v-list-item-title>
-                <v-list-item-subtitle>{{ album.releaseDate || 'No date' }}</v-list-item-subtitle>
-              </v-list-item>
-            </v-list>
-          </template>
-        </v-sheet>
-      </v-col>
-    </v-row>
+            <div v-else class="artist-known-albums">
+              <div v-for="album in selectedAlbums" :key="album.id" class="artist-known-album">
+                <span class="artist-known-album__year" :class="{ 'cell-muted': !releaseDateYearLabel(album.releaseDate) }">
+                  {{ releaseDateYearLabel(album.releaseDate) || 'No date' }}
+                </span>
+                <span class="artist-known-album__title" :title="album.title">{{ album.title }}</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </v-sheet>
+    </div>
 
     <v-dialog v-model="matchDialog" max-width="900">
       <v-card class="dialog-card">

@@ -11,6 +11,7 @@ public record UiSettings(
         String statusBarLocation,
         ActionLabelThresholds actionLabelThresholds,
         WorkspaceColumnWidths workspaceColumnDefaults,
+        ArtistsScreenColumnWidths artistsScreenColumnDefaults,
         int tableGridColumnMinWidth,
         ActionLabelThresholdConstraints actionLabelThresholdConstraints,
         Values defaults,
@@ -27,6 +28,7 @@ public record UiSettings(
             String statusBarLocation,
             ActionLabelThresholds actionLabelThresholds,
             WorkspaceColumnWidths workspaceColumnDefaults,
+            ArtistsScreenColumnWidths artistsScreenColumnDefaults,
             int tableGridColumnMinWidth) {
     }
 
@@ -80,6 +82,18 @@ public record UiSettings(
             int title,
             int artist,
             int releaseDate,
+            int action) {
+    }
+
+    public record ArtistsScreenColumnWidths(
+            int name,
+            int country,
+            int type,
+            int status,
+            int albums,
+            int unchecked,
+            int local,
+            int provider,
             int action) {
     }
 }

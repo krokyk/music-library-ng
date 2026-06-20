@@ -101,6 +101,9 @@ public interface MusicLibraryConfig {
 
         @WithName("default-workspace-column-widths")
         WorkspaceColumnWidths defaultWorkspaceColumnWidths();
+
+        @WithName("default-artists-screen-column-widths")
+        ArtistsScreenColumnWidths defaultArtistsScreenColumnWidths();
     }
 
     interface Providers {
@@ -188,6 +191,35 @@ public interface MusicLibraryConfig {
         int releaseDate();
 
         @WithDefault("178")
+        int action();
+    }
+
+    interface ArtistsScreenColumnWidths {
+        @WithDefault("250")
+        int name();
+
+        @WithDefault("76")
+        int country();
+
+        @WithDefault("80")
+        int type();
+
+        @WithDefault("84")
+        int status();
+
+        @WithDefault("68")
+        int albums();
+
+        @WithDefault("86")
+        int unchecked();
+
+        @WithDefault("64")
+        int local();
+
+        @WithDefault("110")
+        int provider();
+
+        @WithDefault("104")
         int action();
     }
 }
