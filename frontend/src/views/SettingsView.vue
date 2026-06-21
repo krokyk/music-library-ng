@@ -35,7 +35,7 @@ interface UiForm {
 }
 
 const store = useLibraryStore()
-const { artists, collections, scanJob, scanRuns, scanEvents, musicRoot, uiSettings, error } = storeToRefs(store)
+const { artists, collections, scanJob, scanRuns, scanEvents, musicRoot, uiSettings } = storeToRefs(store)
 
 const scanPollMin = 100
 const scanPollMax = 2000
@@ -396,8 +396,6 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="settings-pane__body">
-        <v-alert v-if="error" type="error" variant="tonal" class="mb-4">{{ error }}</v-alert>
-
         <section class="settings-section">
           <div class="settings-section__header">
             <div>

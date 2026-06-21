@@ -47,7 +47,7 @@ const providerDefinitions: ProviderDefinition[] = [
 ]
 
 const store = useLibraryStore()
-const { artists, albums, collections, providerLinks, uiSettings, loading, error } = storeToRefs(store)
+const { artists, albums, collections, providerLinks, uiSettings, loading } = storeToRefs(store)
 
 const search = ref('')
 const selectedArtistId = ref<number | null>(null)
@@ -939,8 +939,6 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
 
 <template>
   <v-container fluid class="app-page artists-page">
-    <v-alert v-if="error" type="error" variant="tonal" class="mb-3">{{ error }}</v-alert>
-
     <div ref="artistsScreenElement" class="artists-two-pane">
       <v-sheet ref="artistsTablePaneElement" class="pane artists-table-pane" :style="artistsPaneStyle(0)">
         <div class="pane-header">

@@ -76,7 +76,6 @@ interface State {
   manualStatus: { id: number; message: string; state: Exclude<StatusHistoryEntry['state'], 'running'> } | null
   providerStatus: { running: boolean; message: string | null; state: StatusHistoryEntry['state'] }
   loading: boolean
-  error: string | null
 }
 
 function withQuery(path: string, params: Record<string, string | number | boolean | null | undefined>) {
@@ -219,12 +218,10 @@ export const useLibraryStore = defineStore('library', {
       state: 'info',
     },
     loading: false,
-    error: null,
   }),
   actions: {
     async loadAll() {
       this.loading = true
-      this.error = null
       try {
         const [artists, albums, collections, musicRoot, scanRuns, providerCheckRuns] = await Promise.all([
           apiGet<Artist[]>('/api/artists'),
@@ -241,18 +238,17 @@ export const useLibraryStore = defineStore('library', {
         this.scanRuns = scanRuns
         this.providerCheckRuns = providerCheckRuns
       } catch (error) {
-        this.error = error instanceof Error ? error.message : String(error)
+        this.showErrorStatus(error, 'Unable to load library data')
       } finally {
         this.loading = false
       }
     },
     async loadCollections() {
       this.loading = true
-      this.error = null
       try {
         this.collections = await apiGet<MusicCollection[]>('/api/collections')
       } catch (error) {
-        this.error = error instanceof Error ? error.message : String(error)
+        this.showErrorStatus(error, 'Unable to load collections')
       } finally {
         this.loading = false
       }
@@ -334,7 +330,6 @@ export const useLibraryStore = defineStore('library', {
     },
     async loadSettings() {
       this.loading = true
-      this.error = null
       try {
         const [collections, musicRoot, scanRuns] = await Promise.all([
           apiGet<MusicCollection[]>('/api/collections'),
@@ -345,7 +340,7 @@ export const useLibraryStore = defineStore('library', {
         this.musicRoot = musicRoot
         this.scanRuns = scanRuns
       } catch (error) {
-        this.error = error instanceof Error ? error.message : String(error)
+        this.showErrorStatus(error, 'Unable to load settings')
       } finally {
         this.loading = false
       }
@@ -354,7 +349,7 @@ export const useLibraryStore = defineStore('library', {
       try {
         this.uiSettings = await apiGet<UiSettings>('/api/settings/ui')
       } catch (error) {
-        this.error = error instanceof Error ? error.message : String(error)
+        this.showErrorStatus(error, 'Unable to load UI settings')
       }
       return this.uiSettings
     },
@@ -826,7 +821,11 @@ export const useLibraryStore = defineStore('library', {
       return this.scanJob
     },
     async loadScanJob() {
-      this.scanJob = await apiGet<ScanJobStatus>('/api/scan/jobs/current')
+      try {
+        this.scanJob = await apiGet<ScanJobStatus>('/api/scan/jobs/current')
+      } catch (error) {
+        this.showErrorStatus(error, 'Unable to load scan status')
+      }
       return this.scanJob
     },
     async cancelScanJob() {

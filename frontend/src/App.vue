@@ -80,7 +80,7 @@ const statusState = computed(() => {
 
 const statusIcon = computed(() => {
   if (statusState.value === 'failed') {
-    return 'mdi-alert-circle-outline'
+    return 'mdi-alert-circle'
   }
   if (statusState.value === 'warning') {
     return 'mdi-alert-outline'

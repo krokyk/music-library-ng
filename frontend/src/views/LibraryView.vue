@@ -5,7 +5,7 @@ import { useLibraryStore } from '@/stores/library'
 import type { Album } from '@/types'
 
 const store = useLibraryStore()
-const { artists, albums, loading, error } = storeToRefs(store)
+const { artists, albums, loading } = storeToRefs(store)
 
 const artistName = ref('')
 const albumArtistId = ref<number | null>(null)
@@ -125,8 +125,6 @@ onMounted(() => store.loadAll())
 
 <template>
   <v-container fluid class="app-page library-page">
-    <v-alert v-if="error" type="error" variant="tonal" class="mb-4">{{ error }}</v-alert>
-
     <div class="page-header">
       <div>
         <div class="page-title">Library</div>

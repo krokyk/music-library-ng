@@ -39,7 +39,6 @@ const {
   providerStatus,
   scanJob,
   uiSettings,
-  error,
 } = storeToRefs(store)
 
 const artistDialog = ref(false)
@@ -1942,8 +1941,6 @@ watch(titlePresence, (value) => {
 
 <template>
   <v-container fluid class="app-page collections-workspace">
-    <v-alert v-if="error" type="error" variant="tonal" class="mb-3">{{ error }}</v-alert>
-
     <div ref="threePaneElement" class="three-pane">
       <v-sheet ref="collectionsPaneElement" class="pane collections-pane" :style="paneStyle(0)">
         <div class="pane-header">
