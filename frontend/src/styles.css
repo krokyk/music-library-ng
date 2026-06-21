@@ -757,14 +757,84 @@ body,
   max-width: none;
 }
 
-.artists-provider-chip {
+.artists-provider-chip.v-chip {
+  border: 1px solid transparent;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  color: #f8f8f8;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0;
   max-width: 100%;
+  padding-inline: 6px 4px;
 }
 
 .artists-provider-chip .v-chip__content {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.artists-provider-chip__icon {
+  display: block;
+  flex: 0 0 auto;
+  height: 16px;
+  object-fit: contain;
+  width: 16px;
+}
+
+.artists-provider-chip__text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artists-provider-chip .v-chip__close {
+  color: inherit;
+  margin-inline-start: 3px;
+  opacity: 0.72;
+}
+
+.artists-provider-chip .v-chip__close .v-icon {
+  font-size: 15px;
+}
+
+.artists-provider-chip .v-chip__close:hover {
+  opacity: 1;
+}
+
+.artists-provider-chip--musicbrainz.v-chip {
+  background: linear-gradient(90deg, #5b1647 0%, #91305f 47%, #9b4923 100%);
+  border-color: rgba(235, 116, 59, 0.78);
+  color: #fff2ee;
+}
+
+.artists-provider-chip--spirit-of-metal.v-chip {
+  background: linear-gradient(135deg, #330707 0%, #7a1616 58%, #9a6a0b 100%);
+  border-color: rgba(244, 191, 49, 0.84);
+  color: #fff0a7;
+}
+
+.artists-provider-chip--metal-archives.v-chip {
+  background: linear-gradient(180deg, #2d1212 0%, #160a05 58%, #080202 100%);
+  border-color: rgba(194, 184, 175, 0.76);
+  color: #f0e9e2;
+}
+
+.artists-provider-chip--generic.v-chip {
+  background: #1f1f1f;
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.artists-provider-chip--error.v-chip {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 0 0 1px rgba(255, 93, 93, 0.92);
 }
 
 .artists-table-pane .row-action-cell,

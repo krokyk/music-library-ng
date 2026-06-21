@@ -117,7 +117,7 @@ const defaultArtistsScreenColumnDefaults = {
   albums: 68,
   unchecked: 86,
   local: 64,
-  provider: 110,
+  provider: 180,
   action: 104,
 }
 

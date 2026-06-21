@@ -17,14 +17,33 @@ type ArtistsPaneKey = 'artists' | 'details'
 interface ProviderDefinition {
   id: ProviderId
   label: string
-  icon: string
-  color: string
+  actionIcon: string
+  iconSrc: string
+  chipClass: string
 }
 
 const providerDefinitions: ProviderDefinition[] = [
-  { id: 'musicbrainz', label: 'MusicBrainz', icon: 'mdi-music-circle', color: 'primary' },
-  { id: 'spirit_of_metal', label: 'Spirit of Metal', icon: 'mdi-fire', color: 'warning' },
-  { id: 'metal_archives', label: 'Metal Archives', icon: 'mdi-archive', color: 'info' },
+  {
+    id: 'musicbrainz',
+    label: 'MusicBrainz',
+    actionIcon: 'mdi-music-circle',
+    iconSrc: '/provider-icons/musicbrainz.svg',
+    chipClass: 'artists-provider-chip--musicbrainz',
+  },
+  {
+    id: 'spirit_of_metal',
+    label: 'Spirit of Metal',
+    actionIcon: 'mdi-fire',
+    iconSrc: '/provider-icons/spirit-of-metal.png',
+    chipClass: 'artists-provider-chip--spirit-of-metal',
+  },
+  {
+    id: 'metal_archives',
+    label: 'Metal Archives',
+    actionIcon: 'mdi-archive',
+    iconSrc: '/provider-icons/metal-archives.ico',
+    chipClass: 'artists-provider-chip--metal-archives',
+  },
 ]
 
 const store = useLibraryStore()
@@ -77,7 +96,7 @@ const artistsScreenColumnWidths = reactive<Record<ArtistScreenColumnKey, number>
   albums: 68,
   unchecked: 86,
   local: 64,
-  provider: 110,
+  provider: 180,
   action: 104,
 })
 const artistsScreenColumnOrder = [
@@ -722,7 +741,13 @@ function providerForArtist(artist: Artist) {
 
 function providerDefinition(providerId?: string | null) {
   return providerDefinitions.find((provider) => provider.id === providerId)
-    ?? { id: 'musicbrainz' as ProviderId, label: providerId ?? 'Provider', icon: 'mdi-link-variant', color: 'default' }
+    ?? {
+      id: 'musicbrainz' as ProviderId,
+      label: providerId ?? 'Provider',
+      actionIcon: 'mdi-link-variant',
+      iconSrc: '',
+      chipClass: 'artists-provider-chip--generic',
+    }
 }
 
 function providerActionsForArtist(artist: Artist) {
@@ -735,15 +760,21 @@ function providerChipText(artist: Artist) {
   return provider ? providerDefinition(provider.providerId).label : 'None'
 }
 
-function providerChipColor(artist: Artist) {
+function providerChipClasses(artist: Artist) {
   const provider = providerForArtist(artist)
-  if (provider?.lastErrorMessage) return 'error'
-  return provider ? providerDefinition(provider.providerId).color : 'default'
+  if (!provider) {
+    return []
+  }
+  return [
+    'artists-provider-chip',
+    providerDefinition(provider.providerId).chipClass,
+    { 'artists-provider-chip--error': Boolean(provider.lastErrorMessage) },
+  ]
 }
 
-function providerChipIcon(artist: Artist) {
+function providerChipIconSrc(artist: Artist) {
   const provider = providerForArtist(artist)
-  return provider ? providerDefinition(provider.providerId).icon : undefined
+  return provider ? providerDefinition(provider.providerId).iconSrc : ''
 }
 
 function providerIdentityLabel() {
@@ -1021,17 +1052,22 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
             <div data-column="artists.provider" class="workspace-grid__cell truncate-cell">
               <v-chip
                 v-if="providerForArtist(artist)"
-                class="artists-provider-chip"
-                :color="providerChipColor(artist)"
+                :class="providerChipClasses(artist)"
                 size="small"
-                variant="tonal"
-                :prepend-icon="providerChipIcon(artist)"
+                variant="flat"
                 closable
                 close-icon="mdi-trash-can-outline"
                 @click.stop
                 @click:close.stop="clearArtistProvider(artist)"
               >
-                {{ providerChipText(artist) }}
+                <img
+                  v-if="providerChipIconSrc(artist)"
+                  class="artists-provider-chip__icon"
+                  :src="providerChipIconSrc(artist)"
+                  alt=""
+                  aria-hidden="true"
+                >
+                <span class="artists-provider-chip__text">{{ providerChipText(artist) }}</span>
               </v-chip>
               <span v-else class="cell-muted">None</span>
             </div>
@@ -1046,7 +1082,7 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
                   <template #activator="{ props }">
                     <v-btn
                       v-bind="props"
-                      :prepend-icon="provider.icon"
+                      :prepend-icon="provider.actionIcon"
                       size="x-small"
                       variant="text"
                       color="primary"
@@ -1130,11 +1166,17 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
                 <v-chip
                   v-if="selectedProvider"
                   size="small"
-                  variant="tonal"
-                  :color="providerChipColor(selectedArtist)"
-                  :prepend-icon="providerChipIcon(selectedArtist)"
+                  variant="flat"
+                  :class="providerChipClasses(selectedArtist)"
                 >
-                  {{ providerChipText(selectedArtist) }}
+                  <img
+                    v-if="providerChipIconSrc(selectedArtist)"
+                    class="artists-provider-chip__icon"
+                    :src="providerChipIconSrc(selectedArtist)"
+                    alt=""
+                    aria-hidden="true"
+                  >
+                  <span class="artists-provider-chip__text">{{ providerChipText(selectedArtist) }}</span>
                 </v-chip>
                 <span v-else class="cell-muted">None</span>
               </div>
