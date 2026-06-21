@@ -582,16 +582,22 @@ First-run defaults come from application properties, while user-created collecti
 
 ```text
 GET /api/settings/music-root
+GET /api/settings/ui
+PUT /api/settings/ui
+DELETE /api/settings/ui
 ```
 
 Settings use Quarkus properties as first-run defaults and SQLite preferences for runtime overrides.
 The Settings view exposes only settings that are useful to change while the app is running.
+The provider batch rescan delay uses `music-library.providers.default-batch-rescan-delay-minutes` as its first-run default and stores user changes in SQLite.
 
 ### Scan
 
 ```text
 POST /api/scan/jobs
 POST /api/scan/jobs?collectionId=melodeath
+POST /api/scan/jobs/local-albums?collectionId=melodeath
+POST /api/scan/jobs/local-albums?collectionId=melodeath&artistId=1
 GET  /api/scan/jobs/current
 POST /api/scan/jobs/current/cancel
 GET  /api/scan/runs?limit=25
@@ -625,10 +631,20 @@ Provider link body:
 ```text
 POST /api/provider-checks/artist/{artistId}
 POST /api/provider-checks/provider-link/{linkId}
+POST /api/provider-checks/collection/{collectionId}
 POST /api/provider-checks/all
+POST /api/provider-checks/jobs/artist/{artistId}
+POST /api/provider-checks/jobs/collection/{collectionId}
+POST /api/provider-checks/jobs/all
+GET  /api/provider-checks/jobs/current
+POST /api/provider-checks/jobs/current/cancel
 GET  /api/provider-checks/runs?limit=25
 GET  /api/provider-checks/runs/{id}/events
 ```
+
+User-facing provider scan triggers must use the provider check job flow so the status bar, row spinners, disabled scan buttons, and post-check refresh stay consistent.
+Batch provider check jobs skip provider links whose `last_checked_at` is inside the configured batch rescan delay.
+Individual artist provider check jobs always run even when the artist was checked recently.
 
 ## 7. Local Scan Behavior
 
@@ -684,6 +700,7 @@ public record RemoteAlbum(
 
 Supported providers:
 
+- `musicbrainz`
 - `spirit_of_metal`
 - `metal_archives`
 
@@ -695,6 +712,9 @@ For each remote album:
 4. Record provider check events.
 
 Provider checks should not infer local disk presence.
+Provider checks run as background jobs from the frontend and update only the active artist row spinner.
+MusicBrainz calls still go through the process-wide MusicBrainz request limiter.
+Non-MusicBrainz providers may start the next artist as soon as the previous provider response is handled.
 
 ## 9. Frontend
 

@@ -14,6 +14,7 @@ import type {
   MusicCollection,
   ScanJobStatus,
   ProviderCheckRun,
+  ProviderCheckJobStatus,
   ProviderCheckSummary,
   ProviderRefreshResult,
   ScanEvent,
@@ -71,6 +72,7 @@ interface State {
   scanReportsLoading: Record<number, boolean>
   providerLinks: Record<number, ArtistProviderLink[]>
   providerCheckRuns: ProviderCheckRun[]
+  providerJob: ProviderCheckJobStatus | null
   uiSettings: UiSettings
   statusHistory: StatusHistoryEntry[]
   manualStatus: { id: number; message: string; state: Exclude<StatusHistoryEntry['state'], 'running'> } | null
@@ -139,6 +141,7 @@ const defaultActionLabelThresholdConstraints = {
 }
 
 let scanJobPoller: number | null = null
+let providerJobPoller: number | null = null
 
 export const useLibraryStore = defineStore('library', {
   state: (): State => ({
@@ -166,14 +169,16 @@ export const useLibraryStore = defineStore('library', {
     scanReports: {},
     scanReportsLoading: {},
     providerLinks: {},
-    providerCheckRuns: [],
-    uiSettings: {
-      statusCompleteVisibleMs: 10000,
-      scanPollIntervalMs: 200,
-      collectionScanSpinnerEnabled: true,
-      artistScanSpinnerEnabled: true,
-      collectionScanProgressEnabled: true,
-      statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
+      providerCheckRuns: [],
+      providerJob: null,
+      uiSettings: {
+        statusCompleteVisibleMs: 10000,
+        scanPollIntervalMs: 200,
+        collectionScanSpinnerEnabled: true,
+        artistScanSpinnerEnabled: true,
+        collectionScanProgressEnabled: true,
+        providerBatchRescanDelayMinutes: 60,
+        statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
       releaseDateDisplayFormat: 'yyyy-MM-dd',
       statusBarLocation: 'top',
       actionLabelThresholds: defaultActionLabelThresholds,
@@ -184,10 +189,11 @@ export const useLibraryStore = defineStore('library', {
       defaults: {
         statusCompleteVisibleMs: 10000,
         scanPollIntervalMs: 200,
-        collectionScanSpinnerEnabled: true,
-        artistScanSpinnerEnabled: true,
-        collectionScanProgressEnabled: true,
-        statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
+          collectionScanSpinnerEnabled: true,
+          artistScanSpinnerEnabled: true,
+          collectionScanProgressEnabled: true,
+          providerBatchRescanDelayMinutes: 60,
+          statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
         releaseDateDisplayFormat: 'yyyy-MM-dd',
         statusBarLocation: 'top',
         actionLabelThresholds: defaultActionLabelThresholds,
@@ -201,6 +207,7 @@ export const useLibraryStore = defineStore('library', {
         collectionScanSpinnerEnabled: false,
         artistScanSpinnerEnabled: false,
         collectionScanProgressEnabled: false,
+        providerBatchRescanDelayMinutes: false,
         statusHistoryDateFormat: false,
         releaseDateDisplayFormat: false,
         statusBarLocation: false,
@@ -831,6 +838,82 @@ export const useLibraryStore = defineStore('library', {
     async cancelScanJob() {
       this.scanJob = await apiSend<ScanJobStatus>('/api/scan/jobs/current/cancel', 'POST')
       return this.scanJob
+    },
+    async runProviderArtistJob(artistId: number) {
+      await this.startProviderArtistJob(artistId)
+      this.startProviderJobPolling()
+      return this.providerJob
+    },
+    async runProviderCollectionJob(collectionId: string) {
+      await this.startProviderCollectionJob(collectionId)
+      this.startProviderJobPolling()
+      return this.providerJob
+    },
+    async runProviderAllJob() {
+      await this.startProviderAllJob()
+      this.startProviderJobPolling()
+      return this.providerJob
+    },
+    startProviderJobPolling() {
+      if (providerJobPoller !== null) {
+        return
+      }
+      const intervalMs = Math.min(2000, Math.max(100, this.uiSettings.scanPollIntervalMs))
+      const poll = async () => {
+        try {
+          const status = await this.loadProviderJob()
+          if (!status || status.status !== 'RUNNING') {
+            this.stopProviderJobPolling()
+            const collectionId = status?.requestedCollectionId ?? undefined
+            this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
+            this.invalidateCollectionContent(collectionId)
+            this.invalidateCollectionMetadata(collectionId)
+            await this.loadArtists()
+            await this.refreshCollectionContext()
+          }
+        } catch (error) {
+          this.stopProviderJobPolling()
+          this.showErrorStatus(error, 'Unable to poll provider status')
+        }
+      }
+      providerJobPoller = window.setInterval(() => void poll(), intervalMs)
+    },
+    stopProviderJobPolling() {
+      if (providerJobPoller === null) {
+        return
+      }
+      window.clearInterval(providerJobPoller)
+      providerJobPoller = null
+    },
+    async startProviderArtistJob(artistId: number) {
+      this.providerJob = await apiSend<ProviderCheckJobStatus>(
+        withQuery(`/api/provider-checks/jobs/artist/${artistId}`, { collectionId: this.selectedCollectionId }),
+        'POST',
+      )
+      return this.providerJob
+    },
+    async startProviderCollectionJob(collectionId: string) {
+      this.providerJob = await apiSend<ProviderCheckJobStatus>(
+        `/api/provider-checks/jobs/collection/${encodeURIComponent(collectionId)}`,
+        'POST',
+      )
+      return this.providerJob
+    },
+    async startProviderAllJob() {
+      this.providerJob = await apiSend<ProviderCheckJobStatus>('/api/provider-checks/jobs/all', 'POST')
+      return this.providerJob
+    },
+    async loadProviderJob() {
+      try {
+        this.providerJob = await apiGet<ProviderCheckJobStatus>('/api/provider-checks/jobs/current')
+      } catch (error) {
+        this.showErrorStatus(error, 'Unable to load provider status')
+      }
+      return this.providerJob
+    },
+    async cancelProviderJob() {
+      this.providerJob = await apiSend<ProviderCheckJobStatus>('/api/provider-checks/jobs/current/cancel', 'POST')
+      return this.providerJob
     },
     async loadScanEvents(runId: number) {
       this.scanEvents[runId] = await apiGet<ScanEvent[]>(`/api/scan/runs/${runId}/events`)

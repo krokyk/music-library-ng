@@ -15,6 +15,7 @@ type EditableUiSettingKey =
   | 'collectionScanSpinnerEnabled'
   | 'artistScanSpinnerEnabled'
   | 'collectionScanProgressEnabled'
+  | 'providerBatchRescanDelayMinutes'
   | 'statusBarLocation'
   | 'collectionActionLabelThreshold'
   | 'artistActionLabelThreshold'
@@ -29,18 +30,31 @@ interface UiForm {
   collectionScanSpinnerEnabled: boolean
   artistScanSpinnerEnabled: boolean
   collectionScanProgressEnabled: boolean
+  providerBatchRescanDelayMinutes: number
   statusHistoryDateFormat: string
   statusBarLocation: 'top' | 'bottom'
   actionLabelThresholds: ActionLabelThresholds
 }
 
 const store = useLibraryStore()
-const { artists, collections, scanJob, scanRuns, scanEvents, musicRoot, uiSettings } = storeToRefs(store)
+const { artists, collections, providerJob, providerStatus, scanJob, scanRuns, scanEvents, musicRoot, uiSettings } = storeToRefs(store)
 
 const scanPollMin = 100
 const scanPollMax = 2000
 const statusVisibleMin = 0
 const statusVisibleMax = 30000
+const providerBatchRescanOptions = [
+  { label: 'Off', minutes: 0 },
+  { label: '30 min', minutes: 30 },
+  { label: '1 hour', minutes: 60 },
+  { label: '12 hours', minutes: 720 },
+  { label: '1 day', minutes: 1440 },
+  { label: '7 days', minutes: 10080 },
+  { label: '30 days', minutes: 43200 },
+]
+const providerBatchRescanTicks = Object.fromEntries(
+  providerBatchRescanOptions.map((option, index) => [index, option.label]),
+)
 
 const uiForm = reactive<UiForm>({
   statusCompleteVisibleMs: 10000,
@@ -48,6 +62,7 @@ const uiForm = reactive<UiForm>({
   collectionScanSpinnerEnabled: true,
   artistScanSpinnerEnabled: true,
   collectionScanProgressEnabled: true,
+  providerBatchRescanDelayMinutes: 60,
   statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
   statusBarLocation: 'top',
   actionLabelThresholds: {
@@ -61,6 +76,8 @@ const savingUiSettings = ref(false)
 const uiSaveTimer = ref<number | null>(null)
 const pendingUiSettingKeys = new Set<EditableUiSettingKey>()
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
+const providerIsRunning = computed(() => providerJob.value?.status === 'RUNNING' || providerStatus.value.running)
+const scanActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value)
 const bulkMatchLoading = ref(false)
 const bulkMatchDialog = ref(false)
 const bulkMatchResult = ref<ArtistProviderBulkMatchResult | null>(null)
@@ -72,6 +89,7 @@ function syncUiForm() {
   uiForm.collectionScanSpinnerEnabled = uiSettings.value.collectionScanSpinnerEnabled
   uiForm.artistScanSpinnerEnabled = uiSettings.value.artistScanSpinnerEnabled
   uiForm.collectionScanProgressEnabled = uiSettings.value.collectionScanProgressEnabled
+  uiForm.providerBatchRescanDelayMinutes = uiSettings.value.providerBatchRescanDelayMinutes
   uiForm.statusHistoryDateFormat = uiSettings.value.statusHistoryDateFormat
   uiForm.statusBarLocation = uiSettings.value.statusBarLocation
   uiForm.actionLabelThresholds = { ...uiSettings.value.actionLabelThresholds }
@@ -85,8 +103,20 @@ function settingValue(key: EditableUiSettingKey) {
   if (key === 'scanPollIntervalMs' || key === 'statusCompleteVisibleMs') {
     return `${value} ms`
   }
+  if (key === 'providerBatchRescanDelayMinutes') {
+    return providerBatchRescanLabel(uiForm.providerBatchRescanDelayMinutes)
+  }
   return value
 }
+
+const providerBatchRescanIndex = computed({
+  get: () => providerBatchRescanIndexFor(uiForm.providerBatchRescanDelayMinutes),
+  set: (value: number) => {
+    const index = Math.min(providerBatchRescanOptions.length - 1, Math.max(0, Math.round(Number(value))))
+    uiForm.providerBatchRescanDelayMinutes = providerBatchRescanOptions[index].minutes
+    scheduleUiSettingsSave('providerBatchRescanDelayMinutes')
+  },
+})
 
 function collectionTypeIcon(type: string) {
   return type === 'TITLE' ? 'mdi-album' : 'mdi-account-music'
@@ -109,6 +139,9 @@ async function scanCollection(collectionId: string) {
 }
 
 async function runBulkMusicBrainzMatch() {
+  if (scanActionsDisabled.value) {
+    return
+  }
   if (artists.value.length === 0) {
     await store.loadArtists()
   }
@@ -132,6 +165,9 @@ async function runBulkMusicBrainzMatch() {
 }
 
 async function useBulkCandidate(item: ArtistProviderBulkMatchItem) {
+  if (scanActionsDisabled.value) {
+    return
+  }
   const candidate = bulkCandidate(item)
   if (!candidate) {
     return
@@ -236,6 +272,9 @@ function normalizeUiForm() {
     scanPollMin,
     scanPollMax,
   )
+  uiForm.providerBatchRescanDelayMinutes = providerBatchRescanOptions[
+    providerBatchRescanIndexFor(uiForm.providerBatchRescanDelayMinutes)
+  ].minutes
   uiForm.statusBarLocation = uiForm.statusBarLocation === 'bottom' ? 'bottom' : 'top'
   const constraints = uiSettings.value.actionLabelThresholdConstraints
   ;(['collections', 'artists', 'albums', 'titles'] as ActionLabelPane[]).forEach((pane) => {
@@ -297,6 +336,7 @@ function uiSettingsPayload(keys: EditableUiSettingKey[]) {
     if (key === 'collectionScanSpinnerEnabled') payload.collectionScanSpinnerEnabled = uiForm.collectionScanSpinnerEnabled
     if (key === 'artistScanSpinnerEnabled') payload.artistScanSpinnerEnabled = uiForm.artistScanSpinnerEnabled
     if (key === 'collectionScanProgressEnabled') payload.collectionScanProgressEnabled = uiForm.collectionScanProgressEnabled
+    if (key === 'providerBatchRescanDelayMinutes') payload.providerBatchRescanDelayMinutes = uiForm.providerBatchRescanDelayMinutes
     if (key === 'statusBarLocation') payload.statusBarLocation = uiForm.statusBarLocation
     if (isActionLabelThresholdKey(key)) {
       payload.actionLabelThresholds = { ...uiForm.actionLabelThresholds }
@@ -336,6 +376,24 @@ function collectionScanProgressChanged() {
   scheduleUiSettingsSave('collectionScanProgressEnabled')
 }
 
+function providerBatchRescanIndexFor(minutes: number) {
+  const normalized = normalizeNumber(minutes, uiSettings.value.defaults.providerBatchRescanDelayMinutes, 0, 43200)
+  let closestIndex = 0
+  let closestDistance = Number.POSITIVE_INFINITY
+  providerBatchRescanOptions.forEach((option, index) => {
+    const distance = Math.abs(option.minutes - normalized)
+    if (distance < closestDistance) {
+      closestDistance = distance
+      closestIndex = index
+    }
+  })
+  return closestIndex
+}
+
+function providerBatchRescanLabel(minutes: number) {
+  return providerBatchRescanOptions[providerBatchRescanIndexFor(minutes)].label
+}
+
 function actionLabelThresholdChanged(pane: ActionLabelPane) {
   scheduleUiSettingsSave(actionLabelSettingKey(pane))
 }
@@ -359,6 +417,9 @@ function savePendingUiSettingsOnUnmount() {
 }
 
 async function resetUiSettings() {
+  if (scanActionsDisabled.value) {
+    return
+  }
   if (uiSaveTimer.value !== null) {
     window.clearTimeout(uiSaveTimer.value)
     uiSaveTimer.value = null
@@ -376,9 +437,12 @@ async function resetUiSettings() {
 }
 
 onMounted(async () => {
-  await Promise.all([store.loadSettings(), store.loadUiSettings(), store.loadScanJob(), store.loadArtists()])
+  await Promise.all([store.loadSettings(), store.loadUiSettings(), store.loadScanJob(), store.loadProviderJob(), store.loadArtists()])
   if (scanIsRunning.value) {
     store.startScanJobPolling()
+  }
+  if (providerJob.value?.status === 'RUNNING') {
+    store.startProviderJobPolling()
   }
   syncUiForm()
 })
@@ -407,6 +471,7 @@ onBeforeUnmount(() => {
               variant="outlined"
               prepend-icon="mdi-backup-restore"
               :loading="savingUiSettings"
+              :disabled="scanActionsDisabled"
               @click="resetUiSettings"
             >
               Reset to defaults
@@ -428,6 +493,7 @@ onBeforeUnmount(() => {
                   :min="scanPollMin"
                   :max="scanPollMax"
                   :step="50"
+                  :disabled="scanActionsDisabled"
                   thumb-label
                   @update:model-value="scanPollChanged"
                 ></v-slider>
@@ -448,6 +514,7 @@ onBeforeUnmount(() => {
                   :min="statusVisibleMin"
                   :max="statusVisibleMax"
                   :step="500"
+                  :disabled="scanActionsDisabled"
                   thumb-label
                   @update:model-value="statusVisibleChanged"
                 ></v-slider>
@@ -465,11 +532,36 @@ onBeforeUnmount(() => {
                 density="compact"
                 mandatory
                 variant="outlined"
+                :disabled="scanActionsDisabled"
                 @update:model-value="statusBarLocationChanged"
               >
                 <v-btn value="top">Top</v-btn>
                 <v-btn value="bottom">Bottom</v-btn>
               </v-btn-toggle>
+            </div>
+            <div
+              class="settings-cell settings-cell--label"
+              title="Batch provider scans skip links checked more recently than this. Off disables the recent-check skip."
+            >
+              Batch provider rescan delay
+            </div>
+            <div class="settings-cell settings-cell--control">
+              <div class="settings-slider-control">
+                <v-slider
+                  v-model.number="providerBatchRescanIndex"
+                  class="settings-slider"
+                  color="primary"
+                  density="compact"
+                  hide-details
+                  :min="0"
+                  :max="providerBatchRescanOptions.length - 1"
+                  :step="1"
+                  :ticks="providerBatchRescanTicks"
+                  :disabled="scanActionsDisabled"
+                  show-ticks="always"
+                ></v-slider>
+                <span class="settings-readonly-value">{{ settingValue('providerBatchRescanDelayMinutes') }}</span>
+              </div>
             </div>
           </div>
         </section>
@@ -493,6 +585,7 @@ onBeforeUnmount(() => {
                 class="settings-switch"
                 color="primary"
                 density="compact"
+                :disabled="scanActionsDisabled"
                 hide-details
                 @update:model-value="collectionScanSpinnerChanged"
               ></v-switch>
@@ -511,6 +604,7 @@ onBeforeUnmount(() => {
                   :min="uiSettings.actionLabelThresholdConstraints.min.collections"
                   :max="uiSettings.actionLabelThresholdConstraints.max"
                   :step="uiSettings.actionLabelThresholdConstraints.step"
+                  :disabled="scanActionsDisabled"
                   thumb-label
                   @update:model-value="actionLabelThresholdChanged('collections')"
                 ></v-slider>
@@ -531,6 +625,7 @@ onBeforeUnmount(() => {
                   :min="uiSettings.actionLabelThresholdConstraints.min.titles"
                   :max="uiSettings.actionLabelThresholdConstraints.max"
                   :step="uiSettings.actionLabelThresholdConstraints.step"
+                  :disabled="scanActionsDisabled"
                   thumb-label
                   @update:model-value="actionLabelThresholdChanged('titles')"
                 ></v-slider>
@@ -548,6 +643,7 @@ onBeforeUnmount(() => {
                 class="settings-switch"
                 color="primary"
                 density="compact"
+                :disabled="scanActionsDisabled"
                 hide-details
                 @update:model-value="artistScanSpinnerChanged"
               ></v-switch>
@@ -566,6 +662,7 @@ onBeforeUnmount(() => {
                   :min="uiSettings.actionLabelThresholdConstraints.min.artists"
                   :max="uiSettings.actionLabelThresholdConstraints.max"
                   :step="uiSettings.actionLabelThresholdConstraints.step"
+                  :disabled="scanActionsDisabled"
                   thumb-label
                   @update:model-value="actionLabelThresholdChanged('artists')"
                 ></v-slider>
@@ -586,6 +683,7 @@ onBeforeUnmount(() => {
                   :min="uiSettings.actionLabelThresholdConstraints.min.albums"
                   :max="uiSettings.actionLabelThresholdConstraints.max"
                   :step="uiSettings.actionLabelThresholdConstraints.step"
+                  :disabled="scanActionsDisabled"
                   thumb-label
                   @update:model-value="actionLabelThresholdChanged('albums')"
                 ></v-slider>
@@ -602,6 +700,7 @@ onBeforeUnmount(() => {
                 class="settings-switch"
                 color="primary"
                 density="compact"
+                :disabled="scanActionsDisabled"
                 hide-details
                 @update:model-value="collectionScanProgressChanged"
               ></v-switch>
@@ -663,7 +762,7 @@ onBeforeUnmount(() => {
               variant="tonal"
               prepend-icon="mdi-account-search"
               :loading="bulkMatchLoading"
-              :disabled="artists.length === 0 || bulkMatchLoading"
+              :disabled="artists.length === 0 || bulkMatchLoading || scanActionsDisabled"
               @click="runBulkMusicBrainzMatch"
             >
               Bulk Match MusicBrainz
@@ -727,7 +826,7 @@ onBeforeUnmount(() => {
                       variant="text"
                       prepend-icon="mdi-refresh"
                       :loading="collectionIsScanning(collection.id)"
-                      :disabled="scanIsRunning"
+                      :disabled="scanActionsDisabled"
                       @click="scanCollection(collection.id)"
                     >
                       Scan
@@ -845,7 +944,7 @@ onBeforeUnmount(() => {
                       size="small"
                       color="primary"
                       variant="text"
-                      :disabled="!bulkCandidate(item)"
+                      :disabled="!bulkCandidate(item) || scanActionsDisabled"
                       @click="useBulkCandidate(item)"
                     >
                       Use

@@ -107,6 +107,10 @@ public interface MusicLibraryConfig {
     }
 
     interface Providers {
+        @WithName("default-batch-rescan-delay-minutes")
+        @WithDefault("60")
+        int defaultBatchRescanDelayMinutes();
+
         MusicBrainz musicbrainz();
     }
 

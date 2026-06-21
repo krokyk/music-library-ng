@@ -5,7 +5,7 @@ import { useLibraryStore } from '@/stores/library'
 import type { Album } from '@/types'
 
 const store = useLibraryStore()
-const { artists, albums, loading } = storeToRefs(store)
+const { artists, albums, providerJob, providerStatus, scanJob, loading } = storeToRefs(store)
 
 const artistName = ref('')
 const albumArtistId = ref<number | null>(null)
@@ -27,6 +27,10 @@ const checkedFilterItems = [
   { title: 'Listened', value: 'checked' },
   { title: 'Not listened', value: 'unchecked' },
 ]
+
+const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
+const providerIsRunning = computed(() => providerJob.value?.status === 'RUNNING' || providerStatus.value.running)
+const writeActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value)
 
 const filteredAlbums = computed(() => {
   const needle = search.value.trim().toLowerCase()
@@ -67,6 +71,9 @@ function localTooltip(album: Album) {
 }
 
 async function addArtist() {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (!artistName.value.trim()) {
     return
   }
@@ -79,6 +86,9 @@ async function addArtist() {
 }
 
 async function addAlbum() {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (!albumArtistId.value || !albumTitle.value.trim()) {
     return
   }
@@ -93,6 +103,9 @@ async function addAlbum() {
 }
 
 async function updateAlbum(album: Album, patch: Partial<Album>) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (albumCheckedToggleDisabled(album) && patch.checked !== undefined) {
     return
   }
@@ -147,10 +160,20 @@ onMounted(() => store.loadAll())
             v-model="artistName"
             density="compact"
             label="Artist"
+            :disabled="writeActionsDisabled"
             hide-details
             @keyup.enter="addArtist"
           ></v-text-field>
-          <v-btn block color="primary" class="mt-3" prepend-icon="mdi-plus" @click="addArtist">Add artist</v-btn>
+          <v-btn
+            block
+            color="primary"
+            class="mt-3"
+            prepend-icon="mdi-plus"
+            :disabled="writeActionsDisabled || !artistName.trim()"
+            @click="addArtist"
+          >
+            Add artist
+          </v-btn>
         </v-sheet>
       </v-col>
 
@@ -164,20 +187,47 @@ onMounted(() => store.loadAll())
                 :items="artistOptions()"
                 density="compact"
                 label="Artist"
+                :disabled="writeActionsDisabled"
                 hide-details
               ></v-select>
             </v-col>
             <v-col cols="12" md="4">
-              <v-text-field v-model="albumTitle" density="compact" label="Album" hide-details></v-text-field>
+              <v-text-field
+                v-model="albumTitle"
+                density="compact"
+                label="Album"
+                :disabled="writeActionsDisabled"
+                hide-details
+              ></v-text-field>
             </v-col>
             <v-col cols="6" md="2">
-              <v-text-field v-model="albumReleaseDate" density="compact" label="Release date" hide-details></v-text-field>
+              <v-text-field
+                v-model="albumReleaseDate"
+                density="compact"
+                label="Release date"
+                :disabled="writeActionsDisabled"
+                hide-details
+              ></v-text-field>
             </v-col>
             <v-col cols="6" md="2">
-              <v-checkbox v-model="albumChecked" density="compact" label="Listened" hide-details></v-checkbox>
+              <v-checkbox
+                v-model="albumChecked"
+                density="compact"
+                label="Listened"
+                :disabled="writeActionsDisabled"
+                hide-details
+              ></v-checkbox>
             </v-col>
           </v-row>
-          <v-btn color="primary" class="mt-3" prepend-icon="mdi-album" @click="addAlbum">Add album</v-btn>
+          <v-btn
+            color="primary"
+            class="mt-3"
+            prepend-icon="mdi-album"
+            :disabled="writeActionsDisabled || !albumArtistId || !albumTitle.trim()"
+            @click="addAlbum"
+          >
+            Add album
+          </v-btn>
         </v-sheet>
       </v-col>
     </v-row>
@@ -229,6 +279,7 @@ onMounted(() => store.loadAll())
               <v-text-field
                 :model-value="albumReleaseDateValue(album)"
                 density="compact"
+                :disabled="writeActionsDisabled"
                 hide-details
                 @update:model-value="(value) => updateAlbum(album, { releaseDate: normalizeReleaseDateInput(value) })"
               ></v-text-field>
@@ -254,6 +305,7 @@ onMounted(() => store.loadAll())
                 v-else
                 :model-value="albumCheckedValue(album)"
                 density="compact"
+                :disabled="writeActionsDisabled"
                 hide-details
                 @update:model-value="(value) => updateAlbum(album, { checked: Boolean(value) })"
               ></v-checkbox>

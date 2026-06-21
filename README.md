@@ -169,6 +169,7 @@ Use ignored `config/application.properties` or JVM `-D...` arguments for private
 The only value expected to differ between computers is the physical music root.
 Runtime UI preferences are stored in SQLite after they are changed in Settings.
 First-run UI defaults still come from `application.properties`.
+The default batch provider rescan delay comes from `music-library.providers.default-batch-rescan-delay-minutes` and can be changed later in Settings.
 Logs go to the console and `data/logs/music-library-ng.log`.
 
 ## Collection Model
@@ -176,6 +177,9 @@ Logs go to the console and `data/logs/music-library-ng.log`.
 Artist-centric collections browse collections, artists, and albums.
 Title-centric collections browse collections and titles.
 Collection scans create direct artists or titles first, while local album scans and provider refreshes are explicit actions.
+Local album scans and provider scans run in background jobs so the workspace remains navigable while status updates continue.
+Scan buttons and write actions such as add, edit, delete, and provider-link changes are disabled while a local or provider scan is running.
+Batch provider scans skip provider links checked within the configured batch rescan delay, while individual artist provider scans always run.
 
 Artist-centric album folder shapes:
 

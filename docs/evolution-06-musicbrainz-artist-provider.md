@@ -222,6 +222,7 @@ music-library.providers.musicbrainz.site-url=https://musicbrainz.org
 music-library.providers.musicbrainz.request-min-interval-ms=1100
 music-library.providers.musicbrainz.search-candidate-limit=5
 music-library.providers.musicbrainz.release-group-page-size=100
+music-library.providers.default-batch-rescan-delay-minutes=60
 ```
 
 Put the required private User-Agent in ignored local config such as `./config/application.properties`.
@@ -239,8 +240,11 @@ Notes:
 - Do not make concurrent MusicBrainz requests. A single process-wide limiter
   should serialize them.
 - Retry handling must also respect the same limiter.
-- These are not runtime UI preferences.
+- MusicBrainz client properties are not runtime UI preferences.
   They belong in `application.properties`, not `user_preferences`.
+- The batch provider rescan delay is different from MusicBrainz API throttling.
+- The batch provider rescan delay uses `application.properties` as its default and stores user changes in `user_preferences`.
+- Setting the batch provider rescan delay to `0` disables the recent-check skip.
 
 ## Backend Model Types
 
@@ -766,6 +770,24 @@ Behavior:
 Do not require a collection ID for the MVP.
 Provider-discovered albums are artist-level known albums, not local collection
 scan results.
+
+### Provider Check Jobs
+
+```text
+POST /api/provider-checks/jobs/artist/{artistId}
+POST /api/provider-checks/jobs/collection/{collectionId}
+POST /api/provider-checks/jobs/all
+GET  /api/provider-checks/jobs/current
+POST /api/provider-checks/jobs/current/cancel
+```
+
+Provider scan buttons in the UI use the job endpoints so the workspace remains responsive during long MusicBrainz refreshes.
+Only the active artist row shows a scan spinner during batch provider scans.
+The status bar shows the active artist, processed count, total count, and skipped count while a provider job is running.
+Batch provider jobs skip enabled provider links whose `last_checked_at` is inside the configured batch rescan delay.
+Individual artist provider jobs always run even when the artist was checked recently.
+All provider scan buttons and write actions are disabled while a provider job is running.
+MusicBrainz release-group requests still go through the same process-wide limiter and do not run concurrently.
 
 Open point:
 

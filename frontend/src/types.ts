@@ -125,8 +125,11 @@ export interface ScanJobStatus {
   requestedCollectionId?: string | null
   requestedCollectionName?: string | null
   requestedArtistId?: number | null
+  requestedArtistName?: string | null
   activeCollectionId?: string | null
   activeCollectionName?: string | null
+  activeArtistId?: number | null
+  activeArtistName?: string | null
   itemTotal: number
   itemProcessed: number
   parsedCount: number
@@ -143,6 +146,7 @@ export interface UiSettingsValues {
   collectionScanSpinnerEnabled: boolean
   artistScanSpinnerEnabled: boolean
   collectionScanProgressEnabled: boolean
+  providerBatchRescanDelayMinutes: number
   statusHistoryDateFormat: string
   releaseDateDisplayFormat: string
   statusBarLocation: 'top' | 'bottom'
@@ -177,6 +181,7 @@ export interface UiSettingOverrides {
   collectionScanSpinnerEnabled: boolean
   artistScanSpinnerEnabled: boolean
   collectionScanProgressEnabled: boolean
+  providerBatchRescanDelayMinutes: boolean
   statusHistoryDateFormat: boolean
   releaseDateDisplayFormat: boolean
   statusBarLocation: boolean
@@ -361,6 +366,28 @@ export interface ProviderCheckSummary {
   existingAlbumCount: number
   errorCount: number
   messages: string[]
+}
+
+export interface ProviderCheckJobStatus {
+  id: string
+  status: string
+  kind: 'PROVIDER_ARTIST' | 'PROVIDER_COLLECTION' | 'PROVIDER_ALL'
+  requestedCollectionId?: string | null
+  requestedCollectionName?: string | null
+  requestedArtistId?: number | null
+  requestedArtistName?: string | null
+  activeArtistId?: number | null
+  activeArtistName?: string | null
+  itemTotal: number
+  itemProcessed: number
+  skippedArtistCount: number
+  foundAlbumCount: number
+  newAlbumCount: number
+  existingAlbumCount: number
+  errorCount: number
+  cancelRequested: boolean
+  message?: string | null
+  runIds: number[]
 }
 
 export interface ProviderCheckRun {

@@ -342,6 +342,7 @@ public class ScanService {
                                 + " | selected artist: " + selectedArtistName);
                     } else {
                         UpsertResult artistResult = artistRepository.upsertByName(parsedArtistName);
+                        progress.artistStarted(collection.id(), artistResult.id(), parsedArtistName);
                         artistRepository.assignToCollection(artistResult.id(), collection.id(), true);
                         String relativePath = folder.getFileName().toString();
                         seenPaths.add(relativePath);
@@ -382,6 +383,7 @@ public class ScanService {
                                     + " | selected artist: " + selectedArtistName);
                         } else {
                             UpsertResult artistResult = artistRepository.upsertByName(parsedArtistName);
+                            progress.artistStarted(collection.id(), artistResult.id(), parsedArtistName);
                             artistRepository.assignToCollection(artistResult.id(), collection.id(), true);
                             for (Path unmatchedAlbumFolder : nestedArtist.get().unmatchedAlbumFolders()) {
                                 skipped++;
@@ -561,6 +563,9 @@ public class ScanService {
         };
 
         default void collectionStarted(String collectionId, int itemTotal) {
+        }
+
+        default void artistStarted(String collectionId, Long artistId, String artistName) {
         }
 
         default void itemProcessed(String collectionId, int processedItems) {

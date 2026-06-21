@@ -36,6 +36,7 @@ const {
   collectionMetadataLoading,
   selectedCollectionId,
   selectedArtistId,
+  providerJob,
   providerStatus,
   scanJob,
   uiSettings,
@@ -47,7 +48,6 @@ const addCollectionDropdownOpen = ref(false)
 const deleteCollectionDialog = ref(false)
 const albumToDelete = ref<Album | null>(null)
 const collectionToDelete = ref<MusicCollection | null>(null)
-const refreshingArtistId = ref<number | null>(null)
 const savingArtist = ref(false)
 const collectionEditOpenId = ref<string | null>(null)
 const collectionEditTarget = ref<HTMLElement | undefined>(undefined)
@@ -268,7 +268,10 @@ const collectionOptions = computed(() =>
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
 const collectionScanIsRunning = computed(() => scanIsRunning.value && scanJob.value?.kind !== 'LOCAL_ALBUMS')
 const localAlbumScanIsRunning = computed(() => scanIsRunning.value && scanJob.value?.kind === 'LOCAL_ALBUMS')
-const providerIsRunning = computed(() => providerStatus.value.running)
+const providerJobIsRunning = computed(() => providerJob.value?.status === 'RUNNING')
+const providerIsRunning = computed(() => providerJobIsRunning.value || providerStatus.value.running)
+const scanActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value)
+const writeActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value)
 const paneLayoutPreferenceKeys = {
   artist: 'collections-screen.artist-layout.panes',
   title: 'collections-screen.title-layout.panes',
@@ -912,11 +915,17 @@ function scanProgress(collection: MusicCollection) {
 }
 
 function askDeleteCollection(collection: MusicCollection) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   collectionToDelete.value = collection
   deleteCollectionDialog.value = true
 }
 
 async function deleteCollection() {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (!collectionToDelete.value) {
     return
   }
@@ -943,6 +952,9 @@ async function toggleAddCollectionDropdown() {
 }
 
 async function addCollection(candidate: CollectionFolderCandidate) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   try {
     await store.createCollection(candidate.relativePath)
   } catch (error) {
@@ -955,6 +967,9 @@ function closeAddCollectionDropdown() {
 }
 
 function openCollectionEdit(collection: MusicCollection, event?: MouseEvent) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   collectionEditForm.name = collection.name
   collectionEditForm.type = collection.type
   collectionEditTarget.value = event?.currentTarget instanceof HTMLElement ? event.currentTarget : undefined
@@ -967,6 +982,9 @@ function openCollectionEdit(collection: MusicCollection, event?: MouseEvent) {
 }
 
 async function saveCollectionEdit(collection: MusicCollection) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   const name = collectionEditForm.name.trim()
   if (!name) {
     return
@@ -998,6 +1016,9 @@ function closeCollectionEdit() {
 }
 
 async function startScan(collectionId: string) {
+  if (scanActionsDisabled.value) {
+    return
+  }
   try {
     await store.runScanJob(collectionId)
   } catch (error) {
@@ -1010,9 +1031,6 @@ function collectionIsScanning(collection: MusicCollection) {
 }
 
 function selectCollection(collection: MusicCollection) {
-  if (collectionIsScanning(collection)) {
-    return
-  }
   void store.selectCollection(collection.id)
 }
 
@@ -1599,6 +1617,9 @@ function handleDocumentKeyDown(event: KeyboardEvent) {
 }
 
 async function openArtistDialog(artist?: Artist) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   artistForm.id = artist?.id ?? null
   artistForm.name = artist?.name ?? ''
   artistForm.sortName = artist?.sortName ?? ''
@@ -1612,6 +1633,9 @@ async function openArtistDialog(artist?: Artist) {
 }
 
 async function saveArtistDetails() {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (!artistForm.name.trim()) {
     return
   }
@@ -1640,6 +1664,9 @@ async function saveArtistDetails() {
 }
 
 async function removeArtistFromCollection(artist: Artist) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   try {
     await store.removeArtistFromSelectedCollection(artist.id)
   } catch (error) {
@@ -1648,20 +1675,26 @@ async function removeArtistFromCollection(artist: Artist) {
 }
 
 async function refreshArtist(artist: Artist) {
-  refreshingArtistId.value = artist.id
+  if (scanActionsDisabled.value) {
+    return
+  }
   try {
-    await store.checkArtistProvider(artist.id)
+    await store.runProviderArtistJob(artist.id)
   } catch (error) {
-    if (!store.providerStatus.message?.startsWith('Provider check failed')) {
+    if (!store.providerJob?.message?.startsWith('Provider check failed')) {
       store.showErrorStatus(error, 'Provider check failed')
     }
-  } finally {
-    refreshingArtistId.value = null
   }
 }
 
 function localAlbumScanIsRunningForArtist(artist: Artist) {
-  return localAlbumScanIsRunning.value && scanJob.value?.requestedArtistId === artist.id
+  if (!localAlbumScanIsRunning.value) {
+    return false
+  }
+  if (scanJob.value?.requestedArtistId != null) {
+    return scanJob.value.requestedArtistId === artist.id
+  }
+  return scanJob.value?.activeArtistId === artist.id
 }
 
 function localAlbumScanIsRunningForCollection() {
@@ -1671,15 +1704,19 @@ function localAlbumScanIsRunningForCollection() {
 }
 
 function providerScanIsRunningForArtist(artist: Artist) {
-  if (!providerIsRunning.value) {
-    return false
+  if (providerJobIsRunning.value) {
+    if (providerJob.value?.requestedArtistId != null) {
+      return providerJob.value.requestedArtistId === artist.id
+    }
+    return providerJob.value?.activeArtistId === artist.id
   }
-  if (refreshingArtistId.value !== null) {
-    return refreshingArtistId.value === artist.id
-  }
-  return selectedCollectionIsArtist.value
-    && selectedCollectionId.value !== null
-    && artist.providerLinkCount > 0
+  return false
+}
+
+function providerScanIsRunningForCollection() {
+  return providerJobIsRunning.value
+    && providerJob.value?.kind === 'PROVIDER_COLLECTION'
+    && providerJob.value?.requestedCollectionId === selectedCollectionId.value
 }
 
 function artistScanIsRunning(artist: Artist) {
@@ -1687,11 +1724,13 @@ function artistScanIsRunning(artist: Artist) {
     return false
   }
   return localAlbumScanIsRunningForArtist(artist)
-    || localAlbumScanIsRunningForCollection()
     || providerScanIsRunningForArtist(artist)
 }
 
 async function scanLocalAlbumsForArtist(artist: Artist) {
+  if (scanActionsDisabled.value) {
+    return
+  }
   if (!selectedCollectionId.value) {
     return
   }
@@ -1703,6 +1742,9 @@ async function scanLocalAlbumsForArtist(artist: Artist) {
 }
 
 async function scanLocalAlbumsForCollection() {
+  if (scanActionsDisabled.value) {
+    return
+  }
   if (!selectedCollectionId.value) {
     return
   }
@@ -1714,19 +1756,25 @@ async function scanLocalAlbumsForCollection() {
 }
 
 async function refreshCollectionProviders() {
+  if (scanActionsDisabled.value) {
+    return
+  }
   if (!selectedCollectionId.value) {
     return
   }
   try {
-    await store.checkCollectionProviders(selectedCollectionId.value)
+    await store.runProviderCollectionJob(selectedCollectionId.value)
   } catch (error) {
-    if (!store.providerStatus.message?.startsWith('Provider check failed')) {
+    if (!store.providerJob?.message?.startsWith('Provider check failed')) {
       store.showErrorStatus(error, 'Provider check failed')
     }
   }
 }
 
 async function updateAlbumChecked(album: Album, checked: boolean) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (albumCheckedToggleDisabled(album)) {
     return
   }
@@ -1750,6 +1798,9 @@ function albumHasMissingLocalPath(album: Album) {
 }
 
 function openAlbumEditDialog(album: Album) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   albumToEdit.value = album
   albumEditForm.title = album.title
   albumEditDialog.value = true
@@ -1760,6 +1811,9 @@ function openAlbumEditDialog(album: Album) {
 }
 
 async function saveAlbumTitle() {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (!albumToEdit.value || !albumEditForm.title.trim()) {
     return
   }
@@ -1779,6 +1833,9 @@ async function saveAlbumTitle() {
 }
 
 async function untrackMissingAlbumLocalPaths(album: Album) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (!selectedCollectionId.value) {
     return
   }
@@ -1790,11 +1847,17 @@ async function untrackMissingAlbumLocalPaths(album: Album) {
 }
 
 function askDeleteAlbum(album: Album) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   albumToDelete.value = album
   deleteDialog.value = true
 }
 
 async function deleteAlbum() {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (!albumToDelete.value) {
     return
   }
@@ -1808,6 +1871,9 @@ async function deleteAlbum() {
 }
 
 function openTitleItemDialog(item?: Album) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   titleItemToEdit.value = item ?? null
   titleItemForm.title = item?.title ?? ''
   titleItemForm.artistName = item?.artistName ?? ''
@@ -1817,6 +1883,9 @@ function openTitleItemDialog(item?: Album) {
 }
 
 async function saveTitleItem() {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (!titleItemForm.title.trim() || !selectedCollectionId.value) {
     return
   }
@@ -1844,6 +1913,9 @@ async function saveTitleItem() {
 }
 
 async function deleteTitleLocalPath(item: Album) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   try {
     await store.deleteTitleLocalPath(item)
   } catch (error) {
@@ -1954,6 +2026,7 @@ watch(titlePresence, (value) => {
               :variant="addCollectionDropdownOpen ? 'tonal' : 'text'"
               color="primary"
               :class="[actionLabelClassFor(showCollectionAddLabel()), 'app-toolbar-button']"
+              :disabled="writeActionsDisabled"
               @click="toggleAddCollectionDropdown"
             >
               <span v-if="showCollectionAddLabel()">Add</span>
@@ -1973,6 +2046,7 @@ watch(titlePresence, (value) => {
               :key="candidate.relativePath"
               class="folder-candidate"
               type="button"
+              :disabled="writeActionsDisabled"
               @click="addCollection(candidate)"
             >
               <span>{{ candidate.folderName }}</span>
@@ -2054,7 +2128,7 @@ watch(titlePresence, (value) => {
                     variant="text"
                     color="primary"
                     :class="rowActionClass('collections')"
-                    :disabled="collectionIsScanning(collection)"
+                    :disabled="writeActionsDisabled"
                     @click.stop="openCollectionEdit(collection, $event)"
                   >
                     <span v-if="showActionLabels('collections')">Edit</span>
@@ -2070,7 +2144,7 @@ watch(titlePresence, (value) => {
                     variant="text"
                     color="primary"
                     :class="rowActionClass('collections')"
-                    :disabled="scanIsRunning"
+                    :disabled="scanActionsDisabled"
                     @click.stop="startScan(collection.id)"
                   >
                     <span v-if="showActionLabels('collections')">Scan</span>
@@ -2086,7 +2160,7 @@ watch(titlePresence, (value) => {
                     variant="text"
                     color="error"
                     :class="rowActionClass('collections')"
-                    :disabled="collectionIsScanning(collection)"
+                    :disabled="writeActionsDisabled"
                     @click.stop="askDeleteCollection(collection)"
                   >
                     <span v-if="showActionLabels('collections')">Delete</span>
@@ -2117,6 +2191,7 @@ watch(titlePresence, (value) => {
                 <v-text-field
                   v-model="collectionEditForm.name"
                   label="Name"
+                  :disabled="writeActionsDisabled"
                   hide-details="auto"
                   @keydown.enter.stop="saveOpenCollectionEdit"
                 ></v-text-field>
@@ -2131,6 +2206,7 @@ watch(titlePresence, (value) => {
                 density="compact"
                 color="primary"
                 class="app-toolbar-toggle collection-type-toggle"
+                :disabled="writeActionsDisabled"
               >
                 <v-btn value="ARTIST" size="small">
                   <v-icon
@@ -2159,7 +2235,7 @@ watch(titlePresence, (value) => {
               color="primary"
               variant="flat"
               class="app-toolbar-button"
-              :disabled="!collectionEditForm.name.trim()"
+              :disabled="writeActionsDisabled || !collectionEditForm.name.trim()"
               @click.stop="saveOpenCollectionEdit"
             >
               Save
@@ -2186,7 +2262,7 @@ watch(titlePresence, (value) => {
                     variant="text"
                     color="primary"
                     :class="[actionLabelClass('titles'), 'app-toolbar-button']"
-                    :disabled="!selectedCollectionId"
+                    :disabled="writeActionsDisabled || !selectedCollectionId"
                     @click="openTitleItemDialog()"
                   >
                     <span v-if="showActionLabels('titles')">Add</span>
@@ -2325,6 +2401,7 @@ watch(titlePresence, (value) => {
                           variant="text"
                           color="primary"
                           :class="gridRowActionClass('title')"
+                          :disabled="writeActionsDisabled"
                           @click.stop="openTitleItemDialog(item)"
                         >
                           <span v-if="showGridActionLabels('title')">Edit</span>
@@ -2340,7 +2417,7 @@ watch(titlePresence, (value) => {
                           variant="text"
                           color="error"
                           :class="gridRowActionClass('title')"
-                          :disabled="!item.hasLocalPath"
+                          :disabled="writeActionsDisabled || !item.hasLocalPath"
                           @click.stop="deleteTitleLocalPath(item)"
                         >
                           <span v-if="showGridActionLabels('title')">Delete</span>
@@ -2377,7 +2454,7 @@ watch(titlePresence, (value) => {
                   prepend-icon="mdi-folder-sync-outline"
                   :class="[actionLabelClass('artists'), 'app-toolbar-button']"
                   :loading="localAlbumScanIsRunningForCollection()"
-                  :disabled="!selectedCollectionIsArtist || collectionArtists.length === 0 || scanIsRunning || providerIsRunning"
+                  :disabled="!selectedCollectionIsArtist || collectionArtists.length === 0 || scanActionsDisabled"
                   @click="scanLocalAlbumsForCollection"
                 >
                   <span v-if="showActionLabels('artists')">Local</span>
@@ -2393,8 +2470,8 @@ watch(titlePresence, (value) => {
                   color="primary"
                   prepend-icon="mdi-cloud-sync-outline"
                   :class="[actionLabelClass('artists'), 'app-toolbar-button']"
-                  :loading="providerIsRunning && refreshingArtistId === null"
-                  :disabled="!selectedCollectionIsArtist || collectionArtists.length === 0 || scanIsRunning || providerIsRunning"
+                  :loading="providerScanIsRunningForCollection()"
+                  :disabled="!selectedCollectionIsArtist || collectionArtists.length === 0 || scanActionsDisabled"
                   @click="refreshCollectionProviders"
                 >
                   <span v-if="showActionLabels('artists')">Provider</span>
@@ -2426,7 +2503,7 @@ watch(titlePresence, (value) => {
                   variant="text"
                   color="primary"
                   :class="[actionLabelClass('artists'), 'app-toolbar-button']"
-                  :disabled="!selectedCollectionId"
+                  :disabled="writeActionsDisabled || !selectedCollectionId"
                   @click="openArtistDialog()"
                 >
                   <span v-if="showActionLabels('artists')">Add</span>
@@ -2517,7 +2594,7 @@ watch(titlePresence, (value) => {
                         color="primary"
                         :class="rowActionClass('artists')"
                         :loading="localAlbumScanIsRunningForArtist(artist)"
-                        :disabled="scanIsRunning || providerIsRunning"
+                        :disabled="scanActionsDisabled"
                         @click.stop="scanLocalAlbumsForArtist(artist)"
                       >
                         <span v-if="showActionLabels('artists')">Local</span>
@@ -2533,8 +2610,8 @@ watch(titlePresence, (value) => {
                         variant="text"
                         color="primary"
                         :class="rowActionClass('artists')"
-                        :loading="refreshingArtistId === artist.id"
-                        :disabled="scanIsRunning || providerIsRunning"
+                        :loading="providerScanIsRunningForArtist(artist)"
+                        :disabled="scanActionsDisabled"
                         @click.stop="refreshArtist(artist)"
                       >
                         <span v-if="showActionLabels('artists')">Provider</span>
@@ -2550,7 +2627,7 @@ watch(titlePresence, (value) => {
                         variant="text"
                         color="primary"
                         :class="rowActionClass('artists')"
-                        :disabled="scanIsRunning || providerIsRunning"
+                        :disabled="writeActionsDisabled"
                         @click.stop="openArtistDialog(artist)"
                       >
                         <span v-if="showActionLabels('artists')">Edit</span>
@@ -2570,7 +2647,7 @@ watch(titlePresence, (value) => {
                         variant="text"
                         color="error"
                         :class="rowActionClass('artists')"
-                        :disabled="scanIsRunning || providerIsRunning"
+                        :disabled="writeActionsDisabled"
                         @click.stop="removeArtistFromCollection(artist)"
                       >
                         <span v-if="showActionLabels('artists')">Remove</span>
@@ -2611,7 +2688,7 @@ watch(titlePresence, (value) => {
               variant="tonal"
               prepend-icon="mdi-folder-sync-outline"
               :loading="localAlbumScanIsRunningForArtist(selectedArtist)"
-              :disabled="scanIsRunning || providerIsRunning"
+              :disabled="scanActionsDisabled"
               @click="scanLocalAlbumsForArtist(selectedArtist)"
             >
               Scan local albums
@@ -2620,8 +2697,8 @@ watch(titlePresence, (value) => {
               color="primary"
               variant="tonal"
               prepend-icon="mdi-cloud-sync-outline"
-              :loading="refreshingArtistId === selectedArtist.id"
-              :disabled="scanIsRunning || providerIsRunning"
+              :loading="providerScanIsRunningForArtist(selectedArtist)"
+              :disabled="scanActionsDisabled"
               @click="refreshArtist(selectedArtist)"
             >
               Scan providers
@@ -2736,6 +2813,7 @@ watch(titlePresence, (value) => {
                   :model-value="albumCheckedValue(album)"
                   color="primary"
                   density="compact"
+                  :disabled="writeActionsDisabled"
                   hide-details
                   @click.stop
                   @update:model-value="(value) => updateAlbumChecked(album, Boolean(value))"
@@ -2781,6 +2859,7 @@ watch(titlePresence, (value) => {
                         variant="text"
                         color="primary"
                         :class="gridRowActionClass('album')"
+                        :disabled="writeActionsDisabled"
                         @click.stop="openAlbumEditDialog(album)"
                       >
                         <span v-if="showGridActionLabels('album')">Edit</span>
@@ -2796,6 +2875,7 @@ watch(titlePresence, (value) => {
                         variant="text"
                         color="warning"
                         :class="gridRowActionClass('album')"
+                        :disabled="writeActionsDisabled"
                         @click.stop="untrackMissingAlbumLocalPaths(album)"
                       >
                         <span v-if="showGridActionLabels('album')">Untrack</span>
@@ -2811,6 +2891,7 @@ watch(titlePresence, (value) => {
                         variant="text"
                         color="error"
                         :class="gridRowActionClass('album')"
+                        :disabled="writeActionsDisabled"
                         @click.stop="askDeleteAlbum(album)"
                       >
                         <span v-if="showGridActionLabels('album')">Delete</span>
@@ -2837,10 +2918,10 @@ watch(titlePresence, (value) => {
         <v-card-text class="edit-form">
           <v-row dense class="edit-form__grid">
             <v-col cols="12" md="6">
-              <v-text-field v-model="artistForm.name" label="Name" hide-details="auto"></v-text-field>
+              <v-text-field v-model="artistForm.name" label="Name" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
             </v-col>
             <v-col cols="12" md="6">
-              <v-text-field v-model="artistForm.sortName" label="Sort name" hide-details="auto"></v-text-field>
+              <v-text-field v-model="artistForm.sortName" label="Sort name" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
             </v-col>
             <v-col cols="12">
               <v-select
@@ -2851,6 +2932,7 @@ watch(titlePresence, (value) => {
                 label="Collections"
                 multiple
                 chips
+                :disabled="writeActionsDisabled"
                 hide-details="auto"
               ></v-select>
             </v-col>
@@ -2860,6 +2942,7 @@ watch(titlePresence, (value) => {
                 label="Notes"
                 rows="3"
                 auto-grow
+                :disabled="writeActionsDisabled"
                 hide-details="auto"
                 variant="outlined"
               ></v-textarea>
@@ -2870,7 +2953,7 @@ watch(titlePresence, (value) => {
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="artistDialog = false">Close</v-btn>
-          <v-btn color="primary" :loading="savingArtist" @click="saveArtistDetails">Save</v-btn>
+          <v-btn color="primary" :loading="savingArtist" :disabled="writeActionsDisabled" @click="saveArtistDetails">Save</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -2884,23 +2967,23 @@ watch(titlePresence, (value) => {
           </div>
           <v-row dense class="edit-form__grid">
             <v-col cols="12">
-              <v-text-field v-model="titleItemForm.title" label="Title" hide-details="auto"></v-text-field>
+              <v-text-field v-model="titleItemForm.title" label="Title" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
             </v-col>
             <v-col cols="12" md="8">
-              <v-text-field v-model="titleItemForm.artistName" label="Artist" hide-details="auto"></v-text-field>
+              <v-text-field v-model="titleItemForm.artistName" label="Artist" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
             </v-col>
             <v-col cols="12" md="4">
-              <v-text-field v-model="titleItemForm.releaseDate" label="Release date" hide-details="auto"></v-text-field>
+              <v-text-field v-model="titleItemForm.releaseDate" label="Release date" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
             </v-col>
             <v-col cols="12">
-              <v-text-field v-model="titleItemForm.sortName" label="Sort as" hide-details="auto"></v-text-field>
+              <v-text-field v-model="titleItemForm.sortName" label="Sort as" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
             </v-col>
           </v-row>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="titleItemDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="titleItemSaving" @click="saveTitleItem">Save</v-btn>
+          <v-btn color="primary" :loading="titleItemSaving" :disabled="writeActionsDisabled" @click="saveTitleItem">Save</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -2914,7 +2997,7 @@ watch(titlePresence, (value) => {
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="deleteCollectionDialog = false">Cancel</v-btn>
-          <v-btn color="error" @click="deleteCollection">Delete</v-btn>
+          <v-btn color="error" :disabled="writeActionsDisabled" @click="deleteCollection">Delete</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -2932,13 +3015,14 @@ watch(titlePresence, (value) => {
             variant="outlined"
             density="compact"
             autofocus
+            :disabled="writeActionsDisabled"
             @keydown.enter.prevent="saveAlbumTitle"
           ></v-text-field>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="albumEditDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="albumEditSaving" :disabled="!albumEditForm.title.trim()" @click="saveAlbumTitle">
+          <v-btn color="primary" :loading="albumEditSaving" :disabled="writeActionsDisabled || !albumEditForm.title.trim()" @click="saveAlbumTitle">
             Save
           </v-btn>
         </v-card-actions>
@@ -2954,7 +3038,7 @@ watch(titlePresence, (value) => {
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="deleteDialog = false">Cancel</v-btn>
-          <v-btn color="error" @click="deleteAlbum">Delete</v-btn>
+          <v-btn color="error" :disabled="writeActionsDisabled" @click="deleteAlbum">Delete</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

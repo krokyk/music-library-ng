@@ -1,7 +1,12 @@
 package org.kroky.musiclib.provider;
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.kroky.musiclib.model.ArtistProviderLink;
 import org.kroky.musiclib.model.MusicCollection;
@@ -18,6 +23,28 @@ import jakarta.inject.Inject;
 
 @ApplicationScoped
 public class ProviderCheckService {
+
+    public interface ProgressListener {
+        ProgressListener NONE = new ProgressListener() {
+        };
+
+        default void started(int itemTotal, int skippedArtists) {
+        }
+
+        default void artistStarted(ArtistProviderLink link) {
+        }
+
+        default void itemSkipped(ArtistProviderLink link, int itemProcessed, int skippedArtists, String reason) {
+        }
+
+        default void itemFinished(ArtistProviderLink link, int itemProcessed, int skippedArtists,
+                int foundAlbums, int newAlbums, int existingAlbums, int errors) {
+        }
+
+        default boolean isCancelled() {
+            return false;
+        }
+    }
 
     @Inject
     ArtistProviderLinkRepository providerLinks;
@@ -44,7 +71,7 @@ public class ProviderCheckService {
         ArtistProviderLink link = providerLinks.find(linkId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown provider link: " + linkId));
         long runId = runs.start(link.artistId(), link.id());
-        return checkLinks(runId, List.of(link), 0, null);
+        return checkLinks(runId, List.of(link), 0, null, 0, false, ProgressListener.NONE);
     }
 
     public ProviderCheckSummary checkArtist(long artistId) {
@@ -60,10 +87,15 @@ public class ProviderCheckService {
                 .toList();
         long runId = runs.start(artistId, null);
         int skippedArtists = links.isEmpty() ? 1 : 0;
-        return checkLinks(runId, links, skippedArtists, collectionId);
+        return checkLinks(runId, links, skippedArtists, collectionId, 0, false, ProgressListener.NONE);
     }
 
     public ProviderCheckSummary checkCollection(String collectionId) {
+        return checkCollection(collectionId, 0, ProgressListener.NONE);
+    }
+
+    public ProviderCheckSummary checkCollection(String collectionId, int batchRescanDelayMinutes,
+            ProgressListener progress) {
         MusicCollection collection = collections.find(collectionId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown collection: " + collectionId));
         List<ArtistProviderLink> links = providerLinks.listEnabledByCollection(collection.id());
@@ -71,22 +103,31 @@ public class ProviderCheckService {
         int linkedArtistCount = (int) links.stream().map(ArtistProviderLink::artistId).distinct().count();
         int skippedArtists = Math.max(0, artistCount - linkedArtistCount);
         long runId = runs.start(null, null);
-        return checkLinks(runId, links, skippedArtists, collection.id());
+        return checkLinks(runId, links, skippedArtists, collection.id(), batchRescanDelayMinutes, true, progress);
     }
 
     public ProviderCheckSummary checkAll() {
+        return checkAll(0, ProgressListener.NONE);
+    }
+
+    public ProviderCheckSummary checkAll(int batchRescanDelayMinutes, ProgressListener progress) {
         long runId = runs.start(null, null);
-        return checkLinks(runId, providerLinks.listEnabled(), 0, null);
+        return checkLinks(runId, providerLinks.listEnabled(), 0, null, batchRescanDelayMinutes, true, progress);
     }
 
     private ProviderCheckSummary checkLinks(long runId, List<ArtistProviderLink> links, int skippedArtists,
-            String collectionId) {
+            String collectionId, int batchRescanDelayMinutes, boolean skipRecentlyChecked,
+            ProgressListener progress) {
         int processedArtists = 0;
+        int initialSkippedArtists = skippedArtists;
+        int recentlySkippedArtists = 0;
+        int processedItems = skippedArtists;
         int foundAlbums = 0;
         int newAlbums = 0;
         int existingAlbums = 0;
         int errors = 0;
         List<String> messages = new ArrayList<>();
+        progress.started(links.size() + initialSkippedArtists, skippedArtists);
 
         if (links.isEmpty()) {
             String message = skippedArtists > 0
@@ -98,8 +139,28 @@ public class ProviderCheckService {
         }
 
         for (ArtistProviderLink link : links) {
-            processedArtists++;
+            if (progress.isCancelled()) {
+                String message = "Provider check cancelled.";
+                messages.add(message);
+                runs.event(runId, null, null, "INFO", message);
+                runs.finish(runId, "SKIPPED", processedArtists, foundAlbums, newAlbums, existingAlbums, errors, message);
+                return new ProviderCheckSummary(runId, processedArtists, skippedArtists, foundAlbums, newAlbums,
+                        existingAlbums, errors, messages);
+            }
+            if (skipRecentlyChecked && recentlyChecked(link, batchRescanDelayMinutes)) {
+                skippedArtists++;
+                recentlySkippedArtists++;
+                processedItems++;
+                String reason = "checked within " + delayLabel(batchRescanDelayMinutes);
+                String message = "Skipped " + link.artistName() + ": " + reason + ".";
+                messages.add(message);
+                runs.event(runId, link.artistId(), link.id(), "INFO", message);
+                progress.itemSkipped(link, processedItems, skippedArtists, reason);
+                continue;
+            }
+            progress.artistStarted(link);
             try {
+                processedArtists++;
                 if (MusicBrainzClient.PROVIDER_ID.equals(link.providerId())) {
                     var result = artistProviderRefresh.importMusicBrainz(runId, link);
                     foundAlbums += result.foundReleaseGroupCount();
@@ -107,6 +168,9 @@ public class ProviderCheckService {
                     existingAlbums += result.linkedExistingCount();
                     messages.addAll(result.messages());
                     providerLinks.markSuccess(link.id());
+                    processedItems++;
+                    progress.itemFinished(link, processedItems, skippedArtists, foundAlbums, newAlbums,
+                            existingAlbums, errors);
                     continue;
                 }
                 DiscographyProvider provider = providers.find(link.providerId(), link.providerUrl());
@@ -136,15 +200,72 @@ public class ProviderCheckService {
                 providerLinks.markError(link.id(), e.getMessage());
                 runs.event(runId, link.artistId(), link.id(), "ERROR", message);
             }
+            processedItems++;
+            progress.itemFinished(link, processedItems, skippedArtists, foundAlbums, newAlbums, existingAlbums, errors);
         }
 
         String status = errors == 0 ? "DONE" : "FAILED";
         String message = "Checked " + processedArtists + " provider links, found " + foundAlbums
                 + " albums, added " + newAlbums + " new unchecked albums"
-                + (skippedArtists > 0 ? ", skipped " + skippedArtists + " artists without enabled links." : ".");
+                + skippedSummary(skippedArtists, initialSkippedArtists, recentlySkippedArtists) + ".";
         runs.finish(runId, status, processedArtists, foundAlbums, newAlbums, existingAlbums, errors, message);
         messages.add(message);
         return new ProviderCheckSummary(runId, processedArtists, skippedArtists, foundAlbums, newAlbums,
                 existingAlbums, errors, messages);
+    }
+
+    private static String skippedSummary(int skippedArtists, int initialSkippedArtists, int recentlySkippedArtists) {
+        if (skippedArtists <= 0) {
+            return "";
+        }
+        if (recentlySkippedArtists > 0 && initialSkippedArtists > 0) {
+            return ", skipped " + skippedArtists + " artists (" + recentlySkippedArtists
+                    + " recently checked, " + initialSkippedArtists + " without enabled links)";
+        }
+        if (recentlySkippedArtists > 0) {
+            return ", skipped " + recentlySkippedArtists + " recently checked artists";
+        }
+        return ", skipped " + initialSkippedArtists + " artists without enabled links";
+    }
+
+    private static boolean recentlyChecked(ArtistProviderLink link, int batchRescanDelayMinutes) {
+        if (batchRescanDelayMinutes <= 0 || link.lastCheckedAt() == null || link.lastCheckedAt().isBlank()) {
+            return false;
+        }
+        Optional<LocalDateTime> checkedAt = parseTimestamp(link.lastCheckedAt());
+        if (checkedAt.isEmpty()) {
+            return false;
+        }
+        LocalDateTime cutoff = LocalDateTime.now(ZoneOffset.UTC).minusMinutes(batchRescanDelayMinutes);
+        return !checkedAt.get().isBefore(cutoff);
+    }
+
+    private static Optional<LocalDateTime> parseTimestamp(String value) {
+        String trimmed = value.trim();
+        for (DateTimeFormatter formatter : List.of(
+                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+                DateTimeFormatter.ISO_LOCAL_DATE_TIME)) {
+            try {
+                return Optional.of(LocalDateTime.parse(trimmed, formatter));
+            } catch (DateTimeParseException e) {
+                // Try the next known SQLite/ISO timestamp shape.
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static String delayLabel(int minutes) {
+        if (minutes <= 0) {
+            return "the batch rescan delay";
+        }
+        if (minutes < 60) {
+            return minutes + " min";
+        }
+        if (minutes < 1_440) {
+            int hours = minutes / 60;
+            return hours == 1 ? "1 hour" : hours + " hours";
+        }
+        int days = minutes / 1_440;
+        return days == 1 ? "1 day" : days + " days";
     }
 }

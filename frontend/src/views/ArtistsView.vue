@@ -47,7 +47,7 @@ const providerDefinitions: ProviderDefinition[] = [
 ]
 
 const store = useLibraryStore()
-const { artists, albums, collections, providerLinks, uiSettings, loading } = storeToRefs(store)
+const { artists, albums, collections, providerJob, providerLinks, providerStatus, scanJob, uiSettings, loading } = storeToRefs(store)
 
 const search = ref('')
 const selectedArtistId = ref<number | null>(null)
@@ -139,6 +139,9 @@ const artistsGridScrollTop = ref(0)
 const artistsGridViewportHeight = ref(0)
 let artistsPaneWidthObserver: ResizeObserver | null = null
 let artistsPaneResizeActive = false
+const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
+const providerIsRunning = computed(() => providerJob.value?.status === 'RUNNING' || providerStatus.value.running)
+const writeActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value)
 
 const filteredArtists = computed(() => {
   const needle = search.value.trim().toLowerCase()
@@ -636,6 +639,9 @@ async function selectArtist(artist: Artist) {
 }
 
 async function openMusicBrainzMatch(artist: Artist) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   selectedArtistId.value = artist.id
   matchingArtistId.value = artist.id
   matchDialog.value = true
@@ -652,6 +658,9 @@ async function openMusicBrainzMatch(artist: Artist) {
 }
 
 async function useCandidate(candidate: ArtistProviderCandidate) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (!selectedArtistId.value) return
   try {
     await store.saveArtistProvider(selectedArtistId.value, {
@@ -673,6 +682,9 @@ async function useCandidate(candidate: ArtistProviderCandidate) {
 }
 
 async function startProviderSetup(artist: Artist, providerId: ProviderId) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   await selectArtist(artist)
   if (providerId === 'musicbrainz') {
     await openMusicBrainzMatch(artist)
@@ -685,6 +697,9 @@ async function startProviderSetup(artist: Artist, providerId: ProviderId) {
 }
 
 async function saveUrlProvider() {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (!providerUrlArtist.value || !providerUrlProviderId.value) {
     return
   }
@@ -710,6 +725,9 @@ async function saveUrlProvider() {
 }
 
 async function clearArtistProvider(artist: Artist) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   try {
     await store.clearArtistProvider(artist.id)
     store.showStatus(`Provider cleared for ${artist.name}.`, 'done')
@@ -837,6 +855,9 @@ function openExternal(url?: string | null) {
 }
 
 function askDeleteArtist(artist: Artist) {
+  if (writeActionsDisabled.value) {
+    return
+  }
   artistToDelete.value = artist
   deleteArtistDialog.value = true
 }
@@ -867,6 +888,9 @@ function artistDeleteCollections(artist: Artist | null) {
 }
 
 function confirmDeleteArtist() {
+  if (writeActionsDisabled.value) {
+    return
+  }
   deleteArtistDialog.value = false
   if (artistDeleteNeedsWarning(artistToDelete.value)) {
     deleteArtistWarningDialog.value = true
@@ -876,6 +900,9 @@ function confirmDeleteArtist() {
 }
 
 async function deleteArtist() {
+  if (writeActionsDisabled.value) {
+    return
+  }
   if (!artistToDelete.value) {
     return
   }
@@ -1055,6 +1082,7 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
                 variant="flat"
                 closable
                 close-icon="mdi-trash-can-outline"
+                :disabled="writeActionsDisabled"
                 @click.stop
                 @click:close.stop="clearArtistProvider(artist)"
               >
@@ -1086,7 +1114,7 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
                       color="primary"
                       :class="artistScreenRowActionClass()"
                       :loading="provider.id === 'musicbrainz' && matchingArtistId === artist.id"
-                      :disabled="deletingArtistId === artist.id"
+                      :disabled="writeActionsDisabled || deletingArtistId === artist.id"
                       @click.stop="startProviderSetup(artist, provider.id)"
                     >
                       <span v-if="showArtistsScreenActionLabels()">{{ provider.label }}</span>
@@ -1103,7 +1131,7 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
                       color="error"
                       :class="artistScreenRowActionClass()"
                       :loading="deletingArtistId === artist.id"
-                      :disabled="deletingArtistId !== null && deletingArtistId !== artist.id"
+                      :disabled="writeActionsDisabled || (deletingArtistId !== null && deletingArtistId !== artist.id)"
                       @click.stop="askDeleteArtist(artist)"
                     >
                       <span v-if="showArtistsScreenActionLabels()">Delete</span>
@@ -1262,7 +1290,7 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
                 <v-btn size="small" variant="text" prepend-icon="mdi-open-in-new" @click="openExternal(candidate.providerUrl)">
                   Open
                 </v-btn>
-                <v-btn size="small" color="primary" @click="useCandidate(candidate)">Use</v-btn>
+                <v-btn size="small" color="primary" :disabled="writeActionsDisabled" @click="useCandidate(candidate)">Use</v-btn>
               </template>
             </v-list-item>
           </v-list>
@@ -1284,6 +1312,7 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
             label="URL"
             prepend-inner-icon="mdi-link-variant"
             autofocus
+            :disabled="writeActionsDisabled"
             hide-details
             @keyup.enter="saveUrlProvider"
           ></v-text-field>
@@ -1291,7 +1320,7 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="providerUrlDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="providerUrlSaving" :disabled="!providerUrl.trim()" @click="saveUrlProvider">
+          <v-btn color="primary" :loading="providerUrlSaving" :disabled="writeActionsDisabled || !providerUrl.trim()" @click="saveUrlProvider">
             Save
           </v-btn>
         </v-card-actions>
@@ -1307,7 +1336,7 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="deleteArtistDialog = false">Cancel</v-btn>
-          <v-btn color="error" :loading="deletingArtist" @click="confirmDeleteArtist">Delete</v-btn>
+          <v-btn color="error" :loading="deletingArtist" :disabled="writeActionsDisabled" @click="confirmDeleteArtist">Delete</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -1338,7 +1367,7 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="deleteArtistWarningDialog = false">Cancel</v-btn>
-          <v-btn color="error" :loading="deletingArtist" @click="deleteArtist">Delete anyway</v-btn>
+          <v-btn color="error" :loading="deletingArtist" :disabled="writeActionsDisabled" @click="deleteArtist">Delete anyway</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

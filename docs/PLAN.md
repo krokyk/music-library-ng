@@ -18,23 +18,24 @@ This roadmap tracks product capabilities and useful next steps.
 - Local scan for `title (artist, year)` soundtrack/musical folders.
 - Provider identities and provider check history.
 - Provider checks that add newly discovered albums as unchecked.
+- Background provider check jobs with status-bar progress and active-row scan indicators.
+- Configurable batch provider rescan delay that skips recently checked provider links.
 - One provider identity per artist with a provider lookup row and provider-specific artist identity.
 - MusicBrainz provider identity uses MBID-backed artist matching and stores provider metadata such as country, type, and active status.
 - MusicBrainz release-group refresh with exact auto-linking, safe unchecked album creation, and review candidates for ambiguous matches.
 - Bulk MusicBrainz artist matching with conservative auto-linking and review results for uncertain candidates.
 - Three-pane Collections workspace.
 - Global Library and Artists views.
-- Read-only Settings view for effective runtime configuration.
+- Settings view for effective runtime configuration and UI preferences.
 
 ## Next Improvements
 
 - Add app-level lock file and warning if another machine appears to be using the database.
 - Add startup/shutdown backup handling.
 - Add backup/restore metadata tables.
-- Add asynchronous scan jobs and progress streaming.
 - Add Cover Art Archive support.
 - Add directory picker helper per OS, if useful.
-- Add job progress UI.
+- Add richer provider check detail UI for skipped and error events.
 - Add screenshots.
 - Document release packaging.
 - Decide how to represent compilations with multiple artists.

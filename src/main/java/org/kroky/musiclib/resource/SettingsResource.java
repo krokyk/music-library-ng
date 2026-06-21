@@ -4,6 +4,7 @@ import org.jboss.logging.Logger;
 import org.kroky.musiclib.config.MusicLibraryConfig;
 import org.kroky.musiclib.model.MusicRootInfo;
 import org.kroky.musiclib.model.UiSettings;
+import org.kroky.musiclib.provider.ProviderSettingsService;
 import org.kroky.musiclib.repository.UserPreferenceRepository;
 import org.kroky.musiclib.scan.MusicRootService;
 
@@ -40,6 +41,9 @@ public class SettingsResource {
 
     @Inject
     UserPreferenceRepository preferences;
+
+    @Inject
+    ProviderSettingsService providerSettings;
 
     @GET
     @Path("/music-root")
@@ -93,6 +97,13 @@ public class SettingsResource {
                     String.valueOf(request.collectionScanProgressEnabled()),
                     String.valueOf(config.ui().defaultCollectionScanProgressEnabled()));
         }
+        if (request.providerBatchRescanDelayMinutes() != null) {
+            int value = providerSettings.normalizeBatchRescanDelayMinutes(request.providerBatchRescanDelayMinutes());
+            saveOrDelete(
+                    ProviderSettingsService.BATCH_RESCAN_DELAY_KEY,
+                    String.valueOf(value),
+                    String.valueOf(providerSettings.defaultBatchRescanDelayMinutes()));
+        }
         if (request.statusBarLocation() != null && !request.statusBarLocation().isBlank()) {
             saveOrDelete(
                     STATUS_BAR_LOCATION_KEY,
@@ -113,6 +124,7 @@ public class SettingsResource {
         preferences.delete(COLLECTION_SPINNER_KEY);
         preferences.delete(ARTIST_SPINNER_KEY);
         preferences.delete(COLLECTION_PROGRESS_KEY);
+        preferences.delete(ProviderSettingsService.BATCH_RESCAN_DELAY_KEY);
         preferences.delete(STATUS_BAR_LOCATION_KEY);
         preferences.delete(COLLECTION_ACTION_LABEL_THRESHOLD_KEY);
         preferences.delete(ARTIST_ACTION_LABEL_THRESHOLD_KEY);
@@ -127,6 +139,7 @@ public class SettingsResource {
         boolean defaultCollectionSpinner = config.ui().defaultCollectionScanSpinnerEnabled();
         boolean defaultArtistSpinner = config.ui().defaultArtistScanSpinnerEnabled();
         boolean defaultProgress = config.ui().defaultCollectionScanProgressEnabled();
+        int defaultProviderBatchRescanDelay = providerSettings.defaultBatchRescanDelayMinutes();
         String defaultDateFormat = config.ui().defaultStatusHistoryDateFormat();
         String defaultReleaseDateDisplayFormat = config.release().date().display().format();
         String defaultStatusBarLocation = defaultStatusBarLocation();
@@ -141,6 +154,7 @@ public class SettingsResource {
         var collectionSpinner = preferences.find(COLLECTION_SPINNER_KEY);
         var artistSpinner = preferences.find(ARTIST_SPINNER_KEY);
         var progress = preferences.find(COLLECTION_PROGRESS_KEY);
+        var providerBatchRescanDelay = preferences.find(ProviderSettingsService.BATCH_RESCAN_DELAY_KEY);
         var statusBarLocation = preferences.find(STATUS_BAR_LOCATION_KEY);
         var collectionThreshold = preferences.find(COLLECTION_ACTION_LABEL_THRESHOLD_KEY);
         var artistThreshold = preferences.find(ARTIST_ACTION_LABEL_THRESHOLD_KEY);
@@ -184,6 +198,13 @@ public class SettingsResource {
                 collectionSpinner.map(value -> Boolean.parseBoolean(value.value())).orElse(defaultCollectionSpinner),
                 artistSpinner.map(value -> Boolean.parseBoolean(value.value())).orElse(defaultArtistSpinner),
                 progress.map(value -> Boolean.parseBoolean(value.value())).orElse(defaultProgress),
+                providerBatchRescanDelay
+                        .map(value -> parseInt(
+                                value.value(),
+                                defaultProviderBatchRescanDelay,
+                                ProviderSettingsService.BATCH_RESCAN_DELAY_MIN,
+                                ProviderSettingsService.BATCH_RESCAN_DELAY_MAX))
+                        .orElse(defaultProviderBatchRescanDelay),
                 defaultDateFormat,
                 defaultReleaseDateDisplayFormat,
                 statusBarLocation.map(value -> normalizeStatusBarLocation(value.value(), defaultStatusBarLocation))
@@ -202,6 +223,7 @@ public class SettingsResource {
                         defaultCollectionSpinner,
                         defaultArtistSpinner,
                         defaultProgress,
+                        defaultProviderBatchRescanDelay,
                         defaultDateFormat,
                         defaultReleaseDateDisplayFormat,
                         defaultStatusBarLocation,
@@ -229,6 +251,13 @@ public class SettingsResource {
                         artistSpinner.map(value -> Boolean.parseBoolean(value.value()) != defaultArtistSpinner)
                                 .orElse(false),
                         progress.map(value -> Boolean.parseBoolean(value.value()) != defaultProgress).orElse(false),
+                        providerBatchRescanDelay
+                                .map(value -> parseInt(
+                                        value.value(),
+                                        defaultProviderBatchRescanDelay,
+                                        ProviderSettingsService.BATCH_RESCAN_DELAY_MIN,
+                                        ProviderSettingsService.BATCH_RESCAN_DELAY_MAX) != defaultProviderBatchRescanDelay)
+                                .orElse(false),
                         false,
                         false,
                         statusBarLocation
@@ -398,6 +427,7 @@ public class SettingsResource {
             Boolean collectionScanSpinnerEnabled,
             Boolean artistScanSpinnerEnabled,
             Boolean collectionScanProgressEnabled,
+            Integer providerBatchRescanDelayMinutes,
             String statusBarLocation,
             ActionLabelThresholdRequest actionLabelThresholds) {
     }

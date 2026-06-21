@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.kroky.musiclib.model.ScanJobStatus;
 import org.kroky.musiclib.model.ScanSummary;
+import org.kroky.musiclib.repository.ArtistRepository;
 import org.kroky.musiclib.repository.MusicCollectionRepository;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -26,6 +27,9 @@ public class ScanJobService {
 
     @Inject
     MusicCollectionRepository collectionRepository;
+
+    @Inject
+    ArtistRepository artistRepository;
 
     @PreDestroy
     void shutdown() {
@@ -48,7 +52,7 @@ public class ScanJobService {
 
         String normalizedCollectionId = blankToNull(collectionId);
         ScanJob job = new ScanJob(UUID.randomUUID().toString(), kind, normalizedCollectionId,
-                collectionName(normalizedCollectionId), artistId);
+                collectionName(normalizedCollectionId), artistId, artistName(artistId));
         currentJob.set(job);
         executor.submit(() -> run(job));
         return job.status();
@@ -79,6 +83,11 @@ public class ScanJobService {
                 @Override
                 public void itemProcessed(String collectionId, int processedItems) {
                     job.itemProcessed(collectionId, processedItems);
+                }
+
+                @Override
+                public void artistStarted(String collectionId, Long artistId, String artistName) {
+                    job.artistStarted(collectionId, artistId, artistName);
                 }
 
                 @Override
@@ -135,12 +144,22 @@ public class ScanJobService {
                 .orElse(collectionId);
     }
 
+    private String artistName(Long artistId) {
+        if (artistId == null) {
+            return null;
+        }
+        return artistRepository.find(artistId)
+                .map(artist -> artist.name())
+                .orElse("artist " + artistId);
+    }
+
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
     private static ScanJobStatus idleStatus() {
-        return new ScanJobStatus("", "IDLE", "COLLECTION", null, null, null, null, null, 0, 0, 0, 0, 0, false,
+        return new ScanJobStatus("", "IDLE", "COLLECTION", null, null, null, null, null, null, null, null, 0, 0, 0,
+                0, 0, false,
                 null,
                 List.of());
     }
@@ -151,10 +170,13 @@ public class ScanJobService {
         private final String requestedCollectionId;
         private final String requestedCollectionName;
         private final Long requestedArtistId;
+        private final String requestedArtistName;
         private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
         private String status = "RUNNING";
         private String activeCollectionId;
         private String activeCollectionName;
+        private Long activeArtistId;
+        private String activeArtistName;
         private int itemTotal;
         private int itemProcessed;
         private int parsedCount;
@@ -164,12 +186,13 @@ public class ScanJobService {
         private List<Long> runIds = List.of();
 
         private ScanJob(String id, String kind, String requestedCollectionId, String requestedCollectionName,
-                Long requestedArtistId) {
+                Long requestedArtistId, String requestedArtistName) {
             this.id = id;
             this.kind = kind;
             this.requestedCollectionId = requestedCollectionId;
             this.requestedCollectionName = requestedCollectionName;
             this.requestedArtistId = requestedArtistId;
+            this.requestedArtistName = requestedArtistName;
             this.message = runningMessage(collectionLabel());
         }
 
@@ -180,9 +203,18 @@ public class ScanJobService {
         synchronized void collectionStarted(String collectionId, int itemTotal) {
             this.activeCollectionId = collectionId;
             this.activeCollectionName = collectionName(collectionId);
+            this.activeArtistId = requestedArtistId;
+            this.activeArtistName = requestedArtistName;
             this.itemTotal = itemTotal;
             this.itemProcessed = 0;
             this.message = runningMessage(activeCollectionName);
+        }
+
+        synchronized void artistStarted(String collectionId, Long artistId, String artistName) {
+            if (collectionId.equals(activeCollectionId)) {
+                this.activeArtistId = artistId;
+                this.activeArtistName = artistName;
+            }
         }
 
         synchronized void itemProcessed(String collectionId, int itemProcessed) {
@@ -217,8 +249,11 @@ public class ScanJobService {
                     requestedCollectionId,
                     requestedCollectionName,
                     requestedArtistId,
+                    requestedArtistName,
                     activeCollectionId,
                     activeCollectionName,
+                    activeArtistId,
+                    activeArtistName,
                     itemTotal,
                     itemProcessed,
                     parsedCount,
@@ -240,7 +275,7 @@ public class ScanJobService {
             if ("LOCAL_ALBUMS".equals(kind)) {
                 return requestedArtistId == null
                         ? "Scanning local albums for " + collectionName + "."
-                        : "Scanning local albums in " + collectionName + " for artist " + requestedArtistId + ".";
+                        : "Scanning local albums in " + collectionName + " for " + requestedArtistName + ".";
             }
             return "Scanning collection " + collectionName + ".";
         }

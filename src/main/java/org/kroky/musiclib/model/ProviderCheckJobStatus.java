@@ -2,7 +2,7 @@ package org.kroky.musiclib.model;
 
 import java.util.List;
 
-public record ScanJobStatus(
+public record ProviderCheckJobStatus(
         String id,
         String status,
         String kind,
@@ -10,15 +10,15 @@ public record ScanJobStatus(
         String requestedCollectionName,
         Long requestedArtistId,
         String requestedArtistName,
-        String activeCollectionId,
-        String activeCollectionName,
         Long activeArtistId,
         String activeArtistName,
         int itemTotal,
         int itemProcessed,
-        int parsedCount,
-        int createdCount,
-        int skippedCount,
+        int skippedArtistCount,
+        int foundAlbumCount,
+        int newAlbumCount,
+        int existingAlbumCount,
+        int errorCount,
         boolean cancelRequested,
         String message,
         List<Long> runIds) {

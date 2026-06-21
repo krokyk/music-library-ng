@@ -9,6 +9,7 @@ const {
   collectionArtists,
   collections,
   manualStatus,
+  providerJob,
   providerStatus,
   scanJob,
   scanReports,
@@ -65,6 +66,9 @@ const activeStatusMessage = computed(() => {
   if (scanJob.value?.status === 'RUNNING') {
     return `${scanRunningMessage.value}: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} dirs scanned`
   }
+  if (providerJob.value?.status === 'RUNNING' && providerJob.value.message) {
+    return providerJob.value.message
+  }
   if (providerStatus.value.running && providerStatus.value.message) {
     return providerStatus.value.message
   }
@@ -72,7 +76,7 @@ const activeStatusMessage = computed(() => {
 })
 
 const statusState = computed(() => {
-  if (scanJob.value?.status === 'RUNNING' || providerStatus.value.running) {
+  if (scanJob.value?.status === 'RUNNING' || providerJob.value?.status === 'RUNNING' || providerStatus.value.running) {
     return 'running'
   }
   return completedStatus.value ? completedStatusState.value : 'idle'
@@ -281,6 +285,27 @@ watch(
   },
 )
 
+watch(
+  () => providerJob.value?.status ?? 'IDLE',
+  (status, previousStatus) => {
+    if (status === 'RUNNING' && previousStatus !== 'RUNNING') {
+      providerStartedAt.value = Date.now()
+      store.addStatusHistory(providerJob.value?.message ?? 'Checking providers...', 'running')
+      completedStatus.value = ''
+      return
+    }
+    if (previousStatus === 'RUNNING' && status !== 'RUNNING' && providerJob.value) {
+      const elapsed = formatElapsed(providerStartedAt.value)
+      providerStartedAt.value = null
+      const message = providerJob.value.message ?? `Provider check ${status.toLowerCase()}`
+      const state = status === 'FAILED' || providerJob.value.errorCount > 0 ? 'failed'
+        : status === 'CANCELLED' ? 'warning'
+          : 'done'
+      completeStatus(message, state, withElapsed(message, elapsed))
+    }
+  },
+)
+
 watch(historyDialog, (open) => {
   if (open) {
     historyPinnedToBottom.value = true
@@ -298,9 +323,12 @@ watch(
 )
 
 onMounted(async () => {
-  await Promise.all([store.loadUiSettings(), store.loadCollections(), store.loadScanJob()])
+  await Promise.all([store.loadUiSettings(), store.loadCollections(), store.loadScanJob(), store.loadProviderJob()])
   if (scanJob.value?.status === 'RUNNING') {
     store.startScanJobPolling()
+  }
+  if (providerJob.value?.status === 'RUNNING') {
+    store.startProviderJobPolling()
   }
 })
 </script>

@@ -3,8 +3,10 @@ package org.kroky.musiclib.resource;
 import java.util.List;
 
 import org.kroky.musiclib.model.ProviderCheckEvent;
+import org.kroky.musiclib.model.ProviderCheckJobStatus;
 import org.kroky.musiclib.model.ProviderCheckRun;
 import org.kroky.musiclib.model.ProviderCheckSummary;
+import org.kroky.musiclib.provider.ProviderCheckJobService;
 import org.kroky.musiclib.provider.ProviderCheckService;
 import org.kroky.musiclib.repository.ProviderCheckRunRepository;
 
@@ -23,6 +25,41 @@ public class ProviderCheckResource {
 
     @Inject
     ProviderCheckRunRepository runs;
+
+    @Inject
+    ProviderCheckJobService jobs;
+
+    @POST
+    @Path("/jobs/artist/{artistId}")
+    public ProviderCheckJobStatus startArtistJob(
+            @PathParam("artistId") long artistId,
+            @QueryParam("collectionId") String collectionId) {
+        return jobs.startArtist(artistId, collectionId);
+    }
+
+    @POST
+    @Path("/jobs/collection/{collectionId}")
+    public ProviderCheckJobStatus startCollectionJob(@PathParam("collectionId") String collectionId) {
+        return jobs.startCollection(collectionId);
+    }
+
+    @POST
+    @Path("/jobs/all")
+    public ProviderCheckJobStatus startAllJob() {
+        return jobs.startAll();
+    }
+
+    @GET
+    @Path("/jobs/current")
+    public ProviderCheckJobStatus currentJob() {
+        return jobs.current();
+    }
+
+    @POST
+    @Path("/jobs/current/cancel")
+    public ProviderCheckJobStatus cancelCurrentJob() {
+        return jobs.cancelCurrent();
+    }
 
     @POST
     @Path("/artist/{artistId}")
