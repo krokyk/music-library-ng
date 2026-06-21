@@ -174,7 +174,7 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 
 ## Row Actions And Controls
 
-- Row actions are hover/focus visible unless the workflow needs persistent controls.
+- Row actions are hover/focus visible, and selected rows keep their available actions visible.
 - Inline row actions use the centralized row action button style.
 - Prefer icon plus short label when pane width allows it; collapse to icon-only based on configurable pane-width thresholds.
   Current threshold keys are `collections-screen.collections-pane.action-label-threshold`, `collections-screen.artists-pane.action-label-threshold`, `collections-screen.albums-pane.action-label-threshold`, and `collections-screen.titles-pane.action-label-threshold`.

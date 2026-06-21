@@ -1172,6 +1172,7 @@ body,
 
 .nav-row:hover .nav-row__actions,
 .nav-row:focus-within .nav-row__actions,
+.nav-row.is-selected .nav-row__actions,
 .nav-row.is-scanning .nav-row__actions {
   opacity: 1;
 }
@@ -1578,6 +1579,8 @@ body.is-pane-resizing {
 }
 
 .workspace-row:hover .row-actions,
+.workspace-row.is-selected .row-actions,
+.music-table-row--selected .row-actions,
 .row-actions:focus-within {
   opacity: 1;
   pointer-events: auto;
