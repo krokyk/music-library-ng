@@ -1460,10 +1460,51 @@ body.is-pane-resizing {
   z-index: 2;
 }
 
+.artist-row-action-cell {
+  gap: 6px;
+  padding-left: 4px;
+}
+
 .albums-pane .row-action-cell,
 .titles-pane .row-action-cell {
   gap: 8px;
   justify-content: flex-start;
+}
+
+.artist-issue-chip {
+  flex: 0 1 88px;
+  max-width: 88px;
+  min-width: 28px;
+}
+
+.artist-issue-chip .v-chip__content {
+  display: flex;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.artist-issue-chip__count,
+.artist-issue-chip__label {
+  min-width: 0;
+}
+
+.artist-issue-chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artist-issue-chip--compact {
+  flex-basis: 28px;
+  justify-content: center;
+  max-width: 28px;
+  min-width: 28px;
+  padding-inline: 0;
+  width: 28px;
+}
+
+.artist-issue-chip--compact .v-chip__content {
+  justify-content: center;
 }
 
 .album-info-button.v-btn {

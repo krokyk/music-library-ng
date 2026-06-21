@@ -198,6 +198,11 @@ const actionColumnWidths = {
   title: { icon: 84, labeled: 178 },
 } as const
 
+const artistIssueColumnWidths = {
+  compact: 34,
+  labeled: 48,
+} as const
+
 const tableColumnOrders = {
   artist: ['name'],
   album: ['name', 'releaseDate', 'checked', 'collections', 'action'],
@@ -767,6 +772,17 @@ function collectionInfoLines(collection: MusicCollection) {
 
 function showActionLabels(pane: keyof typeof paneWidths) {
   return paneWidths[pane] >= uiSettings.value.actionLabelThresholds[pane]
+}
+
+function showArtistIssueLabel() {
+  return showActionLabels('artists')
+}
+
+function artistIssueColumnWidth() {
+  if (!collectionArtists.value.some((artist) => artist.uncheckedAlbumCount > 0)) {
+    return 0
+  }
+  return showArtistIssueLabel() ? artistIssueColumnWidths.labeled : artistIssueColumnWidths.compact
 }
 
 function showCollectionAddLabel() {
@@ -1398,8 +1414,9 @@ function columnWidthState(table: keyof typeof columnWidthPreferenceKeys) {
 
 function columnGridStyle(table: keyof typeof columnWidthPreferenceKeys) {
   if (table === 'artist') {
+    const actionWidth = showActionLabels('artists') ? actionColumnWidths.artist.labeled : actionColumnWidths.artist.icon
     return {
-      '--workspace-grid-columns': `minmax(0, 1fr) ${showActionLabels('artists') ? actionColumnWidths.artist.labeled : actionColumnWidths.artist.icon}px`,
+      '--workspace-grid-columns': `minmax(0, 1fr) ${actionWidth + artistIssueColumnWidth()}px`,
       '--workspace-grid-min-width': '100%',
     }
   }
@@ -2473,17 +2490,25 @@ watch(titlePresence, (value) => {
                     class="artist-cell__spinner"
                   ></v-progress-circular>
                   <span class="cell-strong">{{ artist.name }}</span>
-                  <v-chip
-                    v-if="artistIssueLabel(artist)"
-                    color="warning"
-                    size="x-small"
-                    variant="tonal"
-                  >
-                        {{ artistIssueLabel(artist) }}
-                  </v-chip>
                 </div>
               </div>
-              <div class="workspace-grid__cell row-action-cell">
+              <div class="workspace-grid__cell row-action-cell artist-row-action-cell">
+                <v-tooltip v-if="artistIssueLabel(artist)" :text="artistIssueLabel(artist)" location="top">
+                  <template #activator="{ props }">
+                    <v-chip
+                      v-bind="props"
+                      :aria-label="artistIssueLabel(artist)"
+                      class="artist-issue-chip"
+                      :class="{ 'artist-issue-chip--compact': !showArtistIssueLabel() }"
+                      color="warning"
+                      size="x-small"
+                      variant="tonal"
+                    >
+                      <span class="artist-issue-chip__count">{{ artist.uncheckedAlbumCount }}</span>
+                      <span v-if="showArtistIssueLabel()" class="artist-issue-chip__label">unchecked</span>
+                    </v-chip>
+                  </template>
+                </v-tooltip>
                 <div class="row-actions">
                   <v-tooltip text="Scan local albums" location="top">
                     <template #activator="{ props }">
