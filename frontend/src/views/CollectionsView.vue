@@ -20,6 +20,8 @@ type AlbumSortKey = 'name' | 'releaseDate'
 type TitleSortKey = 'title' | 'artist' | 'releaseDate'
 type TitleSortMode = 'title' | 'sortName'
 type PresenceFilter = 'local' | 'nonLocal'
+type ArtistUncheckedFilter = 'unchecked'
+type AlbumShowAllFilter = 'showAll'
 type PaneLayoutKind = 'artist' | 'title'
 
 const store = useLibraryStore()
@@ -149,6 +151,8 @@ const titleSort = reactive<{ key: TitleSortKey; direction: SortDirection }>({
 
 const titleSortMode = ref<TitleSortMode>('sortName')
 const artistPresence = ref<PresenceFilter[]>(['local', 'nonLocal'])
+const artistUnchecked = ref<ArtistUncheckedFilter[]>([])
+const albumShowAll = ref<AlbumShowAllFilter[]>([])
 const titlePresence = ref<PresenceFilter[]>(['local'])
 const artistGridScrollTop = ref(0)
 const artistGridViewportHeight = ref(0)
@@ -183,6 +187,8 @@ const presencePreferenceKeys = {
   artist: 'collections-screen.artists-pane.presence-filter',
   title: 'collections-screen.titles-pane.presence-filter',
 } as const
+const artistUncheckedPreferenceKey = 'collections-screen.artists-pane.unchecked-filter'
+const albumShowAllPreferenceKey = 'collections-screen.albums-pane.show-all-filter'
 
 const paneHeaderMinimumWidths = {
   collections: 250,
@@ -277,9 +283,13 @@ const paneLayoutPreferenceKeys = {
   title: 'collections-screen.title-layout.panes',
 } as const
 
+const artistUncheckedEnabled = computed(() => artistUnchecked.value.includes('unchecked'))
+const albumShowAllEnabled = computed(() => albumShowAll.value.includes('showAll'))
+
 const sortedCollectionArtists = computed(() =>
   collectionArtists.value
     .filter((artist) => matchesPresenceFilter(artistIsLocalToSelectedCollection(artist), artistPresence.value))
+    .filter((artist) => !artistUncheckedEnabled.value || artist.uncheckedAlbumCount > 0)
     .sort((left, right) => applyDirection(compareText(left.name, right.name), artistSort.direction)),
 )
 
@@ -314,8 +324,14 @@ const artistVirtualBottomSpacerHeight = computed(() =>
   Math.max(0, sortedCollectionArtists.value.length - artistVirtualEndIndex.value) * artistGridRowHeight,
 )
 
+const filteredCollectionAlbums = computed(() =>
+  collectionAlbums.value.filter((album) =>
+    albumShowAllEnabled.value || albumIsInSelectedCollection(album),
+  ),
+)
+
 const sortedCollectionAlbums = computed(() =>
-  [...collectionAlbums.value].sort((left, right) => {
+  [...filteredCollectionAlbums.value].sort((left, right) => {
     const result = albumSort.key === 'releaseDate'
       ? compareReleaseDates(
         releaseDateSortValue(left.releaseDate),
@@ -334,7 +350,7 @@ const sortedCollectionAlbums = computed(() =>
 )
 
 const showAlbumCollectionsColumn = computed(() =>
-  sortedCollectionAlbums.value.some((album) => albumExtraCollections(album).length > 0),
+  sortedCollectionAlbums.value.some((album) => albumDisplayedCollections(album).length > 0),
 )
 
 const albumVirtualViewportHeight = computed(() =>
@@ -668,6 +684,30 @@ function albumExtraCollections(album: Album) {
   return album.collections.filter((collection) => collection.id !== selectedCollectionId.value)
 }
 
+function albumDisplayedCollections(album: Album) {
+  if (albumShowAllEnabled.value && !albumIsInSelectedCollection(album)) {
+    return album.collections
+  }
+  return albumExtraCollections(album)
+}
+
+function albumCollectionsColumnLabel() {
+  return albumShowAllEnabled.value ? 'In' : 'Also in'
+}
+
+function albumShowAllTooltip() {
+  return albumShowAllEnabled.value
+    ? 'Showing all albums. Turn off to show only albums in this collection.'
+    : 'Show all albums for this artist, including albums outside this collection.'
+}
+
+function albumPaneEmptyMessage() {
+  if (collectionAlbums.value.length === 0 || albumShowAllEnabled.value) {
+    return 'No albums loaded for this artist.'
+  }
+  return 'No albums linked to this collection for this artist.'
+}
+
 function albumIsLocalToSelectedCollection(album: Album) {
   if (!selectedCollectionId.value) {
     return false
@@ -724,6 +764,12 @@ function albumPresenceClass(album: Album) {
     'album-presence-text--other-collection': otherCollection,
     'album-presence-text--nonlocal-checked': libraryOnly && album.checked,
     'album-presence-text--nonlocal-unchecked': libraryOnly && !album.checked,
+  }
+}
+
+function albumRowClass(album: Album) {
+  return {
+    'workspace-row--album-no-collection': album.collections.length === 0,
   }
 }
 
@@ -1355,6 +1401,8 @@ async function loadColumnWidths() {
 async function loadPresenceFilters() {
   await Promise.all([
     loadPresencePreference('artist', artistPresence),
+    loadArtistUncheckedPreference(),
+    loadAlbumShowAllPreference(),
     loadPresencePreference('title', titlePresence),
   ])
   presencePreferencesLoaded = true
@@ -1389,12 +1437,78 @@ function normalizePresenceFilter(value: unknown) {
   return normalized
 }
 
+async function loadArtistUncheckedPreference() {
+  const preference = await store.loadPreference(artistUncheckedPreferenceKey)
+  if (!preference?.value) {
+    return
+  }
+  try {
+    const parsed = JSON.parse(preference.value)
+    artistUnchecked.value = normalizeArtistUncheckedFilter(parsed)
+  } catch (error) {
+    // Ignore invalid stored UI state and keep the default filter.
+  }
+}
+
+function normalizeArtistUncheckedFilter(value: unknown) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const normalized: ArtistUncheckedFilter[] = []
+  if (value.includes('unchecked')) {
+    normalized.push('unchecked')
+  }
+  return normalized
+}
+
+async function loadAlbumShowAllPreference() {
+  const preference = await store.loadPreference(albumShowAllPreferenceKey)
+  if (!preference?.value) {
+    return
+  }
+  try {
+    const parsed = JSON.parse(preference.value)
+    albumShowAll.value = normalizeAlbumShowAllFilter(parsed)
+  } catch (error) {
+    // Ignore invalid stored UI state and keep the default filter.
+  }
+}
+
+function normalizeAlbumShowAllFilter(value: unknown) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const normalized: AlbumShowAllFilter[] = []
+  if (value.includes('showAll')) {
+    normalized.push('showAll')
+  }
+  return normalized
+}
+
 function savePresenceFilter(scope: keyof typeof presencePreferenceKeys, value: PresenceFilter[]) {
   if (!presencePreferencesLoaded) {
     return
   }
   const normalized = normalizePresenceFilter(value) ?? []
   void store.savePreference(presencePreferenceKeys[scope], JSON.stringify(normalized)).catch((error) => {
+    store.showErrorStatus(error, 'Unable to save filter')
+  })
+}
+
+function saveArtistUncheckedFilter(value: ArtistUncheckedFilter[]) {
+  if (!presencePreferencesLoaded) {
+    return
+  }
+  void store.savePreference(artistUncheckedPreferenceKey, JSON.stringify(normalizeArtistUncheckedFilter(value))).catch((error) => {
+    store.showErrorStatus(error, 'Unable to save filter')
+  })
+}
+
+function saveAlbumShowAllFilter(value: AlbumShowAllFilter[]) {
+  if (!presencePreferencesLoaded) {
+    return
+  }
+  void store.savePreference(albumShowAllPreferenceKey, JSON.stringify(normalizeAlbumShowAllFilter(value))).catch((error) => {
     store.showErrorStatus(error, 'Unable to save filter')
   })
 }
@@ -1998,6 +2112,16 @@ watch(artistPresence, (value) => {
   savePresenceFilter('artist', value)
 }, { deep: true })
 
+watch(artistUnchecked, (value) => {
+  resetArtistGridScroll()
+  saveArtistUncheckedFilter(value)
+}, { deep: true })
+
+watch(albumShowAll, (value) => {
+  resetAlbumGridScroll()
+  saveAlbumShowAllFilter(value)
+}, { deep: true })
+
 watch([() => artistSort.key, () => artistSort.direction], () => {
   resetArtistGridScroll()
 })
@@ -2280,10 +2404,12 @@ watch(titlePresence, (value) => {
               color="primary"
               class="app-toolbar-toggle presence-filter-toggle"
             >
-              <v-btn value="local" size="small" title="Local" prepend-icon="mdi-folder-outline">
+              <v-btn value="local" size="small" prepend-icon="mdi-folder-outline">
+                <v-tooltip activator="parent" text="Show titles with a local folder in this collection." location="top"></v-tooltip>
                 Local
               </v-btn>
-              <v-btn value="nonLocal" size="small" title="Non-local" prepend-icon="mdi-cloud-outline">
+              <v-btn value="nonLocal" size="small" prepend-icon="mdi-cloud-outline">
+                <v-tooltip activator="parent" text="Show titles not currently found on disk in this collection." location="top"></v-tooltip>
                 Non-local
               </v-btn>
             </v-btn-toggle>
@@ -2521,11 +2647,25 @@ watch(titlePresence, (value) => {
             color="primary"
             class="app-toolbar-toggle presence-filter-toggle"
           >
-            <v-btn value="local" size="small" title="Local" prepend-icon="mdi-folder-outline">
+            <v-btn value="local" size="small" prepend-icon="mdi-folder-outline">
+              <v-tooltip activator="parent" text="Show artists with local albums in this collection." location="top"></v-tooltip>
               Local
             </v-btn>
-            <v-btn value="nonLocal" size="small" title="Non-local" prepend-icon="mdi-cloud-outline">
+            <v-btn value="nonLocal" size="small" prepend-icon="mdi-cloud-outline">
+              <v-tooltip activator="parent" text="Show artists linked to this collection without local albums here." location="top"></v-tooltip>
               Non-local
+            </v-btn>
+          </v-btn-toggle>
+          <v-btn-toggle
+            v-model="artistUnchecked"
+            multiple
+            density="compact"
+            color="primary"
+            class="app-toolbar-toggle presence-filter-toggle"
+          >
+            <v-btn value="unchecked" size="small" prepend-icon="mdi-alert-circle-outline">
+              <v-tooltip activator="parent" text="Show only artists with unchecked albums to listen through." location="top"></v-tooltip>
+              Unchecked
             </v-btn>
           </v-btn-toggle>
         </div>
@@ -2675,13 +2815,28 @@ watch(titlePresence, (value) => {
             <span v-if="selectedArtist" class="pane-header__meta">{{ selectedArtist.name }}</span>
           </div>
         </div>
+        <div class="pane-filter-bar">
+          <span class="pane-filter-bar__label">Filter</span>
+          <v-btn-toggle
+            v-model="albumShowAll"
+            multiple
+            density="compact"
+            color="primary"
+            class="app-toolbar-toggle presence-filter-toggle"
+          >
+            <v-btn value="showAll" size="small" prepend-icon="mdi-eye-outline">
+              <v-tooltip activator="parent" :text="albumShowAllTooltip()" location="top"></v-tooltip>
+              Show All
+            </v-btn>
+          </v-btn-toggle>
+        </div>
 
         <div v-if="!selectedArtist" class="pane-empty">Select an artist.</div>
         <div v-else-if="selectedArtistAlbumsLoading" class="pane-loading">
           <v-progress-circular indeterminate size="60" width="5"></v-progress-circular>
         </div>
         <div v-else-if="sortedCollectionAlbums.length === 0" class="pane-empty pane-empty--action">
-          <span>No albums loaded for this artist.</span>
+          <span>{{ albumPaneEmptyMessage() }}</span>
           <div class="pane-empty__actions">
             <v-btn
               color="primary"
@@ -2762,7 +2917,7 @@ watch(titlePresence, (value) => {
               class="workspace-grid__cell workspace-grid__header-cell"
               data-column="album.collections"
             >
-              <span class="sortable-header__label">Also in</span>
+              <span class="sortable-header__label">{{ albumCollectionsColumnLabel() }}</span>
                 <span
                   class="column-resize-handle"
                   @pointerdown="startColumnResize('album', 'collections', $event)"
@@ -2776,7 +2931,7 @@ watch(titlePresence, (value) => {
             :style="{ height: `${albumVirtualTopSpacerHeight}px` }"
             aria-hidden="true"
           ></div>
-          <div v-for="album in visibleAlbumRows" :key="album.id" class="workspace-grid__row workspace-row">
+          <div v-for="album in visibleAlbumRows" :key="album.id" class="workspace-grid__row workspace-row" :class="albumRowClass(album)">
               <div data-column="album.name" class="workspace-grid__cell truncate-cell">
                 <div class="album-cell">
                   <span :class="albumPresenceClass(album)">{{ album.title }}</span>
@@ -2824,9 +2979,9 @@ watch(titlePresence, (value) => {
                 data-column="album.collections"
                 class="workspace-grid__cell album-collections-cell"
               >
-                <div v-if="albumExtraCollections(album).length" class="album-collection-chips">
+                <div v-if="albumDisplayedCollections(album).length" class="album-collection-chips">
                   <v-chip
-                    v-for="collection in albumExtraCollections(album)"
+                    v-for="collection in albumDisplayedCollections(album)"
                     :key="collection.id"
                     size="x-small"
                     variant="tonal"

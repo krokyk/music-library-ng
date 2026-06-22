@@ -1417,6 +1417,11 @@ body,
   background: rgba(255, 255, 255, 0.035);
 }
 
+.workspace-row--album-no-collection .workspace-grid__cell,
+.workspace-row--album-no-collection .cell-muted {
+  color: rgba(255, 255, 255, 0.42);
+}
+
 .workspace-grid__header:hover {
   background: #101010;
 }

@@ -180,8 +180,10 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   Current threshold keys are `collections-screen.collections-pane.action-label-threshold`, `collections-screen.artists-pane.action-label-threshold`, `collections-screen.albums-pane.action-label-threshold`, and `collections-screen.titles-pane.action-label-threshold`.
 - Controls that can collapse must keep their icons visible.
   When space gets tight, remove labels first; never allow the pane, row, or action column to shrink below the width required to show all required icons.
-- Pane-local filters use pane-scoped keys, for example `collections-screen.artists-pane.presence-filter` and `collections-screen.titles-pane.presence-filter`.
+- Pane-local filters use pane-scoped keys, for example `collections-screen.artists-pane.presence-filter`, `collections-screen.artists-pane.unchecked-filter`, `collections-screen.albums-pane.show-all-filter`, and `collections-screen.titles-pane.presence-filter`.
 - Pane-local scan indicators use pane-scoped keys, for example `collections-screen.collections-pane.scan-spinner-enabled`, `collections-screen.collections-pane.scan-progress-enabled`, and `collections-screen.artists-pane.scan-spinner-enabled`.
+- Use the shared Vuetify tooltip pattern for UI help and hover labels.
+  Do not use native `title` attributes for visible app tooltips.
 - Use clear, short labels:
   - `Edit`
   - `Local`
@@ -215,6 +217,11 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   - `Remove` removes only the artist association with the selected collection.
   - It does not delete the artist from the library database.
   - The artist should disappear from that collection pane after removal.
+  - `Unchecked` is a pane-local filter modifier that narrows the current Local/Non-local artist set to artists with unchecked albums.
+- Collections screen Albums pane uses `Show All` as a pane-local toggle under the pane title.
+  Off shows only albums linked to the selected collection and labels the collection chip column `Also in`.
+  On shows all albums for the selected artist and labels the collection chip column `In`.
+  Albums linked to the selected collection omit the selected collection chip because bold row text already indicates that membership.
 - Main Artists screen:
   - `Delete` is a real library database delete.
   - If the artist belongs to any collection or has local albums, require a second warning confirmation.

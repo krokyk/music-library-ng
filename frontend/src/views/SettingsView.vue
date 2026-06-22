@@ -479,8 +479,9 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="settings-matrix">
-            <div class="settings-cell settings-cell--label" title="How often the app polls running scan progress.">
+            <div class="settings-cell settings-cell--label">
               Progress polling
+              <v-tooltip activator="parent" text="How often the app polls running scan progress." location="top"></v-tooltip>
             </div>
             <div class="settings-cell settings-cell--control">
               <div class="settings-slider-control">
@@ -500,8 +501,9 @@ onBeforeUnmount(() => {
                 <span class="settings-readonly-value">{{ settingValue('scanPollIntervalMs') }}</span>
               </div>
             </div>
-            <div class="settings-cell settings-cell--label" title="How long a completed status message remains visible before Idle returns.">
+            <div class="settings-cell settings-cell--label">
               Status message visibility
+              <v-tooltip activator="parent" text="How long a completed status message remains visible before Idle returns." location="top"></v-tooltip>
             </div>
             <div class="settings-cell settings-cell--control">
               <div class="settings-slider-control">
@@ -521,8 +523,9 @@ onBeforeUnmount(() => {
                 <span class="settings-readonly-value">{{ settingValue('statusCompleteVisibleMs') }}</span>
               </div>
             </div>
-            <div class="settings-cell settings-cell--label" title="Places the status bar above or below the workspace panes.">
+            <div class="settings-cell settings-cell--label">
               Status bar location
+              <v-tooltip activator="parent" text="Places the status bar above or below the workspace panes." location="top"></v-tooltip>
             </div>
             <div class="settings-cell settings-cell--control">
               <v-btn-toggle
@@ -539,11 +542,9 @@ onBeforeUnmount(() => {
                 <v-btn value="bottom">Bottom</v-btn>
               </v-btn-toggle>
             </div>
-            <div
-              class="settings-cell settings-cell--label"
-              title="Batch provider scans skip links checked more recently than this. Off disables the recent-check skip."
-            >
+            <div class="settings-cell settings-cell--label">
               Batch provider rescan delay
+              <v-tooltip activator="parent" text="Batch provider scans skip links checked more recently than this. Off disables the recent-check skip." location="top"></v-tooltip>
             </div>
             <div class="settings-cell settings-cell--control">
               <div class="settings-slider-control">
@@ -575,8 +576,9 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="settings-matrix settings-matrix--workspace">
-            <div class="settings-cell settings-cell--label" title="Shows a spinner before a collection while its collection scan is running.">
+            <div class="settings-cell settings-cell--label">
               Collection scan spinner
+              <v-tooltip activator="parent" text="Shows a spinner before a collection while its collection scan is running." location="top"></v-tooltip>
             </div>
             <div class="settings-cell settings-cell--control">
               <v-switch
@@ -590,8 +592,9 @@ onBeforeUnmount(() => {
                 @update:model-value="collectionScanSpinnerChanged"
               ></v-switch>
             </div>
-            <div class="settings-cell settings-cell--label" title="Pane width where collection row actions switch from icons to icon and text labels.">
+            <div class="settings-cell settings-cell--label">
               Collection action labels
+              <v-tooltip activator="parent" text="Pane width where collection row actions switch from icons to icon and text labels." location="top"></v-tooltip>
             </div>
             <div class="settings-cell settings-cell--control">
               <div class="settings-slider-control">
@@ -611,8 +614,9 @@ onBeforeUnmount(() => {
                 <span class="settings-readonly-value">{{ actionLabelValue('collections') }}</span>
               </div>
             </div>
-            <div class="settings-cell settings-cell--label" title="Pane width where title row actions switch from icons to icon and text labels.">
+            <div class="settings-cell settings-cell--label">
               Title action labels
+              <v-tooltip activator="parent" text="Pane width where title row actions switch from icons to icon and text labels." location="top"></v-tooltip>
             </div>
             <div class="settings-cell settings-cell--control">
               <div class="settings-slider-control">
@@ -633,8 +637,9 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <div class="settings-cell settings-cell--label" title="Shows a spinner before artists covered by a local or provider scan.">
+            <div class="settings-cell settings-cell--label">
               Artist scan spinner
+              <v-tooltip activator="parent" text="Shows a spinner before artists covered by a local or provider scan." location="top"></v-tooltip>
             </div>
             <div class="settings-cell settings-cell--control">
               <v-switch
@@ -648,8 +653,9 @@ onBeforeUnmount(() => {
                 @update:model-value="artistScanSpinnerChanged"
               ></v-switch>
             </div>
-            <div class="settings-cell settings-cell--label" title="Pane width where artist actions switch from icons to icon and text labels.">
+            <div class="settings-cell settings-cell--label">
               Artist action labels
+              <v-tooltip activator="parent" text="Pane width where artist actions switch from icons to icon and text labels." location="top"></v-tooltip>
             </div>
             <div class="settings-cell settings-cell--control">
               <div class="settings-slider-control">
@@ -669,8 +675,9 @@ onBeforeUnmount(() => {
                 <span class="settings-readonly-value">{{ actionLabelValue('artists') }}</span>
               </div>
             </div>
-            <div class="settings-cell settings-cell--label" title="Pane width where album row actions switch from icons to icon and text labels.">
+            <div class="settings-cell settings-cell--label">
               Album action labels
+              <v-tooltip activator="parent" text="Pane width where album row actions switch from icons to icon and text labels." location="top"></v-tooltip>
             </div>
             <div class="settings-cell settings-cell--control">
               <div class="settings-slider-control">
@@ -690,8 +697,9 @@ onBeforeUnmount(() => {
                 <span class="settings-readonly-value">{{ actionLabelValue('albums') }}</span>
               </div>
             </div>
-            <div class="settings-cell settings-cell--label" title="Shows the left-to-right scan progress fill behind a collection row.">
+            <div class="settings-cell settings-cell--label">
               Collection progress bar
+              <v-tooltip activator="parent" text="Shows the left-to-right scan progress fill behind a collection row." location="top"></v-tooltip>
             </div>
             <div class="settings-cell settings-cell--control">
               <v-switch

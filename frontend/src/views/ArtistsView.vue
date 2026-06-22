@@ -1043,7 +1043,11 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
                   width="2"
                   class="artist-cell__spinner"
                 ></v-progress-circular>
-                <span class="cell-strong" :title="artist.name">{{ artist.name }}</span>
+                <v-tooltip :text="artist.name" location="top">
+                  <template #activator="{ props }">
+                    <span v-bind="props" class="cell-strong">{{ artist.name }}</span>
+                  </template>
+                </v-tooltip>
               </div>
             </div>
             <div data-column="artists.country" class="workspace-grid__cell truncate-cell">
@@ -1249,7 +1253,11 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
                 <span class="artist-known-album__year" :class="{ 'cell-muted': !releaseDateYearLabel(album.releaseDate) }">
                   {{ releaseDateYearLabel(album.releaseDate) || 'No date' }}
                 </span>
-                <span class="artist-known-album__title" :title="album.title">{{ album.title }}</span>
+                <v-tooltip :text="album.title" location="top">
+                  <template #activator="{ props }">
+                    <span v-bind="props" class="artist-known-album__title">{{ album.title }}</span>
+                  </template>
+                </v-tooltip>
               </div>
             </div>
           </section>
