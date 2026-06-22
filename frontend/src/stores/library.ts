@@ -533,14 +533,20 @@ export const useLibraryStore = defineStore('library', {
       if (!hasCachedValue(this.collectionAlbumsByArtist, String(artistId))) {
         this.collectionAlbums = []
       }
-      await this.loadAlbumsForSelectedArtist()
+      await this.loadAlbumsForSelectedArtist(this.scanJob?.status === 'RUNNING' || this.providerJob?.status === 'RUNNING')
     },
-    async loadAlbumsForSelectedArtist() {
+    async loadAlbumsForSelectedArtist(force = false) {
       if (!this.selectedCollectionId || !this.selectedArtistId) {
         this.collectionAlbums = []
         return
       }
-      await this.loadAlbumsForArtist(this.selectedArtistId)
+      await this.loadAlbumsForArtist(this.selectedArtistId, force)
+    },
+    async refreshSelectedArtistAfterScanStep(artistId: number | null | undefined) {
+      if (!artistId || this.selectedArtistId !== artistId) {
+        return
+      }
+      await this.loadAlbumsForArtist(artistId, true)
     },
     async loadAlbumsForArtist(artistId: number, force = false) {
       const cacheKey = String(artistId)
@@ -789,7 +795,11 @@ export const useLibraryStore = defineStore('library', {
       const intervalMs = Math.min(2000, Math.max(100, this.uiSettings.scanPollIntervalMs))
       const poll = async () => {
         try {
+          const previousActiveArtistId = this.scanJob?.activeArtistId ?? null
           const status = await this.loadScanJob()
+          if (status?.status === 'RUNNING' && previousActiveArtistId && previousActiveArtistId !== status.activeArtistId) {
+            await this.refreshSelectedArtistAfterScanStep(previousActiveArtistId)
+          }
           if (!status || status.status !== 'RUNNING') {
             this.stopScanJobPolling()
             const collectionId = status?.requestedCollectionId ?? status?.activeCollectionId ?? undefined
@@ -861,7 +871,11 @@ export const useLibraryStore = defineStore('library', {
       const intervalMs = Math.min(2000, Math.max(100, this.uiSettings.scanPollIntervalMs))
       const poll = async () => {
         try {
+          const previousActiveArtistId = this.providerJob?.activeArtistId ?? null
           const status = await this.loadProviderJob()
+          if (status?.status === 'RUNNING' && previousActiveArtistId && previousActiveArtistId !== status.activeArtistId) {
+            await this.refreshSelectedArtistAfterScanStep(previousActiveArtistId)
+          }
           if (!status || status.status !== 'RUNNING') {
             this.stopProviderJobPolling()
             const collectionId = status?.requestedCollectionId ?? undefined
