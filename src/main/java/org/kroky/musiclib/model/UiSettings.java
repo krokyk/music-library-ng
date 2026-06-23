@@ -10,11 +10,9 @@ public record UiSettings(
         String statusHistoryDateFormat,
         String releaseDateDisplayFormat,
         String statusBarLocation,
-        ActionLabelThresholds actionLabelThresholds,
         WorkspaceColumnWidths workspaceColumnDefaults,
         ArtistsScreenColumnWidths artistsScreenColumnDefaults,
         int tableGridColumnMinWidth,
-        ActionLabelThresholdConstraints actionLabelThresholdConstraints,
         Values defaults,
         Overrides overrides) {
 
@@ -28,7 +26,6 @@ public record UiSettings(
             String statusHistoryDateFormat,
             String releaseDateDisplayFormat,
             String statusBarLocation,
-            ActionLabelThresholds actionLabelThresholds,
             WorkspaceColumnWidths workspaceColumnDefaults,
             ArtistsScreenColumnWidths artistsScreenColumnDefaults,
             int tableGridColumnMinWidth) {
@@ -43,24 +40,7 @@ public record UiSettings(
             boolean providerBatchRescanDelayMinutes,
             boolean statusHistoryDateFormat,
             boolean releaseDateDisplayFormat,
-            boolean statusBarLocation,
-            boolean collectionActionLabelThreshold,
-            boolean artistActionLabelThreshold,
-            boolean albumActionLabelThreshold,
-            boolean titleActionLabelThreshold) {
-    }
-
-    public record ActionLabelThresholds(
-            int collections,
-            int artists,
-            int albums,
-            int titles) {
-    }
-
-    public record ActionLabelThresholdConstraints(
-            ActionLabelThresholds min,
-            int max,
-            int step) {
+            boolean statusBarLocation) {
     }
 
     public record WorkspaceColumnWidths(

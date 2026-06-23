@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 import type {
-  ActionLabelThresholds,
   ArtistProviderBulkMatchItem,
   ArtistProviderBulkMatchResult,
   UiSettingsValues,
@@ -17,12 +16,6 @@ type EditableUiSettingKey =
   | 'collectionScanProgressEnabled'
   | 'providerBatchRescanDelayMinutes'
   | 'statusBarLocation'
-  | 'collectionActionLabelThreshold'
-  | 'artistActionLabelThreshold'
-  | 'albumActionLabelThreshold'
-  | 'titleActionLabelThreshold'
-
-type ActionLabelPane = keyof ActionLabelThresholds
 
 interface UiForm {
   statusCompleteVisibleMs: number
@@ -33,7 +26,6 @@ interface UiForm {
   providerBatchRescanDelayMinutes: number
   statusHistoryDateFormat: string
   statusBarLocation: 'top' | 'bottom'
-  actionLabelThresholds: ActionLabelThresholds
 }
 
 const store = useLibraryStore()
@@ -65,12 +57,6 @@ const uiForm = reactive<UiForm>({
   providerBatchRescanDelayMinutes: 60,
   statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
   statusBarLocation: 'top',
-  actionLabelThresholds: {
-    collections: 600,
-    artists: 900,
-    albums: 600,
-    titles: 1000,
-  },
 })
 const savingUiSettings = ref(false)
 const uiSaveTimer = ref<number | null>(null)
@@ -92,7 +78,6 @@ function syncUiForm() {
   uiForm.providerBatchRescanDelayMinutes = uiSettings.value.providerBatchRescanDelayMinutes
   uiForm.statusHistoryDateFormat = uiSettings.value.statusHistoryDateFormat
   uiForm.statusBarLocation = uiSettings.value.statusBarLocation
-  uiForm.actionLabelThresholds = { ...uiSettings.value.actionLabelThresholds }
 }
 
 function settingValue(key: EditableUiSettingKey) {
@@ -276,15 +261,6 @@ function normalizeUiForm() {
     providerBatchRescanIndexFor(uiForm.providerBatchRescanDelayMinutes)
   ].minutes
   uiForm.statusBarLocation = uiForm.statusBarLocation === 'bottom' ? 'bottom' : 'top'
-  const constraints = uiSettings.value.actionLabelThresholdConstraints
-  ;(['collections', 'artists', 'albums', 'titles'] as ActionLabelPane[]).forEach((pane) => {
-    uiForm.actionLabelThresholds[pane] = normalizeNumber(
-      uiForm.actionLabelThresholds[pane],
-      uiSettings.value.defaults.actionLabelThresholds[pane],
-      constraints.min[pane],
-      constraints.max,
-    )
-  })
 }
 
 function normalizeNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -338,18 +314,8 @@ function uiSettingsPayload(keys: EditableUiSettingKey[]) {
     if (key === 'collectionScanProgressEnabled') payload.collectionScanProgressEnabled = uiForm.collectionScanProgressEnabled
     if (key === 'providerBatchRescanDelayMinutes') payload.providerBatchRescanDelayMinutes = uiForm.providerBatchRescanDelayMinutes
     if (key === 'statusBarLocation') payload.statusBarLocation = uiForm.statusBarLocation
-    if (isActionLabelThresholdKey(key)) {
-      payload.actionLabelThresholds = { ...uiForm.actionLabelThresholds }
-    }
   })
   return payload
-}
-
-function isActionLabelThresholdKey(key: EditableUiSettingKey) {
-  return key === 'collectionActionLabelThreshold'
-    || key === 'artistActionLabelThreshold'
-    || key === 'albumActionLabelThreshold'
-    || key === 'titleActionLabelThreshold'
 }
 
 function scanPollChanged() {
@@ -392,21 +358,6 @@ function providerBatchRescanIndexFor(minutes: number) {
 
 function providerBatchRescanLabel(minutes: number) {
   return providerBatchRescanOptions[providerBatchRescanIndexFor(minutes)].label
-}
-
-function actionLabelThresholdChanged(pane: ActionLabelPane) {
-  scheduleUiSettingsSave(actionLabelSettingKey(pane))
-}
-
-function actionLabelSettingKey(pane: ActionLabelPane): EditableUiSettingKey {
-  if (pane === 'collections') return 'collectionActionLabelThreshold'
-  if (pane === 'artists') return 'artistActionLabelThreshold'
-  if (pane === 'albums') return 'albumActionLabelThreshold'
-  return 'titleActionLabelThreshold'
-}
-
-function actionLabelValue(pane: ActionLabelPane) {
-  return `${uiForm.actionLabelThresholds[pane]} px`
 }
 
 function savePendingUiSettingsOnUnmount() {
@@ -592,50 +543,6 @@ onBeforeUnmount(() => {
                 @update:model-value="collectionScanSpinnerChanged"
               ></v-switch>
             </div>
-            <div class="settings-cell settings-cell--label">
-              Collection action labels
-              <v-tooltip activator="parent" text="Pane width where collection row actions switch from icons to icon and text labels." location="top"></v-tooltip>
-            </div>
-            <div class="settings-cell settings-cell--control">
-              <div class="settings-slider-control">
-                <v-slider
-                  v-model.number="uiForm.actionLabelThresholds.collections"
-                  class="settings-slider"
-                  color="primary"
-                  density="compact"
-                  hide-details
-                  :min="uiSettings.actionLabelThresholdConstraints.min.collections"
-                  :max="uiSettings.actionLabelThresholdConstraints.max"
-                  :step="uiSettings.actionLabelThresholdConstraints.step"
-                  :disabled="scanActionsDisabled"
-                  thumb-label
-                  @update:model-value="actionLabelThresholdChanged('collections')"
-                ></v-slider>
-                <span class="settings-readonly-value">{{ actionLabelValue('collections') }}</span>
-              </div>
-            </div>
-            <div class="settings-cell settings-cell--label">
-              Title action labels
-              <v-tooltip activator="parent" text="Pane width where title row actions switch from icons to icon and text labels." location="top"></v-tooltip>
-            </div>
-            <div class="settings-cell settings-cell--control">
-              <div class="settings-slider-control">
-                <v-slider
-                  v-model.number="uiForm.actionLabelThresholds.titles"
-                  class="settings-slider"
-                  color="primary"
-                  density="compact"
-                  hide-details
-                  :min="uiSettings.actionLabelThresholdConstraints.min.titles"
-                  :max="uiSettings.actionLabelThresholdConstraints.max"
-                  :step="uiSettings.actionLabelThresholdConstraints.step"
-                  :disabled="scanActionsDisabled"
-                  thumb-label
-                  @update:model-value="actionLabelThresholdChanged('titles')"
-                ></v-slider>
-                <span class="settings-readonly-value">{{ actionLabelValue('titles') }}</span>
-              </div>
-            </div>
 
             <div class="settings-cell settings-cell--label">
               Artist scan spinner
@@ -652,50 +559,6 @@ onBeforeUnmount(() => {
                 hide-details
                 @update:model-value="artistScanSpinnerChanged"
               ></v-switch>
-            </div>
-            <div class="settings-cell settings-cell--label">
-              Artist action labels
-              <v-tooltip activator="parent" text="Pane width where artist actions switch from icons to icon and text labels." location="top"></v-tooltip>
-            </div>
-            <div class="settings-cell settings-cell--control">
-              <div class="settings-slider-control">
-                <v-slider
-                  v-model.number="uiForm.actionLabelThresholds.artists"
-                  class="settings-slider"
-                  color="primary"
-                  density="compact"
-                  hide-details
-                  :min="uiSettings.actionLabelThresholdConstraints.min.artists"
-                  :max="uiSettings.actionLabelThresholdConstraints.max"
-                  :step="uiSettings.actionLabelThresholdConstraints.step"
-                  :disabled="scanActionsDisabled"
-                  thumb-label
-                  @update:model-value="actionLabelThresholdChanged('artists')"
-                ></v-slider>
-                <span class="settings-readonly-value">{{ actionLabelValue('artists') }}</span>
-              </div>
-            </div>
-            <div class="settings-cell settings-cell--label">
-              Album action labels
-              <v-tooltip activator="parent" text="Pane width where album row actions switch from icons to icon and text labels." location="top"></v-tooltip>
-            </div>
-            <div class="settings-cell settings-cell--control">
-              <div class="settings-slider-control">
-                <v-slider
-                  v-model.number="uiForm.actionLabelThresholds.albums"
-                  class="settings-slider"
-                  color="primary"
-                  density="compact"
-                  hide-details
-                  :min="uiSettings.actionLabelThresholdConstraints.min.albums"
-                  :max="uiSettings.actionLabelThresholdConstraints.max"
-                  :step="uiSettings.actionLabelThresholdConstraints.step"
-                  :disabled="scanActionsDisabled"
-                  thumb-label
-                  @update:model-value="actionLabelThresholdChanged('albums')"
-                ></v-slider>
-                <span class="settings-readonly-value">{{ actionLabelValue('albums') }}</span>
-              </div>
             </div>
             <div class="settings-cell settings-cell--label">
               Collection progress bar

@@ -347,11 +347,12 @@ function artistsScreenMinimumGridWidth() {
 }
 
 function artistsScreenTableAvailableWidth() {
+  const paneWidth = artistsPaneWidths.artists
   const grid = document.querySelector('.artists-table-pane .workspace-grid')
   if (grid instanceof HTMLElement) {
     return grid.clientWidth
   }
-  return artistsPaneWidths.artists > 0 ? Math.max(0, artistsPaneWidths.artists - 2) : 0
+  return paneWidth > 0 ? Math.max(0, paneWidth - 2) : 0
 }
 
 function artistsScreenRightmostColumnAvailableWidth() {
@@ -370,8 +371,7 @@ function artistsScreenColumnMinimumWidth(key: ArtistScreenColumnKey) {
 }
 
 function showArtistsScreenActionLabels() {
-  return artistsPaneWidths.artists >= uiSettings.value.actionLabelThresholds.artists
-    && artistsScreenRightmostColumnAvailableWidth() >= artistsScreenActionColumnWidths.labeled
+  return artistsScreenRightmostColumnAvailableWidth() >= artistsScreenActionColumnWidths.labeled
 }
 
 function artistScreenRowActionClass() {
@@ -506,7 +506,10 @@ function startArtistsPaneResize(event: PointerEvent) {
   function move(pointerEvent: PointerEvent) {
     const deltaPercent = ((pointerEvent.clientX - startX) / paneAreaWidth) * 100
     const left = Math.min(Math.max(leftMinimum, startPercents[0] + deltaPercent), leftMaximum)
-    artistsPanePercents.value = normalizeArtistsPanePercents([left, 100 - left])
+    const nextPercents = normalizeArtistsPanePercents([left, 100 - left])
+    artistsPanePercents.value = nextPercents
+    artistsPaneWidths.artists = Math.round((paneAreaWidth * nextPercents[0]) / 100)
+    artistsPaneWidths.details = Math.round((paneAreaWidth * nextPercents[1]) / 100)
   }
 
   function stop() {

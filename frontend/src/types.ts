@@ -150,7 +150,6 @@ export interface UiSettingsValues {
   statusHistoryDateFormat: string
   releaseDateDisplayFormat: string
   statusBarLocation: 'top' | 'bottom'
-  actionLabelThresholds: ActionLabelThresholds
   workspaceColumnDefaults: WorkspaceColumnWidths
   artistsScreenColumnDefaults: ArtistsScreenColumnWidths
   tableGridColumnMinWidth: number
@@ -158,21 +157,7 @@ export interface UiSettingsValues {
 
 export interface UiSettings extends UiSettingsValues {
   defaults: UiSettingsValues
-  actionLabelThresholdConstraints: ActionLabelThresholdConstraints
   overrides: UiSettingOverrides
-}
-
-export interface ActionLabelThresholds {
-  collections: number
-  artists: number
-  albums: number
-  titles: number
-}
-
-export interface ActionLabelThresholdConstraints {
-  min: ActionLabelThresholds
-  max: number
-  step: number
 }
 
 export interface UiSettingOverrides {
@@ -185,10 +170,6 @@ export interface UiSettingOverrides {
   statusHistoryDateFormat: boolean
   releaseDateDisplayFormat: boolean
   statusBarLocation: boolean
-  collectionActionLabelThreshold: boolean
-  artistActionLabelThreshold: boolean
-  albumActionLabelThreshold: boolean
-  titleActionLabelThreshold: boolean
 }
 
 export interface WorkspaceColumnWidths {

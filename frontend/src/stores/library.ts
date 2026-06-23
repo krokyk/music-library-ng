@@ -122,24 +122,6 @@ const defaultArtistsScreenColumnDefaults = {
   action: 104,
 }
 
-const defaultActionLabelThresholds = {
-  collections: 600,
-  artists: 900,
-  albums: 600,
-  titles: 1000,
-}
-
-const defaultActionLabelThresholdConstraints = {
-  min: {
-    collections: 400,
-    artists: 700,
-    albums: 400,
-    titles: 800,
-  },
-  max: 2000,
-  step: 50,
-}
-
 let scanJobPoller: number | null = null
 let providerJobPoller: number | null = null
 
@@ -181,11 +163,9 @@ export const useLibraryStore = defineStore('library', {
         statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
       releaseDateDisplayFormat: 'yyyy-MM-dd',
       statusBarLocation: 'top',
-      actionLabelThresholds: defaultActionLabelThresholds,
       workspaceColumnDefaults: defaultWorkspaceColumnDefaults,
       artistsScreenColumnDefaults: defaultArtistsScreenColumnDefaults,
       tableGridColumnMinWidth: 40,
-      actionLabelThresholdConstraints: defaultActionLabelThresholdConstraints,
       defaults: {
         statusCompleteVisibleMs: 10000,
         scanPollIntervalMs: 200,
@@ -193,10 +173,9 @@ export const useLibraryStore = defineStore('library', {
           artistScanSpinnerEnabled: true,
           collectionScanProgressEnabled: true,
           providerBatchRescanDelayMinutes: 60,
-          statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
+        statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
         releaseDateDisplayFormat: 'yyyy-MM-dd',
         statusBarLocation: 'top',
-        actionLabelThresholds: defaultActionLabelThresholds,
         workspaceColumnDefaults: defaultWorkspaceColumnDefaults,
         artistsScreenColumnDefaults: defaultArtistsScreenColumnDefaults,
         tableGridColumnMinWidth: 40,
@@ -211,10 +190,6 @@ export const useLibraryStore = defineStore('library', {
         statusHistoryDateFormat: false,
         releaseDateDisplayFormat: false,
         statusBarLocation: false,
-        collectionActionLabelThreshold: false,
-        artistActionLabelThreshold: false,
-        albumActionLabelThreshold: false,
-        titleActionLabelThreshold: false,
       },
     },
     statusHistory: [],

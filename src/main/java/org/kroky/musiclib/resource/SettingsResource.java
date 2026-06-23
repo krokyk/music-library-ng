@@ -24,10 +24,12 @@ public class SettingsResource {
     private static final String ARTIST_SPINNER_KEY = "collections-screen.artists-pane.scan-spinner-enabled";
     private static final String COLLECTION_PROGRESS_KEY = "collections-screen.collections-pane.scan-progress-enabled";
     private static final String STATUS_BAR_LOCATION_KEY = "ui.status-bar.location";
-    private static final String COLLECTION_ACTION_LABEL_THRESHOLD_KEY = "collections-screen.collections-pane.action-label-threshold";
-    private static final String ARTIST_ACTION_LABEL_THRESHOLD_KEY = "collections-screen.artists-pane.action-label-threshold";
-    private static final String ALBUM_ACTION_LABEL_THRESHOLD_KEY = "collections-screen.albums-pane.action-label-threshold";
-    private static final String TITLE_ACTION_LABEL_THRESHOLD_KEY = "collections-screen.titles-pane.action-label-threshold";
+    private static final String[] OBSOLETE_ACTION_LABEL_THRESHOLD_KEYS = {
+            "collections-screen.collections-pane.action-label-threshold",
+            "collections-screen.artists-pane.action-label-threshold",
+            "collections-screen.albums-pane.action-label-threshold",
+            "collections-screen.titles-pane.action-label-threshold"
+    };
     private static final int STATUS_VISIBLE_MIN = 0;
     private static final int STATUS_VISIBLE_MAX = 30_000;
     private static final int SCAN_POLL_MIN = 100;
@@ -110,9 +112,6 @@ public class SettingsResource {
                     normalizeStatusBarLocation(request.statusBarLocation(), "top"),
                     defaultStatusBarLocation());
         }
-        if (request.actionLabelThresholds() != null) {
-            updateActionLabelThresholds(request.actionLabelThresholds());
-        }
         return effectiveUiSettings();
     }
 
@@ -126,14 +125,12 @@ public class SettingsResource {
         preferences.delete(COLLECTION_PROGRESS_KEY);
         preferences.delete(ProviderSettingsService.BATCH_RESCAN_DELAY_KEY);
         preferences.delete(STATUS_BAR_LOCATION_KEY);
-        preferences.delete(COLLECTION_ACTION_LABEL_THRESHOLD_KEY);
-        preferences.delete(ARTIST_ACTION_LABEL_THRESHOLD_KEY);
-        preferences.delete(ALBUM_ACTION_LABEL_THRESHOLD_KEY);
-        preferences.delete(TITLE_ACTION_LABEL_THRESHOLD_KEY);
+        deleteObsoleteActionLabelThresholdPreferences();
         return effectiveUiSettings();
     }
 
     private UiSettings effectiveUiSettings() {
+        deleteObsoleteActionLabelThresholdPreferences();
         int defaultStatusVisible = defaultStatusVisible();
         int defaultScanPoll = defaultScanPoll();
         boolean defaultCollectionSpinner = config.ui().defaultCollectionScanSpinnerEnabled();
@@ -143,10 +140,6 @@ public class SettingsResource {
         String defaultDateFormat = config.ui().defaultStatusHistoryDateFormat();
         String defaultReleaseDateDisplayFormat = config.release().date().display().format();
         String defaultStatusBarLocation = defaultStatusBarLocation();
-        UiSettings.ActionLabelThresholds defaultActionLabelThresholds = defaultActionLabelThresholds();
-        UiSettings.ActionLabelThresholds minActionLabelThresholds = minActionLabelThresholds();
-        int actionLabelThresholdMax = actionLabelThresholdMax(minActionLabelThresholds);
-        int actionLabelThresholdStep = actionLabelThresholdStep();
         int tableGridColumnMinWidth = Math.max(1, config.ui().tableGridColumnMinWidth());
 
         var statusVisible = preferences.find(STATUS_VISIBLE_KEY);
@@ -156,39 +149,6 @@ public class SettingsResource {
         var progress = preferences.find(COLLECTION_PROGRESS_KEY);
         var providerBatchRescanDelay = preferences.find(ProviderSettingsService.BATCH_RESCAN_DELAY_KEY);
         var statusBarLocation = preferences.find(STATUS_BAR_LOCATION_KEY);
-        var collectionThreshold = preferences.find(COLLECTION_ACTION_LABEL_THRESHOLD_KEY);
-        var artistThreshold = preferences.find(ARTIST_ACTION_LABEL_THRESHOLD_KEY);
-        var albumThreshold = preferences.find(ALBUM_ACTION_LABEL_THRESHOLD_KEY);
-        var titleThreshold = preferences.find(TITLE_ACTION_LABEL_THRESHOLD_KEY);
-        var effectiveActionLabelThresholds = new UiSettings.ActionLabelThresholds(
-                collectionThreshold
-                        .map(value -> parseInt(
-                                value.value(),
-                                defaultActionLabelThresholds.collections(),
-                                minActionLabelThresholds.collections(),
-                                actionLabelThresholdMax))
-                        .orElse(defaultActionLabelThresholds.collections()),
-                artistThreshold
-                        .map(value -> parseInt(
-                                value.value(),
-                                defaultActionLabelThresholds.artists(),
-                                minActionLabelThresholds.artists(),
-                                actionLabelThresholdMax))
-                        .orElse(defaultActionLabelThresholds.artists()),
-                albumThreshold
-                        .map(value -> parseInt(
-                                value.value(),
-                                defaultActionLabelThresholds.albums(),
-                                minActionLabelThresholds.albums(),
-                                actionLabelThresholdMax))
-                        .orElse(defaultActionLabelThresholds.albums()),
-                titleThreshold
-                        .map(value -> parseInt(
-                                value.value(),
-                                defaultActionLabelThresholds.titles(),
-                                minActionLabelThresholds.titles(),
-                                actionLabelThresholdMax))
-                        .orElse(defaultActionLabelThresholds.titles()));
 
         return new UiSettings(
                 statusVisible.map(value -> parseInt(value.value(), defaultStatusVisible, STATUS_VISIBLE_MIN, STATUS_VISIBLE_MAX))
@@ -209,14 +169,9 @@ public class SettingsResource {
                 defaultReleaseDateDisplayFormat,
                 statusBarLocation.map(value -> normalizeStatusBarLocation(value.value(), defaultStatusBarLocation))
                         .orElse(defaultStatusBarLocation),
-                effectiveActionLabelThresholds,
                 defaultWorkspaceColumnWidths(),
                 defaultArtistsScreenColumnWidths(),
                 tableGridColumnMinWidth,
-                new UiSettings.ActionLabelThresholdConstraints(
-                        minActionLabelThresholds,
-                        actionLabelThresholdMax,
-                        actionLabelThresholdStep),
                 new UiSettings.Values(
                         defaultStatusVisible,
                         defaultScanPoll,
@@ -227,7 +182,6 @@ public class SettingsResource {
                         defaultDateFormat,
                         defaultReleaseDateDisplayFormat,
                         defaultStatusBarLocation,
-                        defaultActionLabelThresholds,
                         defaultWorkspaceColumnWidths(),
                         defaultArtistsScreenColumnWidths(),
                         tableGridColumnMinWidth),
@@ -263,61 +217,7 @@ public class SettingsResource {
                         statusBarLocation
                                 .map(value -> !normalizeStatusBarLocation(value.value(), defaultStatusBarLocation)
                                         .equals(defaultStatusBarLocation))
-                                .orElse(false),
-                        collectionThreshold
-                                .map(value -> parseInt(
-                                        value.value(),
-                                        defaultActionLabelThresholds.collections(),
-                                        minActionLabelThresholds.collections(),
-                                        actionLabelThresholdMax) != defaultActionLabelThresholds.collections())
-                                .orElse(false),
-                        artistThreshold
-                                .map(value -> parseInt(
-                                        value.value(),
-                                        defaultActionLabelThresholds.artists(),
-                                        minActionLabelThresholds.artists(),
-                                        actionLabelThresholdMax) != defaultActionLabelThresholds.artists())
-                                .orElse(false),
-                        albumThreshold
-                                .map(value -> parseInt(
-                                        value.value(),
-                                        defaultActionLabelThresholds.albums(),
-                                        minActionLabelThresholds.albums(),
-                                        actionLabelThresholdMax) != defaultActionLabelThresholds.albums())
-                                .orElse(false),
-                        titleThreshold
-                                .map(value -> parseInt(
-                                        value.value(),
-                                        defaultActionLabelThresholds.titles(),
-                                        minActionLabelThresholds.titles(),
-                                        actionLabelThresholdMax) != defaultActionLabelThresholds.titles())
                                 .orElse(false)));
-    }
-
-    private void updateActionLabelThresholds(ActionLabelThresholdRequest request) {
-        UiSettings.ActionLabelThresholds defaults = defaultActionLabelThresholds();
-        UiSettings.ActionLabelThresholds min = minActionLabelThresholds();
-        int max = actionLabelThresholdMax(min);
-        if (request.collections() != null) {
-            int value = clamp(request.collections(), min.collections(), max);
-            saveOrDelete(COLLECTION_ACTION_LABEL_THRESHOLD_KEY, String.valueOf(value),
-                    String.valueOf(defaults.collections()));
-        }
-        if (request.artists() != null) {
-            int value = clamp(request.artists(), min.artists(), max);
-            saveOrDelete(ARTIST_ACTION_LABEL_THRESHOLD_KEY, String.valueOf(value),
-                    String.valueOf(defaults.artists()));
-        }
-        if (request.albums() != null) {
-            int value = clamp(request.albums(), min.albums(), max);
-            saveOrDelete(ALBUM_ACTION_LABEL_THRESHOLD_KEY, String.valueOf(value),
-                    String.valueOf(defaults.albums()));
-        }
-        if (request.titles() != null) {
-            int value = clamp(request.titles(), min.titles(), max);
-            saveOrDelete(TITLE_ACTION_LABEL_THRESHOLD_KEY, String.valueOf(value),
-                    String.valueOf(defaults.titles()));
-        }
     }
 
     private UiSettings.WorkspaceColumnWidths defaultWorkspaceColumnWidths() {
@@ -352,35 +252,6 @@ public class SettingsResource {
                 defaults.action());
     }
 
-    private UiSettings.ActionLabelThresholds defaultActionLabelThresholds() {
-        UiSettings.ActionLabelThresholds min = minActionLabelThresholds();
-        int max = actionLabelThresholdMax(min);
-        var defaults = config.ui().defaultActionLabelThresholds();
-        return new UiSettings.ActionLabelThresholds(
-                clamp(defaults.collections(), min.collections(), max),
-                clamp(defaults.artists(), min.artists(), max),
-                clamp(defaults.albums(), min.albums(), max),
-                clamp(defaults.titles(), min.titles(), max));
-    }
-
-    private UiSettings.ActionLabelThresholds minActionLabelThresholds() {
-        var min = config.ui().actionLabelThresholdMin();
-        return new UiSettings.ActionLabelThresholds(
-                Math.max(0, min.collections()),
-                Math.max(0, min.artists()),
-                Math.max(0, min.albums()),
-                Math.max(0, min.titles()));
-    }
-
-    private int actionLabelThresholdMax(UiSettings.ActionLabelThresholds min) {
-        int largestMin = Math.max(Math.max(min.collections(), min.artists()), Math.max(min.albums(), min.titles()));
-        return Math.max(largestMin, config.ui().actionLabelThresholdMax());
-    }
-
-    private int actionLabelThresholdStep() {
-        return Math.max(1, config.ui().actionLabelThresholdStep());
-    }
-
     private int defaultStatusVisible() {
         return clamp(config.ui().defaultStatusCompleteVisibleMs(), STATUS_VISIBLE_MIN, STATUS_VISIBLE_MAX);
     }
@@ -398,6 +269,12 @@ public class SettingsResource {
             preferences.delete(key);
         } else {
             preferences.save(key, value);
+        }
+    }
+
+    private void deleteObsoleteActionLabelThresholdPreferences() {
+        for (String key : OBSOLETE_ACTION_LABEL_THRESHOLD_KEYS) {
+            preferences.delete(key);
         }
     }
 
@@ -428,14 +305,6 @@ public class SettingsResource {
             Boolean artistScanSpinnerEnabled,
             Boolean collectionScanProgressEnabled,
             Integer providerBatchRescanDelayMinutes,
-            String statusBarLocation,
-            ActionLabelThresholdRequest actionLabelThresholds) {
-    }
-
-    public record ActionLabelThresholdRequest(
-            Integer collections,
-            Integer artists,
-            Integer albums,
-            Integer titles) {
+            String statusBarLocation) {
     }
 }

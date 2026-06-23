@@ -14,6 +14,26 @@ interface ArtistForm {
   collectionIds: string[]
 }
 
+interface ArtistRowMeasurement {
+  contentWidth: number
+  nameWidth: number
+}
+
+interface ArtistRowFit {
+  actionLabels: boolean
+  issueLabel: boolean
+}
+
+interface CollectionRowMeasurement {
+  contentWidth: number
+  leadingWidth: number
+  nameWidth: number
+}
+
+interface CollectionRowFit {
+  actionLabels: boolean
+}
+
 type SortDirection = 'asc' | 'desc'
 type ArtistSortKey = 'name'
 type AlbumSortKey = 'name' | 'releaseDate'
@@ -91,6 +111,7 @@ const albumEditDialog = ref(false)
 const albumEditSaving = ref(false)
 const albumToEdit = ref<Album | null>(null)
 let paneWidthObserver: ResizeObserver | null = null
+const collectionListElement = ref<HTMLElement | null>(null)
 
 const paneWidths = reactive({
   collections: 0,
@@ -154,8 +175,12 @@ const artistPresence = ref<PresenceFilter[]>(['local', 'nonLocal'])
 const artistUnchecked = ref<ArtistUncheckedFilter[]>([])
 const albumShowAll = ref<AlbumShowAllFilter[]>([])
 const titlePresence = ref<PresenceFilter[]>(['local'])
+const hoveredCollectionId = ref<string | null>(null)
+const focusedCollectionId = ref<string | null>(null)
 const artistGridScrollTop = ref(0)
 const artistGridViewportHeight = ref(0)
+const hoveredArtistRowId = ref<number | null>(null)
+const focusedArtistRowId = ref<number | null>(null)
 const albumGridScrollTop = ref(0)
 const albumGridViewportHeight = ref(0)
 const titleGridScrollTop = ref(0)
@@ -163,6 +188,11 @@ const titleGridViewportHeight = ref(0)
 let presencePreferencesLoaded = false
 let paneResizeActive = false
 const suppressHeaderSortUntil = ref(0)
+const artistRowMeasurements = reactive<Record<number, ArtistRowMeasurement>>({})
+const artistRowElements = new Map<number, HTMLElement>()
+let artistRowMeasureFrame: number | null = null
+let artistNameMeasureCanvas: HTMLCanvasElement | null = null
+let collectionNameMeasureCanvas: HTMLCanvasElement | null = null
 
 const columnWidthPreferenceKeys = {
   artist: {
@@ -198,14 +228,46 @@ const paneHeaderMinimumWidths = {
 } as const
 
 const actionColumnWidths = {
-  artist: { icon: 148, labeled: 340 },
-  album: { icon: 116, labeled: 286 },
-  title: { icon: 84, labeled: 178 },
+  artist: { icon: 148 },
+  album: { icon: 116 },
+  title: { icon: 84 },
 } as const
+
+const rowActionButtonWidths = {
+  gap: 2,
+  info: 24,
+  local: 64,
+  provider: 96,
+  edit: 58,
+  scan: 62,
+  remove: 90,
+  untrack: 86,
+  delete: 76,
+} as const
+
+const collectionAddLabelMinimumWidth = 260
+const artistHeaderActionLabelMinimumWidth = 430
+const titleHeaderActionLabelMinimumWidth = 260
+const collectionReadableNameMinimumWidth = 72
+const collectionListHorizontalPadding = 16
+const collectionRowHorizontalPadding = 18
+const collectionRowNameTrailingGap = 20
+const collectionRowInfoWidth = 18
+const collectionRowInfoActionGap = 6
+const collectionTypeIconWidth = 16
+const collectionTitleItemGap = 6
+const collectionIconActionButtonWidth = 30
+const collectionSpinnerWidth = 14
+const artistReadableNameMinimumWidth = 128
+const artistRowCellHorizontalPadding = 24
+const artistRowNameTrailingGap = 20
+const artistRowVisibleItemGap = 6
+const artistGridScrollbarGutterWidth = 16
+const artistIconActionButtonWidth = 30
 
 const artistIssueColumnWidths = {
   compact: 34,
-  labeled: 48,
+  labeled: 90,
 } as const
 
 const tableColumnOrders = {
@@ -608,6 +670,75 @@ function resetTitleGridScroll() {
 function updateArtistGridViewport(element: HTMLElement) {
   artistGridScrollTop.value = element.scrollTop
   artistGridViewportHeight.value = element.clientHeight
+  scheduleArtistRowMeasurement()
+}
+
+function setArtistRowElement(artistId: number, value: unknown) {
+  const element = resolveElement(value)
+  if (element) {
+    artistRowElements.set(artistId, element)
+  } else {
+    artistRowElements.delete(artistId)
+    delete artistRowMeasurements[artistId]
+  }
+  scheduleArtistRowMeasurement()
+}
+
+function scheduleArtistRowMeasurement() {
+  if (typeof window === 'undefined' || artistRowMeasureFrame !== null) {
+    return
+  }
+  artistRowMeasureFrame = window.requestAnimationFrame(measureArtistRows)
+}
+
+function measureArtistRows() {
+  artistRowMeasureFrame = null
+  const visibleIds = new Set<number>()
+
+  artistRowElements.forEach((rowElement, artistId) => {
+    if (!rowElement.isConnected) {
+      artistRowElements.delete(artistId)
+      delete artistRowMeasurements[artistId]
+      return
+    }
+
+    visibleIds.add(artistId)
+    const cell = rowElement.querySelector<HTMLElement>('[data-column="artist.name"]')
+    const artistCell = rowElement.querySelector<HTMLElement>('.artist-cell')
+    const name = rowElement.querySelector<HTMLElement>('.artist-cell > .cell-strong')
+    if (!cell || !artistCell || !name) {
+      return
+    }
+
+    const cellStyle = getComputedStyle(cell)
+    const artistCellStyle = getComputedStyle(artistCell)
+    const padding = cssPixelValue(cellStyle.paddingLeft) + cssPixelValue(cellStyle.paddingRight)
+    const gap = cssPixelValue(artistCellStyle.columnGap || artistCellStyle.gap)
+    const spinner = rowElement.querySelector<HTMLElement>('.artist-cell__spinner')
+    const spinnerWidth = spinner ? Math.ceil(spinner.getBoundingClientRect().width + gap) : 0
+    const contentWidth = Math.max(0, Math.floor(cell.clientWidth - padding - spinnerWidth))
+    const nameWidth = Math.ceil(name.scrollWidth)
+    if (contentWidth <= 0 || nameWidth <= 0) {
+      scheduleArtistRowMeasurement()
+      return
+    }
+    const current = artistRowMeasurements[artistId]
+    if (!current || current.contentWidth !== contentWidth || current.nameWidth !== nameWidth) {
+      artistRowMeasurements[artistId] = { contentWidth, nameWidth }
+    }
+  })
+
+  Object.keys(artistRowMeasurements).forEach((key) => {
+    const artistId = Number(key)
+    if (!visibleIds.has(artistId)) {
+      delete artistRowMeasurements[artistId]
+    }
+  })
+}
+
+function cssPixelValue(value: string) {
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) ? parsed : 0
 }
 
 function updateAlbumGridViewport(element: HTMLElement) {
@@ -742,6 +873,22 @@ function artistRowClass(artist: Artist) {
   }
 }
 
+function artistRowActionsVisible(artist: Artist) {
+  return artist.id === selectedArtistId.value
+    || artist.id === hoveredArtistRowId.value
+    || artist.id === focusedArtistRowId.value
+}
+
+function handleArtistRowFocusOut(artist: Artist, event: FocusEvent) {
+  const nextTarget = event.relatedTarget
+  if (nextTarget instanceof Node && event.currentTarget instanceof HTMLElement && event.currentTarget.contains(nextTarget)) {
+    return
+  }
+  if (focusedArtistRowId.value === artist.id) {
+    focusedArtistRowId.value = null
+  }
+}
+
 function matchesPresenceFilter(isLocal: boolean, filter: PresenceFilter[]) {
   return (isLocal && filter.includes('local'))
     || (!isLocal && filter.includes('nonLocal'))
@@ -819,22 +966,218 @@ function collectionInfoLines(collection: MusicCollection) {
 }
 
 function showActionLabels(pane: keyof typeof paneWidths) {
-  return paneWidths[pane] >= uiSettings.value.actionLabelThresholds[pane]
+  if (pane === 'artists') {
+    return paneWidths.artists >= artistHeaderActionLabelMinimumWidth
+  }
+  if (pane === 'titles') {
+    return paneWidths.titles >= titleHeaderActionLabelMinimumWidth
+  }
+  return true
 }
 
-function showArtistIssueLabel() {
-  return showActionLabels('artists')
+function collectionRowMinimumWidth() {
+  return collectionListHorizontalPadding
+    + collectionRowHorizontalPadding
+    + collectionTypeIconWidth
+    + collectionTitleItemGap
+    + collectionReadableNameMinimumWidth
+    + collectionRowNameTrailingGap
+    + collectionRowInfoWidth
+    + collectionRowInfoActionGap
+    + collectionIconActionWidth()
 }
 
-function artistIssueColumnWidth() {
+function collectionPaneMinimumWidth() {
+  return Math.max(paneHeaderMinimumWidths.collections, collectionRowMinimumWidth())
+}
+
+function collectionRowActionsVisible(collection: MusicCollection) {
+  return collection.id === selectedCollectionId.value
+    || collection.id === hoveredCollectionId.value
+    || collection.id === focusedCollectionId.value
+    || collectionIsScanning(collection)
+}
+
+function handleCollectionRowFocusOut(collection: MusicCollection, event: FocusEvent) {
+  const nextTarget = event.relatedTarget
+  if (nextTarget instanceof Node && event.currentTarget instanceof HTMLElement && event.currentTarget.contains(nextTarget)) {
+    return
+  }
+  if (focusedCollectionId.value === collection.id) {
+    focusedCollectionId.value = null
+  }
+}
+
+function showCollectionRowActionLabels(collection: MusicCollection) {
+  return collectionRowFit(collection).actionLabels
+}
+
+function collectionRowFit(collection: MusicCollection): CollectionRowFit {
+  const measurement = currentCollectionRowMeasurement(collection)
+  if (!measurement || !collectionRowActionsVisible(collection)) {
+    return { actionLabels: false }
+  }
+  return {
+    actionLabels: collectionRowFitsFullName(measurement, collectionLabeledActionWidth()),
+  }
+}
+
+function collectionRowFitsFullName(measurement: CollectionRowMeasurement, actionWidth: number) {
+  const trailingWidth = collectionRowTrailingWidth(actionWidth)
+  return measurement.leadingWidth + measurement.nameWidth + collectionRowNameTrailingGap + trailingWidth <= measurement.contentWidth
+}
+
+function collectionRowTrailingWidth(actionWidth: number) {
+  return collectionRowInfoWidth
+    + (actionWidth > 0 ? collectionRowInfoActionGap + actionWidth : 0)
+}
+
+function currentCollectionRowMeasurement(collection: MusicCollection) {
+  const observedPaneWidth = paneWidths.collections
+  const listWidth = collectionListElement.value?.clientWidth
+  const availableWidth = listWidth ?? observedPaneWidth
+  const contentWidth = Math.max(0, availableWidth - collectionListHorizontalPadding - collectionRowHorizontalPadding)
+  if (contentWidth <= 0) {
+    return null
+  }
+  return {
+    contentWidth,
+    leadingWidth: collectionRowLeadingWidth(collection),
+    nameWidth: measuredCollectionNameWidth(collection.name),
+  }
+}
+
+function collectionRowLeadingWidth(collection: MusicCollection) {
+  return collectionTypeIconWidth
+    + collectionTitleItemGap
+    + (uiSettings.value.collectionScanSpinnerEnabled && collectionIsScanning(collection) ? collectionSpinnerWidth + collectionTitleItemGap : 0)
+}
+
+function measuredCollectionNameWidth(name: string) {
+  if (typeof document === 'undefined') {
+    return Math.ceil(name.length * 8.5)
+  }
+  collectionNameMeasureCanvas ??= document.createElement('canvas')
+  const context = collectionNameMeasureCanvas.getContext('2d')
+  if (!context) {
+    return Math.ceil(name.length * 8.5)
+  }
+  const sample = document.querySelector<HTMLElement>('.collection-list .nav-row__name')
+  if (sample) {
+    const style = getComputedStyle(sample)
+    context.font = `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} / ${style.lineHeight} ${style.fontFamily}`
+  }
+  return Math.ceil(context.measureText(name).width)
+}
+
+function artistRowMinimumWidth(actionWidth: number, issueWidth: number) {
+  return actionWidth
+    + issueWidth
+    + artistReadableNameMinimumWidth
+    + artistRowCellHorizontalPadding
+    + artistRowNameTrailingGap
+    + artistGridScrollbarGutterWidth
+    + (issueWidth > 0 ? artistRowVisibleItemGap : 0)
+}
+
+function artistPaneMinimumWidth() {
+  return Math.max(
+    paneHeaderMinimumWidths.artists,
+    artistRowMinimumWidth(artistIconActionWidthForCollection(), artistIssueColumnWidthForCollection()),
+  )
+}
+
+function showArtistIssueLabel(artist: Artist) {
+  return artistRowFit(artist).issueLabel
+}
+
+function showArtistRowActionLabels(artist: Artist) {
+  return artistRowFit(artist).actionLabels
+}
+
+function artistRowFit(artist: Artist): ArtistRowFit {
+  const measurement = currentArtistRowMeasurement(artist)
+  if (!measurement) {
+    return { actionLabels: false, issueLabel: false }
+  }
+
+  const active = artistRowActionsVisible(artist)
+  const expandedIssueWidth = artistIssueWidth(artist, true)
+  const compactIssueWidth = artistIssueWidth(artist, false)
+
+  if (!active) {
+    return {
+      actionLabels: false,
+      issueLabel: expandedIssueWidth > 0 && artistRowFits(measurement, 0, expandedIssueWidth),
+    }
+  }
+
+  if (artistRowFits(measurement, artistLabeledActionWidth(artist), expandedIssueWidth)) {
+    return { actionLabels: true, issueLabel: expandedIssueWidth > 0 }
+  }
+  if (artistRowFits(measurement, artistIconActionWidth(artist), expandedIssueWidth)) {
+    return { actionLabels: false, issueLabel: expandedIssueWidth > 0 }
+  }
+  if (artistRowFits(measurement, artistIconActionWidth(artist), compactIssueWidth)) {
+    return { actionLabels: false, issueLabel: false }
+  }
+  return { actionLabels: false, issueLabel: false }
+}
+
+function artistRowFits(measurement: ArtistRowMeasurement, actionWidth: number, issueWidth: number) {
+  const trailingWidth = actionWidth
+    + issueWidth
+    + (actionWidth > 0 && issueWidth > 0 ? artistRowVisibleItemGap : 0)
+  const trailingGap = trailingWidth > 0 ? artistRowNameTrailingGap : 0
+  return measurement.nameWidth + trailingGap + trailingWidth <= measurement.contentWidth
+}
+
+function currentArtistRowMeasurement(artist: Artist) {
+  const gridWidth = artistGridElement.value?.clientWidth
+  const availableWidth = gridWidth ?? Math.max(0, paneWidths.artists - artistGridScrollbarGutterWidth)
+  const contentWidth = Math.max(0, availableWidth - artistRowCellHorizontalPadding)
+  if (contentWidth <= 0) {
+    return null
+  }
+  return {
+    contentWidth,
+    nameWidth: measuredArtistNameWidth(artist.name),
+  }
+}
+
+function measuredArtistNameWidth(name: string) {
+  if (typeof document === 'undefined') {
+    return Math.ceil(name.length * 8.5)
+  }
+  artistNameMeasureCanvas ??= document.createElement('canvas')
+  const context = artistNameMeasureCanvas.getContext('2d')
+  if (!context) {
+    return Math.ceil(name.length * 8.5)
+  }
+  const sample = document.querySelector<HTMLElement>('.artists-pane .artist-cell > .cell-strong')
+  if (sample) {
+    const style = getComputedStyle(sample)
+    context.font = `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} / ${style.lineHeight} ${style.fontFamily}`
+  }
+  return Math.ceil(context.measureText(name).width)
+}
+
+function artistIssueWidth(artist: Artist, showLabels: boolean) {
+  if (artist.uncheckedAlbumCount <= 0) {
+    return 0
+  }
+  return showLabels ? artistIssueColumnWidths.labeled : artistIssueColumnWidths.compact
+}
+
+function artistIssueColumnWidthForCollection() {
   if (!collectionArtists.value.some((artist) => artist.uncheckedAlbumCount > 0)) {
     return 0
   }
-  return showArtistIssueLabel() ? artistIssueColumnWidths.labeled : artistIssueColumnWidths.compact
+  return artistIssueColumnWidths.compact
 }
 
 function showCollectionAddLabel() {
-  return paneWidths.collections >= 260
+  return paneWidths.collections >= collectionAddLabelMinimumWidth
 }
 
 function actionLabelClass(pane: keyof typeof paneWidths) {
@@ -847,6 +1190,21 @@ function gridActionLabelClass(table: keyof typeof columnWidthPreferenceKeys) {
 
 function rowActionClass(pane: keyof typeof paneWidths) {
   return [actionLabelClass(pane), 'workspace-row-action']
+}
+
+function collectionRowActionClass(collection: MusicCollection) {
+  return [actionLabelClassFor(showCollectionRowActionLabels(collection)), 'workspace-row-action']
+}
+
+function artistRowActionClass(artist: Artist) {
+  return [actionLabelClassFor(showArtistRowActionLabels(artist)), 'workspace-row-action']
+}
+
+function artistRowTrailingClass(artist: Artist) {
+  return {
+    'artist-row-trailing--active': artistRowActionsVisible(artist),
+    'artist-row-trailing--with-chip': artist.uncheckedAlbumCount > 0,
+  }
 }
 
 function gridRowActionClass(table: keyof typeof columnWidthPreferenceKeys) {
@@ -889,7 +1247,7 @@ function observePaneWidth(pane: keyof typeof paneWidths, paneRef: unknown) {
   paneWidthObserver.observe(element)
 }
 
-function updatePaneWidthsOnLabelThresholdCrossing(isTitleLayout: boolean) {
+function updatePaneWidthsDuringResize(isTitleLayout: boolean) {
   const entries: Array<[keyof typeof paneWidths, HTMLElement | null]> = [
     ['collections', resolveElement(collectionsPaneElement.value)],
   ]
@@ -900,41 +1258,18 @@ function updatePaneWidthsOnLabelThresholdCrossing(isTitleLayout: boolean) {
     entries.push(['albums', resolveElement(albumsPaneElement.value)])
   }
 
-  let crossed = false
+  let changed = false
   entries.forEach(([pane, element]) => {
     if (!element) {
       return
     }
     const width = Math.round(element.getBoundingClientRect().width)
-    if (paneLabelThresholdCrossed(pane, paneWidths[pane], width)) {
+    if (paneWidths[pane] !== width) {
       paneWidths[pane] = width
-      crossed = true
+      changed = true
     }
   })
-  return crossed
-}
-
-function paneLabelThresholdCrossed(pane: keyof typeof paneWidths, previousWidth: number, nextWidth: number) {
-  return paneLabelThresholds(pane).some((threshold) => thresholdCrossed(previousWidth, nextWidth, threshold))
-}
-
-function paneLabelThresholds(pane: keyof typeof paneWidths) {
-  const thresholds = [uiSettings.value.actionLabelThresholds[pane]]
-  if (pane === 'collections') {
-    thresholds.push(260)
-  }
-  if (pane === 'albums') {
-    thresholds.push(fixedColumnsWidth('album') + actionColumnWidths.album.labeled)
-  }
-  if (pane === 'titles') {
-    thresholds.push(fixedColumnsWidth('title') + actionColumnWidths.title.labeled)
-  }
-  return thresholds
-}
-
-function thresholdCrossed(previousWidth: number, nextWidth: number, threshold: number) {
-  return (previousWidth < threshold && nextWidth >= threshold)
-    || (previousWidth >= threshold && nextWidth < threshold)
+  return changed
 }
 
 function resolveElement(value: unknown) {
@@ -1167,7 +1502,7 @@ function startPaneResize(index: number, event: PointerEvent) {
         return
       }
       applyPaneFlexStyles(pendingPanePercents, isTitleLayout)
-      if (updatePaneWidthsOnLabelThresholdCrossing(isTitleLayout)) {
+      if (updatePaneWidthsDuringResize(isTitleLayout)) {
         panePercents.value = pendingPanePercents
       }
       pendingPanePercents = null
@@ -1181,7 +1516,7 @@ function startPaneResize(index: number, event: PointerEvent) {
     }
     if (pendingPanePercents) {
       applyPaneFlexStyles(pendingPanePercents, isTitleLayout)
-      if (updatePaneWidthsOnLabelThresholdCrossing(isTitleLayout)) {
+      if (updatePaneWidthsDuringResize(isTitleLayout)) {
         panePercents.value = pendingPanePercents
       }
       pendingPanePercents = null
@@ -1254,8 +1589,8 @@ function startPaneResize(index: number, event: PointerEvent) {
 
 function paneMinimums() {
   return [
-    paneHeaderMinimumWidths.collections,
-    paneHeaderMinimumWidths.artists,
+    collectionPaneMinimumWidth(),
+    artistPaneMinimumWidth(),
     selectedCollectionIsTitle.value ? titlePaneMinimumWidth() : Math.max(paneHeaderMinimumWidths.albums, minimumGridWidth('album')),
   ]
 }
@@ -1284,9 +1619,9 @@ async function loadPaneLayout(kind: PaneLayoutKind) {
         parsed.collections,
         parsed.artists,
         parsed.albums,
-      ])
+      ], kind)
     } else if (Array.isArray(parsed) && parsed.length === 3 && parsed.every((value) => typeof value === 'number')) {
-      paneLayoutCache[kind] = repairPaneLayout(parsed)
+      paneLayoutCache[kind] = repairPaneLayout(parsed, kind)
     }
   } catch (error) {
     // Ignore invalid stored UI state and keep the default layout.
@@ -1314,7 +1649,7 @@ function savePaneLayout() {
     paneLayoutSaveTimer.value = null
   }
   const kind = activePaneLayoutKind()
-  const rounded = repairPaneLayout(normalizePanePercents(panePercents.value))
+  const rounded = repairPaneLayout(normalizePanePercents(panePercents.value), kind)
     .map((value) => Math.round(value * 100) / 100)
   paneLayoutCache[kind] = rounded
   panePercents.value = rounded
@@ -1359,12 +1694,75 @@ function hiddenPaneArtistShare(sourcePercents: number[]) {
   return sourcePercents[1] / right
 }
 
-function repairPaneLayout(values: number[]) {
+function repairPaneLayout(values: number[], kind: PaneLayoutKind = activePaneLayoutKind()) {
   const normalized = normalizePanePercents(values)
-  if (normalized[1] > minimumRestoredPanePercent) {
-    return normalized
+  let repaired = normalized[1] > minimumRestoredPanePercent
+    ? normalized
+    : paneLayoutForTitleResize(normalized[0], defaultPanePercents)
+  repaired = repairCollectionPaneMinimum(repaired, kind)
+  if (kind === 'artist') {
+    return repairArtistPaneMinimum(repaired)
   }
-  return paneLayoutForTitleResize(normalized[0], defaultPanePercents)
+  return repaired
+}
+
+function repairCollectionPaneMinimum(values: number[], kind: PaneLayoutKind) {
+  const paneAreaWidth = paneLayoutAreaWidth(kind)
+  const collectionMinimum = (collectionPaneMinimumWidth() / paneAreaWidth) * 100
+  if (values[0] >= collectionMinimum) {
+    return values
+  }
+
+  const needed = collectionMinimum - values[0]
+  if (kind === 'title') {
+    const right = values[1] + values[2]
+    const rightMinimum = (titlePaneMinimumWidth() / paneAreaWidth) * 100
+    const fromRight = Math.min(needed, Math.max(0, right - rightMinimum))
+    const nextRight = right - fromRight
+    const artistShare = hiddenPaneArtistShare(values)
+    return normalizePanePercents([
+      values[0] + fromRight,
+      nextRight * artistShare,
+      nextRight * (1 - artistShare),
+    ])
+  }
+
+  const artistMinimum = (artistPaneMinimumWidth() / paneAreaWidth) * 100
+  const albumMinimum = (Math.max(paneHeaderMinimumWidths.albums, minimumGridWidth('album')) / paneAreaWidth) * 100
+  const fromAlbums = Math.min(needed, Math.max(0, values[2] - albumMinimum))
+  const fromArtists = Math.min(needed - fromAlbums, Math.max(0, values[1] - artistMinimum))
+
+  return normalizePanePercents([
+    values[0] + fromAlbums + fromArtists,
+    values[1] - fromArtists,
+    values[2] - fromAlbums,
+  ])
+}
+
+function repairArtistPaneMinimum(values: number[]) {
+  const paneAreaWidth = paneLayoutAreaWidth('artist')
+  const artistMinimum = (artistPaneMinimumWidth() / paneAreaWidth) * 100
+  if (values[1] >= artistMinimum) {
+    return values
+  }
+
+  const collectionMinimum = (collectionPaneMinimumWidth() / paneAreaWidth) * 100
+  const albumMinimum = (Math.max(paneHeaderMinimumWidths.albums, minimumGridWidth('album')) / paneAreaWidth) * 100
+  const needed = artistMinimum - values[1]
+  const fromAlbums = Math.min(needed, Math.max(0, values[2] - albumMinimum))
+  const fromCollections = Math.min(needed - fromAlbums, Math.max(0, values[0] - collectionMinimum))
+
+  return normalizePanePercents([
+    values[0] - fromCollections,
+    values[1] + fromAlbums + fromCollections,
+    values[2] - fromAlbums,
+  ])
+}
+
+function paneLayoutAreaWidth(kind: PaneLayoutKind) {
+  const totalResizerWidth = kind === 'title' ? paneResizerWidth : paneResizerWidth * 2
+  const workspaceWidth = threePaneElement.value?.clientWidth ?? window.innerWidth
+  return Math.max(1, workspaceWidth - totalResizerWidth)
 }
 
 function paneLayoutObject(values: number[]) {
@@ -1545,9 +1943,8 @@ function columnWidthState(table: keyof typeof columnWidthPreferenceKeys) {
 
 function columnGridStyle(table: keyof typeof columnWidthPreferenceKeys) {
   if (table === 'artist') {
-    const actionWidth = showActionLabels('artists') ? actionColumnWidths.artist.labeled : actionColumnWidths.artist.icon
     return {
-      '--workspace-grid-columns': `minmax(0, 1fr) ${actionWidth + artistIssueColumnWidth()}px`,
+      '--workspace-grid-columns': 'minmax(0, 1fr)',
       '--workspace-grid-min-width': '100%',
     }
   }
@@ -1571,9 +1968,76 @@ function tableColumnKeys(table: keyof typeof columnWidthPreferenceKeys) {
 
 function showGridActionLabels(table: keyof typeof columnWidthPreferenceKeys) {
   if (table === 'artist') {
-    return showActionLabels('artists')
+    return false
   }
-  return showActionLabels(tablePaneKey(table)) && rightmostColumnAvailableWidth(table) >= actionColumnWidths[table].labeled
+  return rightmostColumnAvailableWidth(table) >= gridLabeledActionWidth(table)
+}
+
+function gridLabeledActionWidth(table: keyof typeof columnWidthPreferenceKeys) {
+  if (table === 'album') {
+    return albumLabeledActionWidth()
+  }
+  if (table === 'title') {
+    return actionSetWidth([rowActionButtonWidths.edit, rowActionButtonWidths.delete])
+  }
+  return artistLabeledActionWidthForCollection()
+}
+
+function collectionLabeledActionWidth() {
+  return actionSetWidth([rowActionButtonWidths.edit, rowActionButtonWidths.scan, rowActionButtonWidths.delete])
+}
+
+function collectionIconActionWidth() {
+  return actionSetWidth(Array(3).fill(collectionIconActionButtonWidth))
+}
+
+function artistLabeledActionWidth(artist: Artist) {
+  const widths: number[] = [
+    rowActionButtonWidths.local,
+    rowActionButtonWidths.provider,
+    rowActionButtonWidths.edit,
+  ]
+  if (artistCanBeRemovedFromSelectedCollection(artist)) {
+    widths.push(rowActionButtonWidths.remove)
+  }
+  return actionSetWidth(widths)
+}
+
+function artistLabeledActionWidthForCollection() {
+  return Math.max(
+    0,
+    ...sortedCollectionArtists.value.map((artist) => artistLabeledActionWidth(artist)),
+  )
+}
+
+function artistIconActionWidth(artist: Artist) {
+  const actionCount = artistCanBeRemovedFromSelectedCollection(artist) ? 4 : 3
+  return actionSetWidth(Array(actionCount).fill(artistIconActionButtonWidth))
+}
+
+function artistIconActionWidthForCollection() {
+  return Math.max(
+    actionSetWidth(Array(3).fill(artistIconActionButtonWidth)),
+    ...sortedCollectionArtists.value.map((artist) => artistIconActionWidth(artist)),
+  )
+}
+
+function albumLabeledActionWidth() {
+  const widths: number[] = [rowActionButtonWidths.edit, rowActionButtonWidths.delete]
+  if (sortedCollectionAlbums.value.some((album) => album.localPaths.length > 0)) {
+    widths.unshift(rowActionButtonWidths.info)
+  }
+  if (sortedCollectionAlbums.value.some((album) => albumHasMissingLocalPath(album))) {
+    widths.splice(widths.length - 1, 0, rowActionButtonWidths.untrack)
+  }
+  return actionSetWidth(widths)
+}
+
+function actionSetWidth(widths: number[]) {
+  if (widths.length === 0) {
+    return 0
+  }
+  return widths.reduce((sum, width) => sum + width, 0) + (widths.length - 1) * rowActionButtonWidths.gap
 }
 
 function renderedColumnWidths(table: keyof typeof columnWidthPreferenceKeys) {
@@ -1599,12 +2063,12 @@ function tablePaneKey(table: keyof typeof columnWidthPreferenceKeys): keyof type
 }
 
 function tableAvailableWidth(table: keyof typeof columnWidthPreferenceKeys) {
+  const pane = tablePaneKey(table)
+  const paneWidth = paneWidths[pane]
   const grid = document.querySelector(`.${tablePaneKey(table)}-pane .workspace-grid`)
   if (grid instanceof HTMLElement) {
     return grid.clientWidth
   }
-  const pane = tablePaneKey(table)
-  const paneWidth = paneWidths[pane]
   return paneWidth > 0 ? Math.max(0, paneWidth - 2) : 0
 }
 
@@ -2053,6 +2517,7 @@ onMounted(async () => {
   }
   await nextTick()
   setupPaneWidthObserver()
+  scheduleArtistRowMeasurement()
 })
 
 onBeforeUnmount(() => {
@@ -2062,6 +2527,10 @@ onBeforeUnmount(() => {
   document.body.classList.remove('is-pane-resizing')
   paneWidthObserver?.disconnect()
   paneWidthObserver = null
+  if (artistRowMeasureFrame !== null) {
+    window.cancelAnimationFrame(artistRowMeasureFrame)
+    artistRowMeasureFrame = null
+  }
   if (paneLayoutSaveTimer.value !== null) {
     savePaneLayout()
   }
@@ -2076,6 +2545,10 @@ watch(selectedCollectionIsTitle, () => {
 })
 
 watch(selectedCollectionId, () => {
+  hoveredCollectionId.value = null
+  focusedCollectionId.value = null
+  hoveredArtistRowId.value = null
+  focusedArtistRowId.value = null
   resetArtistGridScroll()
   resetAlbumGridScroll()
   resetTitleGridScroll()
@@ -2125,6 +2598,14 @@ watch(albumShowAll, (value) => {
 watch([() => artistSort.key, () => artistSort.direction], () => {
   resetArtistGridScroll()
 })
+
+watch([visibleArtistRows, () => paneWidths.artists], () => {
+  scheduleArtistRowMeasurement()
+}, { flush: 'post' })
+
+watch([hoveredArtistRowId, focusedArtistRowId, selectedArtistId], () => {
+  scheduleArtistRowMeasurement()
+}, { flush: 'post' })
 
 watch([() => albumSort.key, () => albumSort.direction, showAlbumCollectionsColumn], () => {
   resetAlbumGridScroll()
@@ -2181,7 +2662,7 @@ watch(titlePresence, (value) => {
           </div>
         </div>
 
-        <div class="collection-list">
+        <div ref="collectionListElement" class="collection-list">
           <div
             v-for="collection in collections"
             :key="collection.id"
@@ -2195,6 +2676,10 @@ watch(titlePresence, (value) => {
             tabindex="0"
             @click="selectCollection(collection)"
             @keydown.enter="selectCollection(collection)"
+            @focusin="focusedCollectionId = collection.id"
+            @focusout="handleCollectionRowFocusOut(collection, $event)"
+            @mouseenter="hoveredCollectionId = collection.id"
+            @mouseleave="hoveredCollectionId = null"
           >
             <span class="nav-row__title">
               <v-progress-circular
@@ -2215,82 +2700,84 @@ watch(titlePresence, (value) => {
                   ></v-icon>
                 </template>
               </v-tooltip>
-              <span>{{ collection.name }}</span>
+              <span class="nav-row__name">{{ collection.name }}</span>
             </span>
-            <span class="nav-row__info" @click.stop>
-              <v-tooltip location="end" :open-on-hover="true" @update:model-value="(open) => loadCollectionInfo(collection, open)">
-                <template #activator="{ props }">
-                  <v-icon
-                    v-bind="props"
-                    icon="mdi-information-outline"
-                    size="16"
-                    class="collection-info-icon"
-                  ></v-icon>
-                </template>
-                <div class="collection-info-tooltip">
-                  <div
-                    v-if="collectionMetadataLoading[collection.id] && !collectionMetadata[collection.id]"
-                    class="collection-info-tooltip__loading"
-                  >
-                    <v-progress-circular indeterminate size="14" width="2"></v-progress-circular>
-                    <span>Loading info</span>
-                  </div>
-                  <template v-else-if="collectionMetadata[collection.id]">
-                    <div v-for="line in collectionInfoLines(collection)" :key="line">{{ line }}</div>
+            <span class="nav-row__trailing">
+              <span class="nav-row__info" @click.stop>
+                <v-tooltip location="end" :open-on-hover="true" @update:model-value="(open) => loadCollectionInfo(collection, open)">
+                  <template #activator="{ props }">
+                    <v-icon
+                      v-bind="props"
+                      icon="mdi-information-outline"
+                      size="16"
+                      class="collection-info-icon"
+                    ></v-icon>
                   </template>
-                  <div v-else>Info not loaded</div>
-                </div>
-              </v-tooltip>
-            </span>
-            <span class="nav-row__actions">
-              <v-tooltip text="Edit collection" location="top">
-                <template #activator="{ props }">
-                  <v-btn
-                    v-bind="props"
-                    prepend-icon="mdi-pencil"
-                    size="x-small"
-                    variant="text"
-                    color="primary"
-                    :class="rowActionClass('collections')"
-                    :disabled="writeActionsDisabled"
-                    @click.stop="openCollectionEdit(collection, $event)"
-                  >
-                    <span v-if="showActionLabels('collections')">Edit</span>
-                  </v-btn>
-                </template>
-              </v-tooltip>
-              <v-tooltip text="Scan collection" location="top">
-                <template #activator="{ props }">
-                  <v-btn
-                    v-bind="props"
-                    prepend-icon="mdi-refresh"
-                    size="x-small"
-                    variant="text"
-                    color="primary"
-                    :class="rowActionClass('collections')"
-                    :disabled="scanActionsDisabled"
-                    @click.stop="startScan(collection.id)"
-                  >
-                    <span v-if="showActionLabels('collections')">Scan</span>
-                  </v-btn>
-                </template>
-              </v-tooltip>
-              <v-tooltip text="Delete collection" location="top">
-                <template #activator="{ props }">
-                  <v-btn
-                    v-bind="props"
-                    prepend-icon="mdi-trash-can-outline"
-                    size="x-small"
-                    variant="text"
-                    color="error"
-                    :class="rowActionClass('collections')"
-                    :disabled="writeActionsDisabled"
-                    @click.stop="askDeleteCollection(collection)"
-                  >
-                    <span v-if="showActionLabels('collections')">Delete</span>
-                  </v-btn>
-                </template>
-              </v-tooltip>
+                  <div class="collection-info-tooltip">
+                    <div
+                      v-if="collectionMetadataLoading[collection.id] && !collectionMetadata[collection.id]"
+                      class="collection-info-tooltip__loading"
+                    >
+                      <v-progress-circular indeterminate size="14" width="2"></v-progress-circular>
+                      <span>Loading info</span>
+                    </div>
+                    <template v-else-if="collectionMetadata[collection.id]">
+                      <div v-for="line in collectionInfoLines(collection)" :key="line">{{ line }}</div>
+                    </template>
+                    <div v-else>Info not loaded</div>
+                  </div>
+                </v-tooltip>
+              </span>
+              <span class="nav-row__actions">
+                <v-tooltip text="Edit collection" location="top">
+                  <template #activator="{ props }">
+                    <v-btn
+                      v-bind="props"
+                      prepend-icon="mdi-pencil"
+                      size="x-small"
+                      variant="text"
+                      color="primary"
+                      :class="collectionRowActionClass(collection)"
+                      :disabled="writeActionsDisabled"
+                      @click.stop="openCollectionEdit(collection, $event)"
+                    >
+                      <span v-if="showCollectionRowActionLabels(collection)">Edit</span>
+                    </v-btn>
+                  </template>
+                </v-tooltip>
+                <v-tooltip text="Scan collection" location="top">
+                  <template #activator="{ props }">
+                    <v-btn
+                      v-bind="props"
+                      prepend-icon="mdi-refresh"
+                      size="x-small"
+                      variant="text"
+                      color="primary"
+                      :class="collectionRowActionClass(collection)"
+                      :disabled="scanActionsDisabled"
+                      @click.stop="startScan(collection.id)"
+                    >
+                      <span v-if="showCollectionRowActionLabels(collection)">Scan</span>
+                    </v-btn>
+                  </template>
+                </v-tooltip>
+                <v-tooltip text="Delete collection" location="top">
+                  <template #activator="{ props }">
+                    <v-btn
+                      v-bind="props"
+                      prepend-icon="mdi-trash-can-outline"
+                      size="x-small"
+                      variant="text"
+                      color="error"
+                      :class="collectionRowActionClass(collection)"
+                      :disabled="writeActionsDisabled"
+                      @click.stop="askDeleteCollection(collection)"
+                    >
+                      <span v-if="showCollectionRowActionLabels(collection)">Delete</span>
+                    </v-btn>
+                  </template>
+                </v-tooltip>
+              </span>
             </span>
           </div>
         </div>
@@ -2690,112 +3177,117 @@ watch(titlePresence, (value) => {
           <div
             v-for="artist in visibleArtistRows"
             :key="artist.id"
+            :ref="(element) => setArtistRowElement(artist.id, element)"
             class="workspace-grid__row workspace-row"
             :class="artistRowClass(artist)"
             @click="store.selectArtist(artist.id)"
+            @focusin="focusedArtistRowId = artist.id"
+            @focusout="handleArtistRowFocusOut(artist, $event)"
+            @mouseenter="hoveredArtistRowId = artist.id"
+            @mouseleave="hoveredArtistRowId = null"
           >
-              <div data-column="artist.name" class="workspace-grid__cell">
-                <div class="artist-cell">
-                  <v-progress-circular
-                    v-if="artistScanIsRunning(artist)"
-                    indeterminate
-                    size="14"
-                    width="2"
-                    class="artist-cell__spinner"
-                  ></v-progress-circular>
-                  <span class="cell-strong">{{ artist.name }}</span>
-                </div>
-              </div>
-              <div class="workspace-grid__cell row-action-cell artist-row-action-cell">
-                <v-tooltip v-if="artistIssueLabel(artist)" :text="artistIssueLabel(artist)" location="top">
-                  <template #activator="{ props }">
-                    <v-chip
-                      v-bind="props"
-                      :aria-label="artistIssueLabel(artist)"
-                      class="artist-issue-chip"
-                      :class="{ 'artist-issue-chip--compact': !showArtistIssueLabel() }"
-                      color="warning"
-                      size="x-small"
-                      variant="tonal"
+            <div data-column="artist.name" class="workspace-grid__cell">
+              <div class="artist-cell">
+                <v-progress-circular
+                  v-if="artistScanIsRunning(artist)"
+                  indeterminate
+                  size="14"
+                  width="2"
+                  class="artist-cell__spinner"
+                ></v-progress-circular>
+                <span class="cell-strong">{{ artist.name }}</span>
+                <div class="artist-row-trailing" :class="artistRowTrailingClass(artist)">
+                  <v-tooltip v-if="artistIssueLabel(artist)" :text="artistIssueLabel(artist)" location="top">
+                    <template #activator="{ props }">
+                      <v-chip
+                        v-bind="props"
+                        :aria-label="artistIssueLabel(artist)"
+                        class="artist-issue-chip"
+                        :class="{ 'artist-issue-chip--compact': !showArtistIssueLabel(artist) }"
+                        color="warning"
+                        size="x-small"
+                        variant="tonal"
+                      >
+                        <span class="artist-issue-chip__count">{{ artist.uncheckedAlbumCount }}</span>
+                        <span v-if="showArtistIssueLabel(artist)" class="artist-issue-chip__label">unchecked</span>
+                      </v-chip>
+                    </template>
+                  </v-tooltip>
+                  <div class="row-actions artist-row-actions">
+                    <v-tooltip text="Scan local albums" location="top">
+                      <template #activator="{ props }">
+                        <v-btn
+                          v-bind="props"
+                          prepend-icon="mdi-folder-sync-outline"
+                          size="x-small"
+                          variant="text"
+                          color="primary"
+                          :class="artistRowActionClass(artist)"
+                          :loading="localAlbumScanIsRunningForArtist(artist)"
+                          :disabled="scanActionsDisabled"
+                          @click.stop="scanLocalAlbumsForArtist(artist)"
+                        >
+                          <span v-if="showArtistRowActionLabels(artist)">Local</span>
+                        </v-btn>
+                      </template>
+                    </v-tooltip>
+                    <v-tooltip text="Scan providers" location="top">
+                      <template #activator="{ props }">
+                        <v-btn
+                          v-bind="props"
+                          prepend-icon="mdi-cloud-sync-outline"
+                          size="x-small"
+                          variant="text"
+                          color="primary"
+                          :class="artistRowActionClass(artist)"
+                          :loading="providerScanIsRunningForArtist(artist)"
+                          :disabled="scanActionsDisabled"
+                          @click.stop="refreshArtist(artist)"
+                        >
+                          <span v-if="showArtistRowActionLabels(artist)">Provider</span>
+                        </v-btn>
+                      </template>
+                    </v-tooltip>
+                    <v-tooltip text="Edit artist" location="top">
+                      <template #activator="{ props }">
+                        <v-btn
+                          v-bind="props"
+                          prepend-icon="mdi-pencil"
+                          size="x-small"
+                          variant="text"
+                          color="primary"
+                          :class="artistRowActionClass(artist)"
+                          :disabled="writeActionsDisabled"
+                          @click.stop="openArtistDialog(artist)"
+                        >
+                          <span v-if="showArtistRowActionLabels(artist)">Edit</span>
+                        </v-btn>
+                      </template>
+                    </v-tooltip>
+                    <v-tooltip
+                      v-if="artistCanBeRemovedFromSelectedCollection(artist)"
+                      text="Remove artist from this collection"
+                      location="top"
                     >
-                      <span class="artist-issue-chip__count">{{ artist.uncheckedAlbumCount }}</span>
-                      <span v-if="showArtistIssueLabel()" class="artist-issue-chip__label">unchecked</span>
-                    </v-chip>
-                  </template>
-                </v-tooltip>
-                <div class="row-actions">
-                  <v-tooltip text="Scan local albums" location="top">
-                    <template #activator="{ props }">
-                      <v-btn
-                        v-bind="props"
-                        prepend-icon="mdi-folder-sync-outline"
-                        size="x-small"
-                        variant="text"
-                        color="primary"
-                        :class="rowActionClass('artists')"
-                        :loading="localAlbumScanIsRunningForArtist(artist)"
-                        :disabled="scanActionsDisabled"
-                        @click.stop="scanLocalAlbumsForArtist(artist)"
-                      >
-                        <span v-if="showActionLabels('artists')">Local</span>
-                      </v-btn>
-                    </template>
-                  </v-tooltip>
-                  <v-tooltip text="Scan providers" location="top">
-                    <template #activator="{ props }">
-                      <v-btn
-                        v-bind="props"
-                        prepend-icon="mdi-cloud-sync-outline"
-                        size="x-small"
-                        variant="text"
-                        color="primary"
-                        :class="rowActionClass('artists')"
-                        :loading="providerScanIsRunningForArtist(artist)"
-                        :disabled="scanActionsDisabled"
-                        @click.stop="refreshArtist(artist)"
-                      >
-                        <span v-if="showActionLabels('artists')">Provider</span>
-                      </v-btn>
-                    </template>
-                  </v-tooltip>
-                  <v-tooltip text="Edit artist" location="top">
-                    <template #activator="{ props }">
-                      <v-btn
-                        v-bind="props"
-                        prepend-icon="mdi-pencil"
-                        size="x-small"
-                        variant="text"
-                        color="primary"
-                        :class="rowActionClass('artists')"
-                        :disabled="writeActionsDisabled"
-                        @click.stop="openArtistDialog(artist)"
-                      >
-                        <span v-if="showActionLabels('artists')">Edit</span>
-                      </v-btn>
-                    </template>
-                  </v-tooltip>
-                  <v-tooltip
-                    v-if="artistCanBeRemovedFromSelectedCollection(artist)"
-                    text="Remove artist from this collection"
-                    location="top"
-                  >
-                    <template #activator="{ props }">
-                      <v-btn
-                        v-bind="props"
-                        prepend-icon="mdi-account-remove-outline"
-                        size="x-small"
-                        variant="text"
-                        color="error"
-                        :class="rowActionClass('artists')"
-                        :disabled="writeActionsDisabled"
-                        @click.stop="removeArtistFromCollection(artist)"
-                      >
-                        <span v-if="showActionLabels('artists')">Remove</span>
-                      </v-btn>
-                    </template>
-                  </v-tooltip>
+                      <template #activator="{ props }">
+                        <v-btn
+                          v-bind="props"
+                          prepend-icon="mdi-account-remove-outline"
+                          size="x-small"
+                          variant="text"
+                          color="error"
+                          :class="artistRowActionClass(artist)"
+                          :disabled="writeActionsDisabled"
+                          @click.stop="removeArtistFromCollection(artist)"
+                        >
+                          <span v-if="showArtistRowActionLabels(artist)">Remove</span>
+                        </v-btn>
+                      </template>
+                    </v-tooltip>
+                  </div>
                 </div>
               </div>
+            </div>
           </div>
           <div
             v-if="artistVirtualBottomSpacerHeight > 0"

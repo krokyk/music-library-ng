@@ -176,8 +176,19 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 
 - Row actions are hover/focus visible, and selected rows keep their available actions visible.
 - Inline row actions use the centralized row action button style.
-- Prefer icon plus short label when pane width allows it; collapse to icon-only based on configurable pane-width thresholds.
-  Current threshold keys are `collections-screen.collections-pane.action-label-threshold`, `collections-screen.artists-pane.action-label-threshold`, `collections-screen.albums-pane.action-label-threshold`, and `collections-screen.titles-pane.action-label-threshold`.
+- Hidden hover-only row actions must not reserve idle row text width.
+- Persistent row status chips may reserve row width because they are visible in the idle state.
+- Persistent row info icons may reserve row width because they are visible in the idle state.
+- Row text may ellipsize on hover, focus, or selection when the now-visible row actions need that space.
+- Collection pane minimum width must preserve icon-only row actions, the persistent info icon, the collection type icon, and a readable collection-name prefix.
+- Artist pane minimum width must preserve icon-only row actions, the compact unchecked-count chip, and a readable artist-name prefix.
+- Collection and artist pane rows use row-local fitting with a 20px minimum visual gap between the rendered name and the trailing indicator, chip, or actions.
+- Collection row fitting collapses action labels before ellipsizing the collection name.
+- Artist row fitting collapses action labels before the unchecked chip label, then ellipsizes the name while preserving that 20px gap.
+- Pane filter toggle labels do not collapse as part of artist row fitting.
+- Prefer icon plus short label when the containing pane or action column can fit the complete labeled action set.
+  Collapse action labels automatically when the labeled action set no longer fits.
+  Do not expose pane-width action-label thresholds in Settings.
 - Controls that can collapse must keep their icons visible.
   When space gets tight, remove labels first; never allow the pane, row, or action column to shrink below the width required to show all required icons.
 - Pane-local filters use pane-scoped keys, for example `collections-screen.artists-pane.presence-filter`, `collections-screen.artists-pane.unchecked-filter`, `collections-screen.albums-pane.show-all-filter`, and `collections-screen.titles-pane.presence-filter`.
