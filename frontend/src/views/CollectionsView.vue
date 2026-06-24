@@ -181,6 +181,8 @@ const artistGridScrollTop = ref(0)
 const artistGridViewportHeight = ref(0)
 const hoveredArtistRowId = ref<number | null>(null)
 const focusedArtistRowId = ref<number | null>(null)
+const selectedAlbumRowId = ref<number | null>(null)
+const selectedTitleRowId = ref<number | null>(null)
 const albumGridScrollTop = ref(0)
 const albumGridViewportHeight = ref(0)
 const titleGridScrollTop = ref(0)
@@ -229,9 +231,11 @@ const paneHeaderMinimumWidths = {
 
 const actionColumnWidths = {
   artist: { icon: 148 },
-  album: { icon: 116 },
+  album: { icon: 136 },
   title: { icon: 84 },
 } as const
+const sortableColumnMinimumWidth = 62
+const checkboxColumnMinimumWidth = 44
 
 const rowActionButtonWidths = {
   gap: 2,
@@ -873,6 +877,21 @@ function artistRowClass(artist: Artist) {
   }
 }
 
+function selectAlbumRow(album: Album) {
+  selectedAlbumRowId.value = album.id
+}
+
+function selectTitleRow(item: Album) {
+  selectedTitleRowId.value = item.id
+}
+
+function selectArtistRow(artist: Artist) {
+  if (selectedArtistId.value === artist.id) {
+    return
+  }
+  void store.selectArtist(artist.id)
+}
+
 function artistRowActionsVisible(artist: Artist) {
   return artist.id === selectedArtistId.value
     || artist.id === hoveredArtistRowId.value
@@ -916,7 +935,14 @@ function albumPresenceClass(album: Album) {
 
 function albumRowClass(album: Album) {
   return {
+    'is-selected': album.id === selectedAlbumRowId.value,
     'workspace-row--album-no-collection': album.collections.length === 0,
+  }
+}
+
+function titleRowClass(item: Album) {
+  return {
+    'is-selected': item.id === selectedTitleRowId.value,
   }
 }
 
@@ -1296,6 +1322,7 @@ function scanProgress(collection: MusicCollection) {
 }
 
 function askDeleteCollection(collection: MusicCollection) {
+  selectCollection(collection)
   if (writeActionsDisabled.value) {
     return
   }
@@ -1348,6 +1375,7 @@ function closeAddCollectionDropdown() {
 }
 
 function openCollectionEdit(collection: MusicCollection, event?: MouseEvent) {
+  selectCollection(collection)
   if (writeActionsDisabled.value) {
     return
   }
@@ -1397,6 +1425,7 @@ function closeCollectionEdit() {
 }
 
 async function startScan(collectionId: string) {
+  selectCollectionById(collectionId)
   if (scanActionsDisabled.value) {
     return
   }
@@ -1412,7 +1441,21 @@ function collectionIsScanning(collection: MusicCollection) {
 }
 
 function selectCollection(collection: MusicCollection) {
+  if (selectedCollectionId.value === collection.id) {
+    return
+  }
   void store.selectCollection(collection.id)
+}
+
+function selectCollectionById(collectionId: string) {
+  const collection = collections.value.find((item) => item.id === collectionId)
+  if (collection) {
+    selectCollection(collection)
+    return
+  }
+  if (selectedCollectionId.value !== collectionId) {
+    void store.selectCollection(collectionId)
+  }
 }
 
 function paneStyle(index: number) {
@@ -2167,10 +2210,26 @@ function columnMinimumWidth(table: keyof typeof columnWidthPreferenceKeys, key: 
   if (key === 'action') {
     return actionColumnWidths[table].icon
   }
+  if (table === 'album' && key === 'checked') {
+    return checkboxColumnMinimumWidth
+  }
+  if (isSortableColumn(table, key)) {
+    return sortableColumnMinimumWidth
+  }
   if (table === 'album' && key === 'collections') {
     return 90
   }
   return Math.max(1, uiSettings.value.tableGridColumnMinWidth)
+}
+
+function isSortableColumn(table: keyof typeof columnWidthPreferenceKeys, key: string) {
+  if (table === 'album') {
+    return key === 'name' || key === 'releaseDate'
+  }
+  if (table === 'title') {
+    return key === 'title' || key === 'artist' || key === 'releaseDate'
+  }
+  return false
 }
 
 function handleDocumentPointerDown(event: PointerEvent) {
@@ -2195,6 +2254,9 @@ function handleDocumentKeyDown(event: KeyboardEvent) {
 }
 
 async function openArtistDialog(artist?: Artist) {
+  if (artist) {
+    selectArtistRow(artist)
+  }
   if (writeActionsDisabled.value) {
     return
   }
@@ -2242,6 +2304,7 @@ async function saveArtistDetails() {
 }
 
 async function removeArtistFromCollection(artist: Artist) {
+  selectArtistRow(artist)
   if (writeActionsDisabled.value) {
     return
   }
@@ -2253,6 +2316,7 @@ async function removeArtistFromCollection(artist: Artist) {
 }
 
 async function refreshArtist(artist: Artist) {
+  selectArtistRow(artist)
   if (scanActionsDisabled.value) {
     return
   }
@@ -2306,6 +2370,7 @@ function artistScanIsRunning(artist: Artist) {
 }
 
 async function scanLocalAlbumsForArtist(artist: Artist) {
+  selectArtistRow(artist)
   if (scanActionsDisabled.value) {
     return
   }
@@ -2350,6 +2415,7 @@ async function refreshCollectionProviders() {
 }
 
 async function updateAlbumChecked(album: Album, checked: boolean) {
+  selectAlbumRow(album)
   if (writeActionsDisabled.value) {
     return
   }
@@ -2376,6 +2442,7 @@ function albumHasMissingLocalPath(album: Album) {
 }
 
 function openAlbumEditDialog(album: Album) {
+  selectAlbumRow(album)
   if (writeActionsDisabled.value) {
     return
   }
@@ -2411,6 +2478,7 @@ async function saveAlbumTitle() {
 }
 
 async function untrackMissingAlbumLocalPaths(album: Album) {
+  selectAlbumRow(album)
   if (writeActionsDisabled.value) {
     return
   }
@@ -2425,6 +2493,7 @@ async function untrackMissingAlbumLocalPaths(album: Album) {
 }
 
 function askDeleteAlbum(album: Album) {
+  selectAlbumRow(album)
   if (writeActionsDisabled.value) {
     return
   }
@@ -2449,6 +2518,9 @@ async function deleteAlbum() {
 }
 
 function openTitleItemDialog(item?: Album) {
+  if (item) {
+    selectTitleRow(item)
+  }
   if (writeActionsDisabled.value) {
     return
   }
@@ -2491,6 +2563,7 @@ async function saveTitleItem() {
 }
 
 async function deleteTitleLocalPath(item: Album) {
+  selectTitleRow(item)
   if (writeActionsDisabled.value) {
     return
   }
@@ -2537,6 +2610,8 @@ onBeforeUnmount(() => {
 })
 
 watch(selectedCollectionIsTitle, () => {
+  selectedAlbumRowId.value = null
+  selectedTitleRowId.value = null
   activatePaneLayout(activePaneLayoutKind())
   resetArtistGridScroll()
   resetAlbumGridScroll()
@@ -2549,12 +2624,15 @@ watch(selectedCollectionId, () => {
   focusedCollectionId.value = null
   hoveredArtistRowId.value = null
   focusedArtistRowId.value = null
+  selectedAlbumRowId.value = null
+  selectedTitleRowId.value = null
   resetArtistGridScroll()
   resetAlbumGridScroll()
   resetTitleGridScroll()
 })
 
 watch(selectedArtistId, () => {
+  selectedAlbumRowId.value = null
   resetAlbumGridScroll()
 })
 
@@ -2614,6 +2692,19 @@ watch([() => albumSort.key, () => albumSort.direction, showAlbumCollectionsColum
 watch(titlePresence, (value) => {
   savePresenceFilter('title', value)
 }, { deep: true })
+
+watch(sortedCollectionAlbums, (albums) => {
+  if (selectedAlbumRowId.value !== null && !albums.some((album) => album.id === selectedAlbumRowId.value)) {
+    selectedAlbumRowId.value = null
+  }
+})
+
+watch(sortedCollectionTitleItems, (items) => {
+  if (selectedTitleRowId.value !== null && !items.some((item) => item.id === selectedTitleRowId.value)) {
+    selectedTitleRowId.value = null
+  }
+})
+
 </script>
 
 <template>
@@ -2674,7 +2765,7 @@ watch(titlePresence, (value) => {
             :style="{ '--scan-progress': `${scanProgress(collection)}%` }"
             role="button"
             tabindex="0"
-            @click="selectCollection(collection)"
+            @click.capture="selectCollection(collection)"
             @keydown.enter="selectCollection(collection)"
             @focusin="focusedCollectionId = collection.id"
             @focusout="handleCollectionRowFocusOut(collection, $event)"
@@ -2988,20 +3079,30 @@ watch(titlePresence, (value) => {
               :style="{ height: `${titleVirtualTopSpacerHeight}px` }"
               aria-hidden="true"
             ></div>
-            <div v-for="item in visibleTitleRows" :key="item.id" class="workspace-grid__row workspace-row">
+            <div
+              v-for="item in visibleTitleRows"
+              :key="item.id"
+              class="workspace-grid__row workspace-row"
+              :class="titleRowClass(item)"
+              @click.capture="selectTitleRow(item)"
+            >
                 <div data-column="title.title" class="workspace-grid__cell truncate-cell">
                   <span :class="albumPresenceClass(item)">{{ item.title }}</span>
                 </div>
                 <div data-column="title.artist" class="workspace-grid__cell truncate-cell">
                   <span>{{ item.artistName ?? '' }}</span>
                 </div>
-                <div data-column="title.releaseDate" class="workspace-grid__cell cell-muted">
+                <div data-column="title.releaseDate" class="workspace-grid__cell release-date-cell">
                   <v-tooltip v-if="releaseDateTooltip(item.releaseDate)" :text="releaseDateTooltip(item.releaseDate)" location="top">
                     <template #activator="{ props }">
-                      <span v-bind="props">{{ releaseDateYearLabel(item.releaseDate) }}</span>
+                      <v-chip v-bind="props" class="release-date-chip" variant="tonal">
+                        {{ releaseDateYearLabel(item.releaseDate) }}
+                      </v-chip>
                     </template>
                   </v-tooltip>
-                  <span v-else>{{ releaseDateYearLabel(item.releaseDate) }}</span>
+                  <v-chip v-else-if="releaseDateYearLabel(item.releaseDate)" class="release-date-chip" variant="tonal">
+                    {{ releaseDateYearLabel(item.releaseDate) }}
+                  </v-chip>
                 </div>
                 <div class="workspace-grid__cell row-action-cell">
                   <div class="row-actions">
@@ -3057,7 +3158,7 @@ watch(titlePresence, (value) => {
             <span class="pane-header__title">Artists</span>
           </div>
           <div class="pane-header__actions">
-            <v-tooltip text="Scan local albums" location="top">
+            <v-tooltip text="Scan local album folders in this collection" location="top">
               <template #activator="{ props }">
                 <v-btn
                   v-bind="props"
@@ -3074,7 +3175,7 @@ watch(titlePresence, (value) => {
                 </v-btn>
               </template>
             </v-tooltip>
-            <v-tooltip text="Scan providers" location="top">
+            <v-tooltip text="Scan artist providers in this collection" location="top">
               <template #activator="{ props }">
                 <v-btn
                   v-bind="props"
@@ -3180,7 +3281,7 @@ watch(titlePresence, (value) => {
             :ref="(element) => setArtistRowElement(artist.id, element)"
             class="workspace-grid__row workspace-row"
             :class="artistRowClass(artist)"
-            @click="store.selectArtist(artist.id)"
+            @click.capture="selectArtistRow(artist)"
             @focusin="focusedArtistRowId = artist.id"
             @focusout="handleArtistRowFocusOut(artist, $event)"
             @mouseenter="hoveredArtistRowId = artist.id"
@@ -3214,7 +3315,7 @@ watch(titlePresence, (value) => {
                     </template>
                   </v-tooltip>
                   <div class="row-actions artist-row-actions">
-                    <v-tooltip text="Scan local albums" location="top">
+                    <v-tooltip text="Scan this artist's local album folders" location="top">
                       <template #activator="{ props }">
                         <v-btn
                           v-bind="props"
@@ -3231,7 +3332,7 @@ watch(titlePresence, (value) => {
                         </v-btn>
                       </template>
                     </v-tooltip>
-                    <v-tooltip text="Scan providers" location="top">
+                    <v-tooltip text="Scan this artist's provider" location="top">
                       <template #activator="{ props }">
                         <v-btn
                           v-bind="props"
@@ -3338,7 +3439,7 @@ watch(titlePresence, (value) => {
               :disabled="scanActionsDisabled"
               @click="scanLocalAlbumsForArtist(selectedArtist)"
             >
-              Scan local albums
+              Scan local folders
             </v-btn>
             <v-btn
               color="primary"
@@ -3348,7 +3449,7 @@ watch(titlePresence, (value) => {
               :disabled="scanActionsDisabled"
               @click="refreshArtist(selectedArtist)"
             >
-              Scan providers
+              Scan provider
             </v-btn>
           </div>
         </div>
@@ -3423,19 +3524,29 @@ watch(titlePresence, (value) => {
             :style="{ height: `${albumVirtualTopSpacerHeight}px` }"
             aria-hidden="true"
           ></div>
-          <div v-for="album in visibleAlbumRows" :key="album.id" class="workspace-grid__row workspace-row" :class="albumRowClass(album)">
+          <div
+            v-for="album in visibleAlbumRows"
+            :key="album.id"
+            class="workspace-grid__row workspace-row"
+            :class="albumRowClass(album)"
+            @click.capture="selectAlbumRow(album)"
+          >
               <div data-column="album.name" class="workspace-grid__cell truncate-cell">
                 <div class="album-cell">
                   <span :class="albumPresenceClass(album)">{{ album.title }}</span>
                 </div>
               </div>
-              <div data-column="album.releaseDate" class="workspace-grid__cell cell-muted">
+              <div data-column="album.releaseDate" class="workspace-grid__cell release-date-cell">
                 <v-tooltip v-if="releaseDateTooltip(album.releaseDate)" :text="releaseDateTooltip(album.releaseDate)" location="top">
                   <template #activator="{ props }">
-                    <span v-bind="props">{{ releaseDateYearLabel(album.releaseDate) }}</span>
+                    <v-chip v-bind="props" class="release-date-chip" variant="tonal">
+                      {{ releaseDateYearLabel(album.releaseDate) }}
+                    </v-chip>
                   </template>
                 </v-tooltip>
-                <span v-else>{{ releaseDateYearLabel(album.releaseDate) }}</span>
+                <v-chip v-else-if="releaseDateYearLabel(album.releaseDate)" class="release-date-chip" variant="tonal">
+                  {{ releaseDateYearLabel(album.releaseDate) }}
+                </v-chip>
               </div>
               <div data-column="album.checked" class="workspace-grid__cell checkbox-cell">
                 <v-tooltip
@@ -3444,7 +3555,7 @@ watch(titlePresence, (value) => {
                   location="top"
                 >
                   <template #activator="{ props }">
-                    <span v-bind="props" class="checkbox-cell__tooltip-anchor" @click.stop>
+                    <span v-bind="props" class="checkbox-cell__tooltip-anchor" @click.stop="selectAlbumRow(album)">
                       <v-checkbox
                         :model-value="albumCheckedValue(album)"
                         color="primary"
@@ -3462,7 +3573,7 @@ watch(titlePresence, (value) => {
                   density="compact"
                   :disabled="writeActionsDisabled"
                   hide-details
-                  @click.stop
+                  @click.stop="selectAlbumRow(album)"
                   @update:model-value="(value) => updateAlbumChecked(album, Boolean(value))"
                 ></v-checkbox>
               </div>
@@ -3493,7 +3604,7 @@ watch(titlePresence, (value) => {
                         size="x-small"
                         variant="text"
                         class="album-info-button"
-                        @click.stop
+                        @click.stop="selectAlbumRow(album)"
                       ></v-btn>
                     </template>
                   </v-tooltip>

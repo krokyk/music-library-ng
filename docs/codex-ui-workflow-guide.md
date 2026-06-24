@@ -166,6 +166,10 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 - All non-action columns share the configured minimum table grid column width.
 - Action columns are resizable but cannot shrink below the icon-only action width needed by their controls.
 - Action columns have no header text and row actions align left inside the action column in rightmost panes.
+- Grid-table action columns must reserve enough width for the full icon-only action set used by that table.
+- Sortable grid-table columns may shrink to the practical minimum that keeps the sort arrow visible.
+- Visible sort arrows should align to the right edge of the usable header area.
+- Header labels must ellipsize when the visible sort arrow consumes the available header space.
 - Headers stay sticky and visible while table content scrolls.
 - Headers are sortable when the column has sortable data.
 - Title-centric `Title` sorting has a colored mode icon inside the title header: clicking the header changes direction, clicking the icon switches title-vs-sort sorting.
@@ -174,6 +178,8 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 
 ## Row Actions And Controls
 
+- Any click inside a row's visual area selects that row first, including row action controls, info controls, chips, checkboxes, and disabled action space.
+  The clicked control then runs its normal action when it is enabled.
 - Row actions are hover/focus visible, and selected rows keep their available actions visible.
 - Inline row actions use the centralized row action button style.
 - Hidden hover-only row actions must not reserve idle row text width.

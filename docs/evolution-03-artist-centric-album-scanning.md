@@ -31,7 +31,7 @@ Albums are discovered through explicit album-level workflows:
 For an artist-centric selected collection, the Artists pane title bar should use:
 
 ```text
-ARTISTS                         [scan local] [scan providers] [sort] [add artist]
+ARTISTS                         [scan local folders] [scan artist providers] [sort] [add artist]
 ```
 
 All title-bar actions are scoped to the currently selected collection.
@@ -39,7 +39,7 @@ All title-bar actions are scoped to the currently selected collection.
 Row hover actions should include:
 
 ```text
-artist row: [scan local] [scan providers] [edit/link actions]
+artist row: [scan local folders] [scan artist provider] [edit/link actions]
 ```
 
 Recommended icon meanings:
@@ -110,7 +110,7 @@ Artists without enabled provider links are skipped and reported in the provider 
 When an artist is selected and no known albums are loaded, the Albums pane should offer explicit selected-artist actions:
 
 ```text
-No albums loaded for this artist. [Scan local albums] [Scan providers]
+No albums loaded for this artist. [Scan local folders] [Scan provider]
 ```
 
 This keeps the action available without making artist selection perform a scan.

@@ -88,6 +88,14 @@ const artistSort = reactive<{ key: ArtistSortKey; direction: SortDirection }>({
   direction: 'asc',
 })
 const suppressHeaderSortUntil = ref(0)
+const artistsScreenSortableColumnMinimumWidth = 62
+const artistsScreenIconActionButtonWidth = 30
+const artistsScreenRowActionGap = 2
+const artistsScreenActionColumnWidths = {
+  icon: (providerDefinitions.length + 1) * artistsScreenIconActionButtonWidth
+    + providerDefinitions.length * artistsScreenRowActionGap,
+  labeled: 390,
+}
 const artistsScreenColumnWidths = reactive<Record<ArtistScreenColumnKey, number>>({
   name: 250,
   country: 76,
@@ -97,7 +105,7 @@ const artistsScreenColumnWidths = reactive<Record<ArtistScreenColumnKey, number>
   unchecked: 86,
   local: 64,
   provider: 180,
-  action: 104,
+  action: artistsScreenActionColumnWidths.icon,
 })
 const artistsScreenColumnOrder = [
   'name',
@@ -130,10 +138,6 @@ const artistsScreenColumnWidthPreferenceKeys: Record<ArtistScreenColumnKey, stri
   local: 'artists-screen.artists-pane.local',
   provider: 'artists-screen.artists-pane.provider',
   action: 'artists-screen.artists-pane.action',
-}
-const artistsScreenActionColumnWidths = {
-  icon: 104,
-  labeled: 390,
 }
 const artistsGridScrollTop = ref(0)
 const artistsGridViewportHeight = ref(0)
@@ -367,7 +371,7 @@ function artistsScreenColumnMinimumWidth(key: ArtistScreenColumnKey) {
   if (key === 'action') {
     return artistsScreenActionColumnWidths.icon
   }
-  return Math.max(1, uiSettings.value.tableGridColumnMinWidth)
+  return artistsScreenSortableColumnMinimumWidth
 }
 
 function showArtistsScreenActionLabels() {
@@ -641,6 +645,13 @@ async function selectArtist(artist: Artist) {
   }
 }
 
+function markArtistSelected(artist: Artist) {
+  if (deletingArtistId.value === artist.id) {
+    return
+  }
+  selectedArtistId.value = artist.id
+}
+
 async function openMusicBrainzMatch(artist: Artist) {
   if (writeActionsDisabled.value) {
     return
@@ -728,6 +739,7 @@ async function saveUrlProvider() {
 }
 
 async function clearArtistProvider(artist: Artist) {
+  selectedArtistId.value = artist.id
   if (writeActionsDisabled.value) {
     return
   }
@@ -858,6 +870,7 @@ function openExternal(url?: string | null) {
 }
 
 function askDeleteArtist(artist: Artist) {
+  selectedArtistId.value = artist.id
   if (writeActionsDisabled.value) {
     return
   }
@@ -965,6 +978,12 @@ watch(search, () => {
 watch([() => artistSort.key, () => artistSort.direction], () => {
   resetArtistsGridScroll()
 })
+
+watch(sortedArtists, (currentArtists) => {
+  if (selectedArtistId.value !== null && !currentArtists.some((artist) => artist.id === selectedArtistId.value)) {
+    selectedArtistId.value = null
+  }
+})
 </script>
 
 <template>
@@ -1035,6 +1054,7 @@ watch([() => artistSort.key, () => artistSort.direction], () => {
             :key="artist.id"
             class="workspace-grid__row workspace-row"
             :class="artistScreenRowClass(artist)"
+            @click.capture="markArtistSelected(artist)"
             @click="selectArtist(artist)"
           >
             <div data-column="artists.name" class="workspace-grid__cell truncate-cell">

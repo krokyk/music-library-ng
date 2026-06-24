@@ -1371,10 +1371,11 @@ body,
 .sortable-header {
   cursor: pointer;
   gap: 6px;
-  padding-right: 30px;
+  padding-right: 18px;
 }
 
 .sortable-header__label {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1383,6 +1384,7 @@ body,
 .sort-direction-icon {
   color: rgb(var(--v-theme-primary));
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .title-sort-mode-button {
@@ -1663,6 +1665,33 @@ body.is-pane-resizing {
 
 .album-info-button.v-btn:hover {
   color: rgb(var(--v-theme-primary));
+}
+
+.release-date-cell {
+  justify-content: center;
+  text-align: center;
+}
+
+.release-date-chip.v-chip {
+  background: rgba(0, 0, 0, 0.37);
+  color: rgba(255, 255, 255, 0.78);
+  cursor: default;
+  flex: 0 0 auto;
+  font-size: 1.0rem !important;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  height: 26px !important;
+  letter-spacing: 0;
+  min-height: 26px !important;
+  min-width: 0;
+  padding-inline: 0 !important;
+  width: 52px;
+}
+
+.release-date-chip.v-chip .v-chip__content {
+  justify-content: center;
+  line-height: 24px;
+  width: 100%;
 }
 
 .album-collections-cell {

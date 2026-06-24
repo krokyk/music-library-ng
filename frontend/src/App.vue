@@ -64,7 +64,7 @@ const scanRunningMessage = computed(() => {
 
 const activeStatusMessage = computed(() => {
   if (scanJob.value?.status === 'RUNNING') {
-    return `${scanRunningMessage.value}: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} dirs scanned`
+    return `${scanRunningMessage.value}: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} folders scanned`
   }
   if (providerJob.value?.status === 'RUNNING' && providerJob.value.message) {
     return providerJob.value.message
@@ -239,7 +239,7 @@ watch(
       if (status === 'DONE') {
         const message = scanIsLocalAlbums.value
           ? `${scanCollectionName.value} local album scan complete: ${scanJob.value.parsedCount} albums, ${scanJob.value.createdCount} new, ${scanJob.value.skippedCount} skipped`
-          : `${scanCollectionName.value} scan complete: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} dirs scanned, ${scanJob.value.parsedCount} ${scanEntityName.value}, ${scanJob.value.createdCount} new`
+          : `${scanCollectionName.value} scan complete: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} folders scanned, ${scanJob.value.parsedCount} ${scanEntityName.value}, ${scanJob.value.createdCount} new`
         completeStatus(
           message,
           'done',

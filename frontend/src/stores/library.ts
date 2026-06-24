@@ -100,7 +100,7 @@ const defaultWorkspaceColumnDefaults = {
     releaseDate: 140,
     checked: 120,
     collections: 180,
-    action: 122,
+    action: 136,
   },
   title: {
     title: 460,
@@ -119,7 +119,7 @@ const defaultArtistsScreenColumnDefaults = {
   unchecked: 86,
   local: 64,
   provider: 180,
-  action: 104,
+  action: 126,
 }
 
 let scanJobPoller: number | null = null
