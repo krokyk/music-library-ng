@@ -238,7 +238,7 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 - Collections screen Albums pane uses `Show All` as a pane-local toggle under the pane title.
   Off shows only albums linked to the selected collection and labels the collection chip column `Also in`.
   On shows all albums for the selected artist and labels the collection chip column `In`.
-  Albums linked to the selected collection omit the selected collection chip because bold row text already indicates that membership.
+  When `Show All` is on, the `In` column shows all collection chips including the selected collection while bold row text remains as emphasis.
 - Main Artists screen:
   - `Delete` is a real library database delete.
   - If the artist belongs to any collection or has local albums, require a second warning confirmation.

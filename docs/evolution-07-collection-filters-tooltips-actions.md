@@ -20,8 +20,8 @@ The work focused on the Collections screen Collections, Artists, Albums, and Tit
 - When `Show All` is off, the Albums pane shows only albums linked to the selected collection.
 - When `Show All` is on, the Albums pane shows all albums for the selected artist.
 - Changed the album collection chip column label from `Also in` to `In` when `Show All` is on.
-- Kept selected-collection album rows from showing a chip for the selected collection because bold row text already indicates that membership.
-- For albums outside the selected collection, the `In` column shows their actual collection chips.
+- When `Show All` is on, the `In` column shows all collection chips including the selected collection.
+  Bold row text remains as emphasis for albums in the selected collection.
 - Muted albums with no collection membership so they read as library-only rows.
 - Added an Artists pane `Unchecked` filter modifier for quickly finding artists with unchecked albums.
 - Kept artist filtering as `(Local OR Non-local) AND Unchecked when enabled`.

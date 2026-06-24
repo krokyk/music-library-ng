@@ -820,7 +820,7 @@ function albumExtraCollections(album: Album) {
 }
 
 function albumDisplayedCollections(album: Album) {
-  if (albumShowAllEnabled.value && !albumIsInSelectedCollection(album)) {
+  if (albumShowAllEnabled.value) {
     return album.collections
   }
   return albumExtraCollections(album)
