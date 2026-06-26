@@ -56,6 +56,13 @@ Document behavior that a maintainer or user needs to know.
 - Update this file when repository conventions or agent workflow expectations change.
 - Keep docs practical.
   Prefer commands, file locations, and rules over broad explanation.
+- Keep docs factual and maintainer-facing.
+  Do not add narrative labels, session timing labels, literary phrasing, or conversation summaries.
+- Do not document abandoned ideas, rejected alternatives, passing implementation ideas, or unrelated future work.
+- Mention follow-up work only when it is an intentional current constraint or a concrete planned next step.
+- Evolution docs must distinguish current shipped behavior from deferred or target behavior.
+- Before committing an evolution doc, cross-check it against the commits it names and the current code paths it describes.
+- Do not leave `???`, open-ended brainstorming questions, or suggested future prompts in durable docs.
 - Avoid hard-coded personal paths in docs.
   Use placeholders such as `<project-root>`, `<music-root>`, `<graalvm-jdk-21>`, or environment variables.
 - If a feature adds a new configuration key, document the key where existing related keys are documented.

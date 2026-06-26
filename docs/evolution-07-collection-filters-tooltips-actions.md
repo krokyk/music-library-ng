@@ -7,11 +7,12 @@ Updated: 2026-06-23
 
 This document captures related Collections workspace UI cleanups from 2026-06-22 and 2026-06-23.
 
-Commit `064f9fe` refined collection filters and tooltip behavior.
-
-The follow-up row-action cleanup replaced manual pane-width thresholds with automatic fit-based labels and row-local trailing action layout.
-
 The work focused on the Collections screen Collections, Artists, Albums, and Titles panes, shared tooltip consistency, row action behavior, Settings cleanup, and workflow guide rules that future UI work should follow.
+
+## Related Commits
+
+- Commit `064f9fe` refined collection filters and tooltip behavior.
+- Commit `6d85cb7` refined fit-based row actions.
 
 ## Filter And Tooltip Changes
 
@@ -72,8 +73,6 @@ The work focused on the Collections screen Collections, Artists, Albums, and Tit
 - `collections-screen.albums-pane.action-label-threshold` is obsolete.
 - `collections-screen.titles-pane.action-label-threshold` is obsolete.
 - `SettingsResource` deletes those obsolete preference rows whenever UI settings are loaded or reset.
-- A local SQLite delete was also run for those obsolete preference keys.
-  It changed zero rows because the current local DB already had none.
 
 ## UI Semantics
 
@@ -128,16 +127,10 @@ The work focused on the Collections screen Collections, Artists, Albums, and Tit
 - `curl http://localhost:8795/api/settings/ui` confirmed the UI settings response no longer includes action-label threshold fields.
 - `sqlite3 data/music-library-ng.sqlite "select key, value from user_preferences where key like '%action-label-threshold%' order by key;"` confirmed no obsolete DB preference rows remain.
 
-## Commit State
-
-- Commit `064f9fe` was pushed to `origin/main` with message `Refine collection filters and tooltips`.
-- The action-label cleanup was completed after commit `064f9fe` as separate follow-up work.
-- This file was created after commit `064f9fe` was pushed and tracks the follow-up row-action work.
-
-## Follow-Up Notes
+## Preserved Rules
 
 - The `Unchecked` artist filter is intentionally a modifier, not a third presence option.
-- If more artist review workflows are added, keep them as separate modifiers unless they are truly mutually exclusive with Local and Non-local.
+- Additional artist filters should remain separate modifiers unless they are truly mutually exclusive with Local and Non-local.
 - If filter bars become crowded at smaller pane widths, shorten visible labels before changing the logical model.
 - Do not reintroduce visible Settings controls for action-label pixel thresholds.
 - If action buttons change, update the fit-based action width model instead of adding pane-width preferences.

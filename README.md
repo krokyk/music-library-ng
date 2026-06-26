@@ -198,7 +198,7 @@ title - release date
 title
 ```
 
-MusicBrainz refresh imports release groups as unchecked albums and sends ambiguous matches to review.
+MusicBrainz refresh imports supported full albums only, matches exact existing album titles, and creates missing albums as unchecked.
 
 ## SQLite Usage
 

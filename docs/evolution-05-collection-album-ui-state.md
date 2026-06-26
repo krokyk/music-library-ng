@@ -6,6 +6,11 @@ Date: 2026-06-10
 
 This document captures the current collection/album UI state changes, artist deletion/removal behavior, scan report behavior, and project documentation relocation.
 
+## Related Commits
+
+- Commit `c347596` refined collection album state and scan report UI.
+- Commit `f07278c` refined collection album UI behavior.
+
 ## Main Changes
 
 - Moved planning/evolution/workflow Markdown files into `docs/`.
@@ -59,15 +64,6 @@ This document captures the current collection/album UI state changes, artist del
 - `git diff --check`
 - `scripts/check-ui-layout.ps1` was run earlier in this change set at 1920x1080 and passed for the main workspace panes.
 
-## Remaining Checks
+## Current Constraint
 
-- Recheck the scan report dialog in the running packaged app after restarting the backend.
-  The last width fix was made after the earlier smoke check, and the smoke script does not explicitly open the scan report dialog.
-- Consider extending `scripts/check-ui-layout.ps1` to open a scan report when status history contains report-backed entries, then assert dialog width and internal scroll metrics.
-
-## Suggested Next Prompt
-
-```text
-Read AGENTS.md and docs/handoff-2026-06-10-collection-album-ui.md.
-Verify the scan report dialog in the running packaged app. If it is still too narrow, inspect the rendered Vuetify overlay DOM and fix the width on the actual .v-overlay__content element. Also consider extending scripts/check-ui-layout.ps1 to validate report dialog width and scroll behavior.
-```
+- The UI smoke script checks workspace pane layout, but it does not explicitly open scan report dialogs.

@@ -105,7 +105,7 @@ Artists pane:
   - collection membership;
   - provider links/URLs.
 - Artist detail modal does not show album summary/list.
-  Album review stays in the albums pane.
+  Album management stays in the albums pane.
 
 Albums pane:
 
@@ -337,11 +337,13 @@ public record Artist(
 ```java
 public record Album(
     long id,
-    long artistId,
+    List<Long> artistIds,
+    List<AlbumCollection> collections,
     String artistName,
     String title,
-    Integer releaseYear,
     String releaseDate,
+    String sortName,
+    MetadataSource sortNameSource,
     boolean checked,
     boolean hasLocalPath,
     boolean onDisk,
@@ -558,8 +560,7 @@ Create/update body:
 {
   "artistId": 1,
   "title": "Manifest",
-  "releaseYear": 2020,
-  "releaseDate": null,
+  "releaseDate": "2020",
   "checked": true,
   "notes": null
 }
@@ -643,7 +644,7 @@ GET  /api/provider-checks/runs/{id}/events
 ```
 
 User-facing provider scan triggers must use the provider check job flow so the status bar, row spinners, disabled scan buttons, and post-check refresh stay consistent.
-Batch provider check jobs skip provider links whose `last_checked_at` is inside the configured batch rescan delay.
+Batch provider check jobs skip provider links whose `last_success_at` is inside the configured batch rescan delay.
 Individual artist provider check jobs always run even when the artist was checked recently.
 
 ## 7. Local Scan Behavior
@@ -692,8 +693,7 @@ public interface DiscographyProvider {
 ```java
 public record RemoteAlbum(
     String title,
-    Integer releaseYear,
-    LocalDate releaseDate,
+    String releaseDate,
     String sourceUrl
 ) {}
 ```
@@ -706,7 +706,7 @@ Supported providers:
 
 For each remote album:
 
-1. Match existing album by artist + normalized title + year.
+1. Match existing album by artist, normalized title, and release date where the provider supports dates.
 2. If found, leave `checked` unchanged.
 3. If not found, create album with `checked = false`.
 4. Record provider check events.
@@ -714,6 +714,9 @@ For each remote album:
 Provider checks should not infer local disk presence.
 Provider checks run as background jobs from the frontend and update only the active artist row spinner.
 MusicBrainz calls still go through the process-wide MusicBrainz request limiter.
+MusicBrainz provider checks import only supported full albums.
+MusicBrainz provider checks match exact existing album titles and create missing full albums as unchecked.
+MusicBrainz provider checks ignore non-album, secondary-typed, or malformed provider records as diagnostics.
 Non-MusicBrainz providers may start the next artist as soon as the previous provider response is handled.
 
 ## 9. Frontend
@@ -821,8 +824,8 @@ Features:
 - Shows configured music root from the JVM override.
 - Shows root validation state.
 - Shows configured collections.
-- Settings are backed by the shared Quarkus properties file; `music-library.music-root` is per-machine runtime input.
-- Settings are read-only; per-machine values are supplied when the app starts.
+- Settings combine shared Quarkus property defaults with runtime SQLite preferences.
+- The music root remains startup configuration, while UI preferences and provider batch rescan delay are runtime settings.
 
 ### Provider Check UI
 

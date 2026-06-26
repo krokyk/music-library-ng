@@ -21,6 +21,11 @@ Ambiguous title-only rows remain title-only until artist metadata is available.
 
 The initial title-centric use case is `SOUNDTRACKS`.
 
+## Related Commits
+
+- Commit `9f45437` added title-centric collection support.
+- Commit `7273ab9` later unified title-centric collections with the album-based library model and superseded the separate durable title-table direction described in this early document.
+
 ## Data Model
 
 - Add collection classification:
@@ -161,7 +166,7 @@ parse_status = MANUAL
   - list items by collection
   - update normalized metadata
 
-## Implementation Order
+## Original Implementation Order
 
 1. Update schema, models, repositories, resources.
 2. Add title parser pipeline.

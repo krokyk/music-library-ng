@@ -6,6 +6,10 @@ Make release metadata consistent across the app and allow one album/title to be 
 
 This completes the follow-up work from title-centric collections where soundtracks can be parsed as titles, but still populate shared artist, album, and local-path data.
 
+## Related Commits
+
+- Commit `cab3964` added release-date normalization and multi-artist title albums.
+
 ## Release Date Model
 
 - `release_date` is the canonical release field.
@@ -125,4 +129,3 @@ Fresh V1 schema changes include:
 - add `album_artists(album_id, artist_id, position)`
 - keep `collection_title_items.release_date`
 - keep `collection_title_items.sort_name`
-

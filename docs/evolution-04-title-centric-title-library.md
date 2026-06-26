@@ -11,6 +11,10 @@ Albums are the durable library entity.
 Collections decide how albums are discovered, displayed, and grouped.
 ```
 
+## Related Commits
+
+- Commit `7273ab9` unified title collections with the album-based library model.
+
 There should not be a separate durable `titles` table for now.
 A soundtrack, movie score, or game score is treated as a normal album/title-like record in the existing album model.
 
@@ -100,7 +104,7 @@ Collections must not own albums exclusively.
 Track-level membership is deferred.
 If only some tracks from an album belong to a collection, that is a future track model problem and should not be solved in this evolution.
 
-## Proposed Model
+## Current Model
 
 Add direct album membership:
 
@@ -215,7 +219,7 @@ A title/soundtrack can remain checked even when the local folder is removed or w
 The checked meaning should remain consistent:
 
 ```text
-checked = user has accepted/listened/reviewed this album/title entity
+checked = user has listened to or accepted this album/title entity
 ```
 
 ## Title-Centric Manual Add
@@ -411,7 +415,7 @@ Do not implement these now:
 
 These can be revisited only when the workflows require them.
 
-## Recommended Implementation Order
+## Original Implementation Order
 
 1. Add `collection_albums` to the fresh V1 schema.
 2. Add repository support for assigning/removing albums from collections.

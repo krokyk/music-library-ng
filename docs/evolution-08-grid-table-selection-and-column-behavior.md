@@ -6,7 +6,12 @@ Date: 2026-06-24
 
 This document captures the row-selection and regular grid-table behavior contract from the Collections and Artists screens.
 The row-selection contract applies to collection sidebar rows, the Collections screen Artists list, the Collections screen Albums table, the Collections screen Titles table, and the main Artists screen table.
-Library and Settings tables are out of scope for this pass because they are prototype form, status, or review tables.
+Library and Settings tables are out of scope for this pass because they use separate prototype, form, or status layouts.
+
+## Related Commits
+
+- Commit `3fc2f64` finalized grid table row selection.
+- Commit `9b3e3b4` kept selected row actions visible.
 
 ## Row Selection
 

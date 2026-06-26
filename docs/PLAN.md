@@ -22,8 +22,8 @@ This roadmap tracks product capabilities and useful next steps.
 - Configurable batch provider rescan delay that skips recently checked provider links.
 - One provider identity per artist with a provider lookup row and provider-specific artist identity.
 - MusicBrainz provider identity uses MBID-backed artist matching and stores provider metadata such as country, type, and active status.
-- MusicBrainz release-group refresh with exact auto-linking, safe unchecked album creation, and review candidates for ambiguous matches.
-- Bulk MusicBrainz artist matching with conservative auto-linking and review results for uncertain candidates.
+- MusicBrainz release-group refresh that imports supported full albums only, matches exact existing album titles, and creates missing albums as unchecked.
+- Bulk MusicBrainz artist matching with conservative auto-linking and manual candidate selection for uncertain artist identities.
 - Three-pane Collections workspace.
 - Global Library and Artists views.
 - Settings view for effective runtime configuration and UI preferences.
@@ -39,7 +39,6 @@ This roadmap tracks product capabilities and useful next steps.
 - Add screenshots.
 - Document release packaging.
 - Decide how to represent compilations with multiple artists.
-- Add permanent ignore decisions for unwanted provider release groups if review noise becomes a problem.
 - Add duplicate-detection workflow for slightly different album names.
 - Add identity-preserving folder rename workflow with preview and stored local-path update.
 - Add artist-collection organizer with preview/apply support for moving flat album folders into nested artist folders.

@@ -27,6 +27,10 @@ Use repository files and commits as the shared memory.
 - Use `codex-ui-workflow-guide.md` for stable workflow and UI rules.
 - Use `evolution-*.md` files as durable design and handoff documents for major feature streams.
 - Do not put long session transcripts into `AGENTS.md`.
+- Do not put chat chronology, session labels, suggested prompts, abandoned ideas, or speculative alternatives into durable docs.
+- Evolution docs must say what changed, why it matters, what current behavior exists, what constraints remain, and which commits or code paths support the description.
+- Any deferred item in an evolution doc must be a real accepted constraint or planned next step, not a passing idea.
+- Before committing documentation, search the relevant code and named commits for terms and behavior that could make the doc stale.
 - When starting a separate session, give it a narrow ownership boundary, for example: "work only on album grid behavior" or "work only on settings layout".
 - When two sessions work in parallel, use separate branches or worktrees and merge through normal Git review.
 - At the end of a substantial session, update the relevant `evolution-*.md` file with decisions, assumptions, TODOs, and known risks.
@@ -57,9 +61,6 @@ Recommended handoff shape:
 
 ## Risks
 - Known weak spots, unverified behavior, or integration concerns.
-
-## Suggested Next Prompt
-<prompt text for the next Codex session>
 ```
 
 Before merging parallel UI work, run one integration/review session that checks for conflicting assumptions, duplicated components, inconsistent state handling, and missing validation.

@@ -11,6 +11,10 @@ clicking an artist selects only
 scanning is always an explicit action
 ```
 
+## Related Commits
+
+- Commit `cf97ad8` added explicit artist album maintenance workflows.
+
 ## Current Boundary
 
 Artist-centric collection scan remains fast and shallow:
@@ -145,7 +149,7 @@ Local scan from row, empty state, or title bar must produce the same:
 
 Provider scan should follow the same consistency rule.
 
-## Implementation Order
+## Original Implementation Order
 
 1. Add local album scan service methods for one artist and all selected collection artists.
 2. Add API endpoints or scan job types for local album scan.
