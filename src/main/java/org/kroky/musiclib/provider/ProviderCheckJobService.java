@@ -130,7 +130,7 @@ public class ProviderCheckJobService {
             if (job.cancelRequested.get()) {
                 job.finish("CANCELLED", "Provider check cancelled.");
             } else {
-                job.finish("FAILED", e.getMessage());
+                job.finish("FAILED", ProviderException.describe(e));
             }
         }
     }
@@ -319,8 +319,14 @@ public class ProviderCheckJobService {
             if (PROVIDER_ARTIST.equals(kind)) {
                 return "Checking " + requestedArtistName + "...";
             }
+            if (itemTotal <= 0) {
+                if (PROVIDER_COLLECTION.equals(kind)) {
+                    return "Checking " + requestedCollectionName + " providers...";
+                }
+                return "Checking all providers...";
+            }
             String artistName = activeArtistName == null ? "providers" : activeArtistName;
-            int activeIndex = itemTotal <= 0 ? 0 : Math.min(itemTotal, itemProcessed + 1);
+            int activeIndex = Math.min(itemTotal, itemProcessed + 1);
             String skipText = skippedArtistCount > 0 ? ", " + skippedArtistCount + " skipped" : "";
             if (PROVIDER_COLLECTION.equals(kind)) {
                 return "Checking " + requestedCollectionName + " artists: " + artistName

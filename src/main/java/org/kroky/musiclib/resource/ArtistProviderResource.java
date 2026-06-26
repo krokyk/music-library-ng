@@ -3,7 +3,6 @@ package org.kroky.musiclib.resource;
 import java.util.List;
 import java.util.regex.Pattern;
 
-import org.kroky.musiclib.model.AlbumReviewDecision;
 import org.kroky.musiclib.model.ArtistProviderCandidate;
 import org.kroky.musiclib.model.ArtistProviderLink;
 import org.kroky.musiclib.model.ProviderRefreshResult;
@@ -103,17 +102,6 @@ public class ArtistProviderResource {
         }
     }
 
-    @POST
-    @Path("/provider/album-decisions")
-    public ProviderRefreshResult applyAlbumDecisions(@PathParam("artistId") long artistId,
-            AlbumDecisionRequest request) {
-        try {
-            return refreshes.applyDecisions(artistId, request == null ? List.of() : request.decisions());
-        } catch (ProviderException e) {
-            throw new BadRequestException(e.getMessage(), e);
-        }
-    }
-
     private void validateProviderRequest(ProviderRequest request) {
         if (request == null) {
             throw new BadRequestException("Provider request is required");
@@ -150,8 +138,5 @@ public class ArtistProviderResource {
         boolean enabledOrDefault() {
             return enabled == null || enabled;
         }
-    }
-
-    public record AlbumDecisionRequest(List<AlbumReviewDecision> decisions) {
     }
 }

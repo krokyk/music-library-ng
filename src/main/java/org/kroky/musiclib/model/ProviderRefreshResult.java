@@ -8,10 +8,8 @@ public record ProviderRefreshResult(
         String artistName,
         String providerId,
         int foundReleaseGroupCount,
-        int linkedExistingCount,
+        int existingAlbumCount,
         int createdAlbumCount,
-        int reviewRequiredCount,
         int skippedCount,
-        List<AlbumImportCandidate> reviewCandidates,
         List<String> messages) {
 }

@@ -68,7 +68,7 @@ public class MusicBrainzClient {
         while (offset < total) {
             URI uri = uri("/release-group",
                     "artist", artistMbid,
-                    "type", "album|ep",
+                    "type", "album",
                     "fmt", "json",
                     "limit", String.valueOf(limit),
                     "offset", String.valueOf(offset));
@@ -76,7 +76,10 @@ public class MusicBrainzClient {
             total = count(json);
             JsonNode page = json.path("release-groups");
             for (JsonNode item : page) {
-                releaseGroups.add(mapReleaseGroup(item));
+                RemoteReleaseGroup releaseGroup = mapReleaseGroup(item);
+                if (isRegularAlbum(releaseGroup)) {
+                    releaseGroups.add(releaseGroup);
+                }
             }
             if (!page.isArray() || page.size() == 0) {
                 break;
@@ -108,6 +111,12 @@ public class MusicBrainzClient {
                 siteUrl() + "/release-group/" + id);
     }
 
+    static boolean isRegularAlbum(RemoteReleaseGroup releaseGroup) {
+        return releaseGroup != null
+                && "Album".equalsIgnoreCase(releaseGroup.primaryType())
+                && (releaseGroup.secondaryTypes() == null || releaseGroup.secondaryTypes().isEmpty());
+    }
+
     private JsonNode getJson(URI uri) throws ProviderException {
         ProviderException lastError = null;
         for (int attempt = 1; attempt <= 3; attempt++) {
@@ -120,7 +129,7 @@ public class MusicBrainzClient {
                     throw new ProviderException("MusicBrainz returned invalid JSON", e);
                 }
             }
-            String message = "MusicBrainz request failed with HTTP " + status;
+            String message = "MusicBrainz request failed with HTTP " + status + " for " + uri;
             lastError = new ProviderException(message);
             if (!isTransient(status) || attempt == 3) {
                 throw lastError;
@@ -155,7 +164,7 @@ public class MusicBrainzClient {
             } catch (Exception e) {
                 nextRequestAtMillis = System.currentTimeMillis()
                         + Math.max(1000, config.providers().musicbrainz().requestMinIntervalMs());
-                throw new ProviderException("Unable to call MusicBrainz", e);
+                throw new ProviderException("Unable to call MusicBrainz " + uri, e);
             }
         }
     }

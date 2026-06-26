@@ -12,19 +12,21 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$DefaultBrowserPathCandidates = @(
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+    "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
+)
+$DefaultCdpProfileName = "musiclib-cdp-profile"
+$DefaultBrowserStartupTimeoutSeconds = 10
+
 function Resolve-ChromePath {
     if ($ChromePath -and (Test-Path $ChromePath)) {
         return $ChromePath
     }
 
-    $candidates = @(
-        "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
-        "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
-        "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
-        "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
-    )
-
-    foreach ($candidate in $candidates) {
+    foreach ($candidate in $DefaultBrowserPathCandidates) {
         if ($candidate -and (Test-Path $candidate)) {
             return $candidate
         }
@@ -54,7 +56,7 @@ function Start-CdpBrowser {
         return $false
     }
 
-    $profileDir = Join-Path $env:TEMP "musiclib-cdp-profile"
+    $profileDir = Join-Path $env:TEMP $DefaultCdpProfileName
     $args = @(
         "--headless=new",
         "--remote-debugging-port=$CdpPort",
@@ -67,7 +69,7 @@ function Start-CdpBrowser {
 
     Start-Process -FilePath $BrowserPath -ArgumentList $args | Out-Null
 
-    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    $deadline = [DateTime]::UtcNow.AddSeconds($DefaultBrowserStartupTimeoutSeconds)
     while ([DateTime]::UtcNow -lt $deadline) {
         if (Test-Cdp $CdpBase) {
             return $true
@@ -82,7 +84,7 @@ function Stop-CdpBrowser {
     Get-CimInstance Win32_Process |
         Where-Object {
             $_.Name -in @("chrome.exe", "msedge.exe") -and
-            ($_.CommandLine -like "*musiclib-cdp-profile*" -or $_.CommandLine -like "*remote-debugging-port=$CdpPort*")
+            ($_.CommandLine -like "*$DefaultCdpProfileName*" -or $_.CommandLine -like "*remote-debugging-port=$CdpPort*")
         } |
         ForEach-Object {
             try {

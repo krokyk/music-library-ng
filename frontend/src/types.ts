@@ -209,6 +209,7 @@ export interface StatusHistoryEntry {
   message: string
   state: 'running' | 'done' | 'warning' | 'failed' | 'info'
   scanRunIds?: number[]
+  providerRunIds?: number[]
 }
 
 export interface UserPreference {
@@ -220,6 +221,16 @@ export interface UserPreference {
 export interface ScanEvent {
   id: number
   scanRunId: number
+  level: string
+  message: string
+  createdAt: string
+}
+
+export interface ProviderCheckEvent {
+  id: number
+  runId: number
+  artistId?: number | null
+  providerLinkId?: number | null
   level: string
   message: string
   createdAt: string
@@ -300,42 +311,16 @@ export interface ArtistProviderBulkMatchResult {
   messages: string[]
 }
 
-export interface AlbumMatchOption {
-  albumId: number
-  title: string
-  releaseDate?: string | null
-  matchScore: number
-  reason: string
-}
-
-export interface AlbumImportCandidate {
-  releaseGroup: RemoteReleaseGroup
-  decision: string
-  matchedAlbumId?: number | null
-  matchedAlbumTitle?: string | null
-  reason: string
-  options: AlbumMatchOption[]
-}
-
 export interface ProviderRefreshResult {
   runId: number
   artistId: number
   artistName: string
   providerId: string
   foundReleaseGroupCount: number
-  linkedExistingCount: number
+  existingAlbumCount: number
   createdAlbumCount: number
-  reviewRequiredCount: number
   skippedCount: number
-  reviewCandidates: AlbumImportCandidate[]
   messages: string[]
-}
-
-export interface AlbumReviewDecision {
-  providerId: string
-  providerReleaseGroupId: string
-  action: 'LINK_EXISTING' | 'CREATE' | 'SKIP'
-  albumId?: number | null
 }
 
 export interface ProviderCheckSummary {

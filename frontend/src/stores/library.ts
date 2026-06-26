@@ -3,7 +3,6 @@ import { apiGet, apiSend, apiText } from '@/api'
 import { formatDateWithJavaPattern } from '@/dateFormat'
 import type {
   Album,
-  AlbumReviewDecision,
   Artist,
   ArtistProviderBulkMatchResult,
   ArtistProviderCandidate,
@@ -13,6 +12,7 @@ import type {
   MusicRootInfo,
   MusicCollection,
   ScanJobStatus,
+  ProviderCheckEvent,
   ProviderCheckRun,
   ProviderCheckJobStatus,
   ProviderCheckSummary,
@@ -71,12 +71,19 @@ interface State {
   scanReports: Record<number, string>
   scanReportsLoading: Record<number, boolean>
   providerLinks: Record<number, ArtistProviderLink[]>
+  providerCheckEvents: Record<number, ProviderCheckEvent[]>
+  providerCheckEventsLoading: Record<number, boolean>
   providerCheckRuns: ProviderCheckRun[]
   providerJob: ProviderCheckJobStatus | null
   uiSettings: UiSettings
   statusHistory: StatusHistoryEntry[]
   manualStatus: { id: number; message: string; state: Exclude<StatusHistoryEntry['state'], 'running'> } | null
-  providerStatus: { running: boolean; message: string | null; state: StatusHistoryEntry['state'] }
+  providerStatus: {
+    running: boolean
+    message: string | null
+    state: StatusHistoryEntry['state']
+    runIds?: number[]
+  }
   loading: boolean
 }
 
@@ -151,16 +158,18 @@ export const useLibraryStore = defineStore('library', {
     scanReports: {},
     scanReportsLoading: {},
     providerLinks: {},
-      providerCheckRuns: [],
-      providerJob: null,
-      uiSettings: {
-        statusCompleteVisibleMs: 10000,
-        scanPollIntervalMs: 200,
-        collectionScanSpinnerEnabled: true,
-        artistScanSpinnerEnabled: true,
-        collectionScanProgressEnabled: true,
-        providerBatchRescanDelayMinutes: 60,
-        statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
+    providerCheckEvents: {},
+    providerCheckEventsLoading: {},
+    providerCheckRuns: [],
+    providerJob: null,
+    uiSettings: {
+      statusCompleteVisibleMs: 10000,
+      scanPollIntervalMs: 200,
+      collectionScanSpinnerEnabled: true,
+      artistScanSpinnerEnabled: true,
+      collectionScanProgressEnabled: true,
+      providerBatchRescanDelayMinutes: 60,
+      statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
       releaseDateDisplayFormat: 'yyyy-MM-dd',
       statusBarLocation: 'top',
       workspaceColumnDefaults: defaultWorkspaceColumnDefaults,
@@ -346,7 +355,7 @@ export const useLibraryStore = defineStore('library', {
     addStatusHistory(
       message: string,
       state: StatusHistoryEntry['state'] = 'info',
-      options: { scanRunIds?: number[] } = {},
+      options: { scanRunIds?: number[]; providerRunIds?: number[] } = {},
     ) {
       this.statusHistory = [
         ...this.statusHistory,
@@ -356,6 +365,7 @@ export const useLibraryStore = defineStore('library', {
           message,
           state,
           scanRunIds: options.scanRunIds,
+          providerRunIds: options.providerRunIds,
         },
       ].slice(-100)
     },
@@ -1039,6 +1049,19 @@ export const useLibraryStore = defineStore('library', {
     async loadScanEvents(runId: number) {
       this.scanEvents[runId] = await apiGet<ScanEvent[]>(`/api/scan/runs/${runId}/events`)
     },
+    async loadProviderCheckEvents(runId: number) {
+      if (this.providerCheckEvents[runId]) {
+        return this.providerCheckEvents[runId]
+      }
+      this.providerCheckEventsLoading[runId] = true
+      try {
+        const events = await apiGet<ProviderCheckEvent[]>(`/api/provider-checks/runs/${runId}/events`)
+        this.providerCheckEvents[runId] = events
+        return events
+      } finally {
+        this.providerCheckEventsLoading[runId] = false
+      }
+    },
     async loadScanReport(runId: number) {
       if (this.scanReports[runId]) {
         return this.scanReports[runId]
@@ -1193,34 +1216,13 @@ export const useLibraryStore = defineStore('library', {
         this.providerStatus = {
           running: false,
           message,
-          state: result.reviewRequiredCount > 0 ? 'warning' : 'done',
+          state: 'done',
+          runIds: [result.runId],
         }
         return result
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         this.providerStatus = { running: false, message: `MusicBrainz refresh failed: ${message}`, state: 'failed' }
-        throw error
-      }
-    },
-    async applyProviderAlbumDecisions(artistId: number, decisions: AlbumReviewDecision[]) {
-      this.providerStatus = { running: true, message: 'Applying MusicBrainz review decisions', state: 'running' }
-      try {
-        const result = await apiSend<ProviderRefreshResult>(
-          `/api/artists/${artistId}/provider/album-decisions`,
-          'POST',
-          { decisions },
-        )
-        this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
-        this.invalidateCollectionContent(this.selectedCollectionId ?? undefined)
-        await this.loadArtists()
-        await this.refreshCollectionContext()
-        this.invalidateCollectionMetadata(this.selectedCollectionId ?? undefined)
-        const detail = result.messages.join(' ').trim()
-        this.providerStatus = { running: false, message: detail, state: 'done' }
-        return result
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        this.providerStatus = { running: false, message: `MusicBrainz decisions failed: ${message}`, state: 'failed' }
         throw error
       }
     },
@@ -1241,7 +1243,12 @@ export const useLibraryStore = defineStore('library', {
         this.invalidateCollectionMetadata(this.selectedCollectionId ?? undefined)
         const detail = summary.messages.join(' ').trim()
         const message = detail || `Provider check complete: ${summary.newAlbumCount} new albums`
-        this.providerStatus = { running: false, message, state: providerSummaryState(summary) }
+        this.providerStatus = {
+          running: false,
+          message,
+          state: providerSummaryState(summary),
+          runIds: [summary.runId],
+        }
         return summary
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -1265,7 +1272,12 @@ export const useLibraryStore = defineStore('library', {
         this.invalidateCollectionMetadata(collectionId)
         const detail = summary.messages.join(' ').trim()
         const message = detail || `Provider check complete: ${summary.newAlbumCount} new albums`
-        this.providerStatus = { running: false, message, state: providerSummaryState(summary) }
+        this.providerStatus = {
+          running: false,
+          message,
+          state: providerSummaryState(summary),
+          runIds: [summary.runId],
+        }
         return summary
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -1283,7 +1295,12 @@ export const useLibraryStore = defineStore('library', {
         this.invalidateCollectionMetadata()
         const detail = summary.messages.join(' ').trim()
         const message = detail || `Provider check complete: ${summary.newAlbumCount} new albums`
-        this.providerStatus = { running: false, message, state: providerSummaryState(summary) }
+        this.providerStatus = {
+          running: false,
+          message,
+          state: providerSummaryState(summary),
+          runIds: [summary.runId],
+        }
         return summary
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
