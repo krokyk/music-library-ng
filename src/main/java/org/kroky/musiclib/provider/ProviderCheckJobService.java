@@ -1,5 +1,6 @@
 package org.kroky.musiclib.provider;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -103,13 +104,14 @@ public class ProviderCheckJobService {
 
                 @Override
                 public void itemSkipped(ArtistProviderLink link, int itemProcessed, int skippedArtists, String reason) {
-                    job.itemSkipped(link.artistName(), itemProcessed, skippedArtists);
+                    job.itemSkipped(link.artistId(), link.artistName(), itemProcessed, skippedArtists);
                 }
 
                 @Override
                 public void itemFinished(ArtistProviderLink link, int itemProcessed, int skippedArtists,
                         int foundAlbums, int newAlbums, int existingAlbums, int errors) {
-                    job.itemFinished(itemProcessed, skippedArtists, foundAlbums, newAlbums, existingAlbums, errors);
+                    job.itemFinished(link.artistId(), itemProcessed, skippedArtists, foundAlbums, newAlbums,
+                            existingAlbums, errors);
                 }
 
                 @Override
@@ -181,7 +183,7 @@ public class ProviderCheckJobService {
 
     private static ProviderCheckJobStatus idleStatus() {
         return new ProviderCheckJobStatus("", "IDLE", PROVIDER_COLLECTION, null, null, null, null, null, null, 0, 0,
-                0, 0, 0, 0, 0, false, null, List.of());
+                0, 0, 0, 0, 0, false, null, List.of(), List.of());
     }
 
     private class ProviderCheckJob {
@@ -203,6 +205,7 @@ public class ProviderCheckJobService {
         private int existingAlbumCount;
         private int errorCount;
         private String message;
+        private final LinkedHashSet<Long> artistIds = new LinkedHashSet<>();
         private List<Long> runIds = List.of();
 
         private ProviderCheckJob(String id, String kind, String requestedCollectionId, String requestedCollectionName,
@@ -216,6 +219,7 @@ public class ProviderCheckJobService {
             this.activeArtistId = requestedArtistId;
             this.activeArtistName = requestedArtistName;
             this.itemTotal = requestedArtistId == null ? 0 : 1;
+            addArtistId(requestedArtistId);
             this.message = runningMessage();
         }
 
@@ -231,12 +235,14 @@ public class ProviderCheckJobService {
         }
 
         synchronized void artistStarted(Long artistId, String artistName) {
+            addArtistId(artistId);
             this.activeArtistId = artistId;
             this.activeArtistName = artistName;
             this.message = runningMessage();
         }
 
-        synchronized void itemSkipped(String artistName, int itemProcessed, int skippedArtists) {
+        synchronized void itemSkipped(Long artistId, String artistName, int itemProcessed, int skippedArtists) {
+            addArtistId(artistId);
             this.activeArtistId = null;
             this.activeArtistName = artistName;
             this.itemProcessed = itemProcessed;
@@ -244,8 +250,9 @@ public class ProviderCheckJobService {
             this.message = runningMessage();
         }
 
-        synchronized void itemFinished(int itemProcessed, int skippedArtists, int foundAlbums, int newAlbums,
-                int existingAlbums, int errors) {
+        synchronized void itemFinished(Long artistId, int itemProcessed, int skippedArtists, int foundAlbums,
+                int newAlbums, int existingAlbums, int errors) {
+            addArtistId(artistId);
             this.itemProcessed = itemProcessed;
             this.skippedArtistCount = skippedArtists;
             this.foundAlbumCount = foundAlbums;
@@ -298,7 +305,14 @@ public class ProviderCheckJobService {
                     errorCount,
                     cancelRequested.get(),
                     message,
+                    List.copyOf(artistIds),
                     runIds);
+        }
+
+        private void addArtistId(Long artistId) {
+            if (artistId != null) {
+                artistIds.add(artistId);
+            }
         }
 
         private String runningMessage() {

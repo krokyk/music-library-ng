@@ -368,6 +368,7 @@ export interface ProviderCheckJobStatus {
   errorCount: number
   cancelRequested: boolean
   message?: string | null
+  artistIds: number[]
   runIds: number[]
 }
 

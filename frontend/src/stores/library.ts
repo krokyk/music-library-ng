@@ -373,6 +373,9 @@ export const useLibraryStore = defineStore('library', {
     async loadArtists(search?: string) {
       this.artists = await apiGet<Artist[]>(withQuery('/api/artists', { search }))
     },
+    async loadArtist(artistId: number, collectionId?: string | null) {
+      return apiGet<Artist>(withQuery(`/api/artists/${artistId}`, { collectionId }))
+    },
     async selectCollection(collectionId: string) {
       this.selectedCollectionId = collectionId
       this.selectedArtistId = null
@@ -521,9 +524,9 @@ export const useLibraryStore = defineStore('library', {
       if (!artistId || this.selectedArtistId !== artistId) {
         return
       }
-      await this.loadAlbumsForArtist(artistId, true)
+      await this.loadAlbumsForArtist(artistId, true, { clearCurrent: false })
     },
-    async loadAlbumsForArtist(artistId: number, force = false) {
+    async loadAlbumsForArtist(artistId: number, force = false, options: { clearCurrent?: boolean } = {}) {
       const cacheKey = String(artistId)
       if (!force && hasCachedValue(this.collectionAlbumsByArtist, cacheKey)) {
         this.collectionAlbums = this.collectionAlbumsByArtist[cacheKey]
@@ -532,7 +535,7 @@ export const useLibraryStore = defineStore('library', {
       if (!force && this.collectionAlbumsLoading[cacheKey]) {
         return this.collectionAlbumsByArtist[cacheKey] ?? []
       }
-      if (this.selectedArtistId === artistId) {
+      if (this.selectedArtistId === artistId && options.clearCurrent !== false) {
         this.collectionAlbums = []
       }
       this.collectionAlbumsLoading = { ...this.collectionAlbumsLoading, [cacheKey]: true }
@@ -676,6 +679,130 @@ export const useLibraryStore = defineStore('library', {
       await this.loadArtists()
       this.invalidateCollectionMetadata(collectionId)
     },
+    async refreshArtistAfterScopedJob(artistId: number, collectionId?: string | null) {
+      await this.refreshArtistsAfterScopedJob([artistId], collectionId)
+    },
+    async refreshArtistsAfterScopedJob(artistIds: number[], collectionId?: string | null) {
+      const ids = uniqueArtistIds(artistIds)
+      if (ids.length === 0) {
+        return
+      }
+      const scopedCollectionId = collectionId ?? this.selectedCollectionId
+      if (ids.length === 1) {
+        await this.refreshSingleArtistAfterScopedJob(ids[0], scopedCollectionId)
+        return
+      }
+      const [globalArtists, scopedArtists] = await Promise.all([
+        this.artists.length > 0 || !scopedCollectionId
+          ? apiGet<Artist[]>('/api/artists')
+          : Promise.resolve([]),
+        scopedCollectionId
+          ? apiGet<Artist[]>(withQuery('/api/artists', { collectionId: scopedCollectionId }))
+          : Promise.resolve([]),
+      ])
+      const globalArtistsById = artistMap(globalArtists)
+      const scopedArtistsById = artistMap(scopedArtists)
+
+      ids.forEach((artistId) => {
+        const globalArtist = globalArtistsById.get(artistId)
+        if (globalArtist) {
+          this.replaceArtist(globalArtist)
+        }
+        if (scopedCollectionId) {
+          const scopedArtist = scopedArtistsById.get(artistId)
+          if (scopedArtist) {
+            this.replaceCollectionArtist(scopedArtist, scopedCollectionId)
+          } else {
+            this.removeCollectionArtistFromCache(artistId, scopedCollectionId)
+          }
+        } else if (globalArtist) {
+          this.replaceCollectionArtist(globalArtist)
+        }
+      })
+
+      if (scopedCollectionId) {
+        this.invalidateOtherCollectionArtistCaches(scopedCollectionId)
+      }
+
+      if (this.selectedArtistId && ids.includes(this.selectedArtistId)) {
+        await this.loadAlbumsForArtist(this.selectedArtistId, true, { clearCurrent: false })
+      } else {
+        ids.forEach((artistId) => this.invalidateAlbumCacheForArtist(artistId))
+      }
+    },
+    async refreshSingleArtistAfterScopedJob(artistId: number, collectionId?: string | null) {
+      const [globalArtist, scopedArtist] = await Promise.all([
+        this.loadArtist(artistId),
+        collectionId ? this.loadArtist(artistId, collectionId) : Promise.resolve(null),
+      ])
+      this.replaceArtist(globalArtist)
+      if (collectionId && scopedArtist) {
+        this.replaceCollectionArtist(scopedArtist, collectionId)
+        this.invalidateOtherCollectionArtistCaches(collectionId)
+      } else {
+        this.replaceCollectionArtist(globalArtist)
+      }
+      if (this.selectedArtistId === artistId) {
+        await this.loadAlbumsForArtist(artistId, true, { clearCurrent: false })
+      } else {
+        this.invalidateAlbumCacheForArtist(artistId)
+      }
+    },
+    replaceArtist(artist: Artist) {
+      if (!this.artists.some((item) => item.id === artist.id)) {
+        return
+      }
+      this.artists = this.artists.map((item) => (item.id === artist.id ? artist : item))
+    },
+    replaceCollectionArtist(artist: Artist, collectionId?: string | null) {
+      if (!collectionId) {
+        const update = (item: Artist) => (
+          item.id === artist.id ? { ...artist, localAlbumCount: item.localAlbumCount } : item
+        )
+        this.collectionArtists = this.collectionArtists.map(update)
+        this.collectionArtistsByCollection = Object.fromEntries(
+          Object.entries(this.collectionArtistsByCollection).map(([key, artists]) => [
+            key,
+            artists.map(update),
+          ]),
+        )
+        return
+      }
+      const belongsToCollection = artist.collectionIds.includes(collectionId)
+      if (this.selectedCollectionId === collectionId) {
+        this.collectionArtists = replaceArtistInList(this.collectionArtists, artist, belongsToCollection)
+        this.clearInvalidSelectedArtist()
+      }
+      if (hasCachedValue(this.collectionArtistsByCollection, collectionId)) {
+        this.collectionArtistsByCollection = {
+          ...this.collectionArtistsByCollection,
+          [collectionId]: replaceArtistInList(
+            this.collectionArtistsByCollection[collectionId],
+            artist,
+            belongsToCollection,
+          ),
+        }
+      }
+    },
+    removeCollectionArtistFromCache(artistId: number, collectionId: string) {
+      if (this.selectedCollectionId === collectionId) {
+        this.collectionArtists = this.collectionArtists.filter((artist) => artist.id !== artistId)
+        this.clearInvalidSelectedArtist()
+      }
+      if (hasCachedValue(this.collectionArtistsByCollection, collectionId)) {
+        this.collectionArtistsByCollection = {
+          ...this.collectionArtistsByCollection,
+          [collectionId]: this.collectionArtistsByCollection[collectionId]
+            .filter((artist) => artist.id !== artistId),
+        }
+      }
+    },
+    invalidateOtherCollectionArtistCaches(collectionId: string) {
+      this.collectionArtistsByCollection = Object.fromEntries(
+        Object.entries(this.collectionArtistsByCollection)
+          .filter(([key]) => key === collectionId),
+      )
+    },
     replaceAlbum(album: Album) {
       this.albums = this.albums.some((item) => item.id === album.id)
         ? this.albums.map((item) => (item.id === album.id ? album : item))
@@ -778,12 +905,16 @@ export const useLibraryStore = defineStore('library', {
           if (!status || status.status !== 'RUNNING') {
             this.stopScanJobPolling()
             const collectionId = status?.requestedCollectionId ?? status?.activeCollectionId ?? undefined
+            const artistId = status?.requestedArtistId ?? undefined
             this.invalidateCollectionMetadata(collectionId)
-            this.invalidateCollectionContent(collectionId)
             await this.loadSettings()
-            if (status?.kind === 'LOCAL_ALBUMS') {
+            if (status?.kind === 'LOCAL_ALBUMS' && artistId) {
+              await this.refreshArtistAfterScopedJob(artistId, collectionId)
+            } else if (status?.kind === 'LOCAL_ALBUMS') {
+              this.invalidateCollectionContent(collectionId)
               await this.refreshCollectionContext()
             } else {
+              this.invalidateCollectionContent(collectionId)
               await this.refreshCollectionArtistsOnly(true)
             }
           }
@@ -854,11 +985,12 @@ export const useLibraryStore = defineStore('library', {
           if (!status || status.status !== 'RUNNING') {
             this.stopProviderJobPolling()
             const collectionId = status?.requestedCollectionId ?? undefined
+            const artistIds = uniqueArtistIds([status?.requestedArtistId, ...(status?.artistIds ?? [])])
             this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
-            this.invalidateCollectionContent(collectionId)
             this.invalidateCollectionMetadata(collectionId)
-            await this.loadArtists()
-            await this.refreshCollectionContext()
+            if (artistIds.length > 0) {
+              await this.refreshArtistsAfterScopedJob(artistIds, collectionId)
+            }
           }
         } catch (error) {
           this.stopProviderJobPolling()
@@ -1164,6 +1296,26 @@ export const useLibraryStore = defineStore('library', {
 
 function hasCachedValue<T>(cache: Record<string, T>, key: string) {
   return Object.prototype.hasOwnProperty.call(cache, key)
+}
+
+function replaceArtistInList(artists: Artist[], artist: Artist, include: boolean) {
+  const exists = artists.some((item) => item.id === artist.id)
+  if (!include) {
+    return exists ? artists.filter((item) => item.id !== artist.id) : artists
+  }
+  return exists
+    ? artists.map((item) => (item.id === artist.id ? artist : item))
+    : [...artists, artist]
+}
+
+function uniqueArtistIds(artistIds: Array<number | null | undefined>) {
+  return [...new Set(
+    artistIds.filter((artistId): artistId is number => typeof artistId === 'number' && artistId > 0),
+  )]
+}
+
+function artistMap(artists: Artist[]) {
+  return new Map(artists.map((artist) => [artist.id, artist]))
 }
 
 function providerSummaryState(summary: ProviderCheckSummary): StatusHistoryEntry['state'] {

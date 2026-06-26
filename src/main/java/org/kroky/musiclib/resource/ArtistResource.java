@@ -34,9 +34,9 @@ public class ArtistResource {
 
     @GET
     @Path("/{id}")
-    public Artist find(@PathParam("id") long id) {
-        LOG.infof("Loading artist id=%d", id);
-        return artists.find(id).orElseThrow(NotFoundException::new);
+    public Artist find(@PathParam("id") long id, @QueryParam("collectionId") String collectionId) {
+        LOG.infof("Loading artist id=%d collectionId=%s", id, collectionId);
+        return artists.find(id, collectionId).orElseThrow(NotFoundException::new);
     }
 
     @POST

@@ -65,12 +65,17 @@ public class ArtistRepository {
     }
 
     public Optional<Artist> find(long id) {
+        return find(id, null);
+    }
+
+    public Optional<Artist> find(long id, String collectionId) {
         LOG.tracef("Finding artist id=%d", id);
         String sql = selectArtists("WHERE a.id = ?");
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, null);
-            statement.setString(2, null);
+            String normalizedCollectionId = blankToNull(collectionId);
+            statement.setString(1, normalizedCollectionId);
+            statement.setString(2, normalizedCollectionId);
             statement.setLong(3, id);
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() ? Optional.of(map(rs)) : Optional.empty();

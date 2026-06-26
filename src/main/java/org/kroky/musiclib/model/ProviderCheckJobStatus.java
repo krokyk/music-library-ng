@@ -21,5 +21,6 @@ public record ProviderCheckJobStatus(
         int errorCount,
         boolean cancelRequested,
         String message,
+        List<Long> artistIds,
         List<Long> runIds) {
 }
