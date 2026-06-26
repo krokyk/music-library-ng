@@ -44,9 +44,6 @@ const providerBatchRescanOptions = [
   { label: '7 days', minutes: 10080 },
   { label: '30 days', minutes: 43200 },
 ]
-const providerBatchRescanTicks = Object.fromEntries(
-  providerBatchRescanOptions.map((option, index) => [index, option.label]),
-)
 
 const uiForm = reactive<UiForm>({
   statusCompleteVisibleMs: 10000,
@@ -97,7 +94,7 @@ function settingValue(key: EditableUiSettingKey) {
 const providerBatchRescanIndex = computed({
   get: () => providerBatchRescanIndexFor(uiForm.providerBatchRescanDelayMinutes),
   set: (value: number) => {
-    const index = Math.min(providerBatchRescanOptions.length - 1, Math.max(0, Math.round(Number(value))))
+    const index = normalizeProviderBatchRescanIndex(value)
     uiForm.providerBatchRescanDelayMinutes = providerBatchRescanOptions[index].minutes
     scheduleUiSettingsSave('providerBatchRescanDelayMinutes')
   },
@@ -342,6 +339,12 @@ function collectionScanProgressChanged() {
   scheduleUiSettingsSave('collectionScanProgressEnabled')
 }
 
+function normalizeProviderBatchRescanIndex(value: unknown) {
+  const numberValue = Number(value)
+  const index = Number.isFinite(numberValue) ? Math.round(numberValue) : 0
+  return Math.min(providerBatchRescanOptions.length - 1, Math.max(0, index))
+}
+
 function providerBatchRescanIndexFor(minutes: number) {
   const normalized = normalizeNumber(minutes, uiSettings.value.defaults.providerBatchRescanDelayMinutes, 0, 43200)
   let closestIndex = 0
@@ -508,7 +511,6 @@ onBeforeUnmount(() => {
                   :min="0"
                   :max="providerBatchRescanOptions.length - 1"
                   :step="1"
-                  :ticks="providerBatchRescanTicks"
                   :disabled="scanActionsDisabled"
                   show-ticks="always"
                 ></v-slider>
