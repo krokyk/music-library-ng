@@ -254,6 +254,7 @@ public class ProviderCheckService {
         Optional<LocalDateTime> errorAt = link.lastErrorAt() == null || link.lastErrorAt().isBlank()
                 ? Optional.empty()
                 : parseTimestamp(link.lastErrorAt());
+        // A newer error means the next batch run should be allowed to retry immediately.
         if (errorAt.isPresent() && !errorAt.get().isBefore(successAt.get())) {
             return false;
         }

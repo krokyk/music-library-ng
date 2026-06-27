@@ -169,7 +169,7 @@ async function useBulkCandidate(item: ArtistProviderBulkMatchItem) {
     bulkMatchResult.value = {
       ...bulkMatchResult.value,
       matchedCount: bulkMatchResult.value.matchedCount + (previousStatus === 'MATCHED' ? 0 : 1),
-      reviewCount: bulkMatchResult.value.reviewCount - (previousStatus === 'NEEDS_REVIEW' ? 1 : 0),
+      manualCount: bulkMatchResult.value.manualCount - (previousStatus === 'NEEDS_MANUAL' ? 1 : 0),
       noMatchCount: bulkMatchResult.value.noMatchCount - (previousStatus === 'NO_MATCH' ? 1 : 0),
       skippedCount: bulkMatchResult.value.skippedCount - (previousStatus === 'SKIPPED_EXISTING' ? 1 : 0),
       errorCount: bulkMatchResult.value.errorCount - (previousStatus === 'ERROR' ? 1 : 0),
@@ -207,8 +207,8 @@ function bulkStatusText(status: ArtistProviderBulkMatchItem['status']) {
   switch (status) {
     case 'MATCHED':
       return 'Matched'
-    case 'NEEDS_REVIEW':
-      return 'Needs review'
+    case 'NEEDS_MANUAL':
+      return 'Needs manual'
     case 'NO_MATCH':
       return 'No match'
     case 'SKIPPED_EXISTING':
@@ -224,7 +224,7 @@ function bulkStatusColor(status: ArtistProviderBulkMatchItem['status']) {
   switch (status) {
     case 'MATCHED':
       return 'success'
-    case 'NEEDS_REVIEW':
+    case 'NEEDS_MANUAL':
       return 'warning'
     case 'SKIPPED_EXISTING':
       return 'info'
@@ -644,7 +644,7 @@ onBeforeUnmount(() => {
 
           <div v-if="bulkMatchResult" class="dialog-chip-row">
             <v-chip size="small" color="success" variant="tonal">{{ bulkMatchResult.matchedCount }} matched</v-chip>
-            <v-chip size="small" color="warning" variant="tonal">{{ bulkMatchResult.reviewCount }} review</v-chip>
+            <v-chip size="small" color="warning" variant="tonal">{{ bulkMatchResult.manualCount }} manual</v-chip>
             <v-chip size="small" variant="tonal">{{ bulkMatchResult.noMatchCount }} no match</v-chip>
             <v-chip size="small" color="info" variant="tonal">{{ bulkMatchResult.skippedCount }} skipped</v-chip>
             <v-chip size="small" color="error" variant="tonal">{{ bulkMatchResult.errorCount }} errors</v-chip>
@@ -769,7 +769,7 @@ onBeforeUnmount(() => {
         <v-card-text class="edit-form">
           <div v-if="bulkMatchResult" class="dialog-chip-row">
             <v-chip size="small" color="success" variant="tonal">{{ bulkMatchResult.matchedCount }} matched</v-chip>
-            <v-chip size="small" color="warning" variant="tonal">{{ bulkMatchResult.reviewCount }} review</v-chip>
+            <v-chip size="small" color="warning" variant="tonal">{{ bulkMatchResult.manualCount }} manual</v-chip>
             <v-chip size="small" variant="tonal">{{ bulkMatchResult.noMatchCount }} no match</v-chip>
             <v-chip size="small" color="info" variant="tonal">{{ bulkMatchResult.skippedCount }} skipped</v-chip>
             <v-chip size="small" color="error" variant="tonal">{{ bulkMatchResult.errorCount }} errors</v-chip>
@@ -813,7 +813,7 @@ onBeforeUnmount(() => {
                       @click="openExternal(bulkCandidate(item)?.providerUrl)"
                     ></v-btn>
                     <v-btn
-                      v-if="item.status === 'NEEDS_REVIEW'"
+                      v-if="item.status === 'NEEDS_MANUAL'"
                       size="small"
                       color="primary"
                       variant="text"

@@ -6,7 +6,7 @@ public record ArtistProviderBulkMatchResult(
         int requestedArtistCount,
         int processedArtistCount,
         int matchedCount,
-        int reviewCount,
+        int manualCount,
         int noMatchCount,
         int skippedCount,
         int errorCount,

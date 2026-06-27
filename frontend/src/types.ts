@@ -249,7 +249,6 @@ export interface ArtistProviderLink {
   providerArtistActive?: boolean | null
   providerUrl?: string | null
   enabled: boolean
-  lastCheckedAt?: string | null
   lastSuccessAt?: string | null
   lastErrorAt?: string | null
   lastErrorMessage?: string | null
@@ -284,7 +283,7 @@ export interface ArtistProviderCandidate {
 
 export type ArtistProviderBulkMatchStatus =
   | 'MATCHED'
-  | 'NEEDS_REVIEW'
+  | 'NEEDS_MANUAL'
   | 'NO_MATCH'
   | 'SKIPPED_EXISTING'
   | 'ERROR'
@@ -303,7 +302,7 @@ export interface ArtistProviderBulkMatchResult {
   requestedArtistCount: number
   processedArtistCount: number
   matchedCount: number
-  reviewCount: number
+  manualCount: number
   noMatchCount: number
   skippedCount: number
   errorCount: number

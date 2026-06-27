@@ -351,15 +351,15 @@ public class ArtistRepository {
                            WHERE lp.album_id = al.id AND lp.missing_since IS NULL
                              AND (? IS NULL OR lp.collection_id = ?)
                        ) THEN 1 ELSE 0 END), 0) AS local_album_count,
-                       (SELECT count(*) FROM artist_provider_links apl WHERE apl.artist_id = a.id) AS provider_link_count,
-                       (SELECT apl.provider_id FROM artist_provider_links apl WHERE apl.artist_id = a.id ORDER BY apl.id LIMIT 1) AS provider_id,
-                       (SELECT apl.provider_artist_id FROM artist_provider_links apl WHERE apl.artist_id = a.id ORDER BY apl.id LIMIT 1) AS provider_artist_id,
-                       (SELECT apl.provider_artist_name FROM artist_provider_links apl WHERE apl.artist_id = a.id ORDER BY apl.id LIMIT 1) AS provider_artist_name,
-                       (SELECT apl.provider_url FROM artist_provider_links apl WHERE apl.artist_id = a.id ORDER BY apl.id LIMIT 1) AS provider_url,
-                       (SELECT apl.provider_artist_type FROM artist_provider_links apl WHERE apl.artist_id = a.id ORDER BY apl.id LIMIT 1) AS provider_artist_type,
-                       (SELECT apl.provider_artist_country FROM artist_provider_links apl WHERE apl.artist_id = a.id ORDER BY apl.id LIMIT 1) AS provider_artist_country,
-                       (SELECT apl.provider_artist_disambiguation FROM artist_provider_links apl WHERE apl.artist_id = a.id ORDER BY apl.id LIMIT 1) AS provider_artist_disambiguation,
-                       (SELECT apl.provider_artist_active FROM artist_provider_links apl WHERE apl.artist_id = a.id ORDER BY apl.id LIMIT 1) AS provider_artist_active,
+                       count(DISTINCT apl.id) AS provider_link_count,
+                       apl.provider_id,
+                       apl.provider_artist_id,
+                       apl.provider_artist_name,
+                       apl.provider_url,
+                       apl.provider_artist_type,
+                       apl.provider_artist_country,
+                       apl.provider_artist_disambiguation,
+                       apl.provider_artist_active,
                        (SELECT group_concat(collection_id, ',') FROM (
                            SELECT ac.collection_id
                            FROM artist_collections ac
@@ -375,6 +375,7 @@ public class ArtistRepository {
                 FROM artists a
                 LEFT JOIN album_artists aa ON aa.artist_id = a.id
                 LEFT JOIN albums al ON al.id = aa.album_id
+                LEFT JOIN artist_provider_links apl ON apl.artist_id = a.id
                 """
                 + whereClause
                 + "\n"

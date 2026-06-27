@@ -13,7 +13,6 @@ public record ArtistProviderLink(
         Boolean providerArtistActive,
         String providerUrl,
         boolean enabled,
-        String lastCheckedAt,
         String lastSuccessAt,
         String lastErrorAt,
         String lastErrorMessage,

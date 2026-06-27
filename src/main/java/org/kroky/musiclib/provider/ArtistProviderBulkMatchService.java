@@ -22,7 +22,7 @@ import jakarta.inject.Inject;
 public class ArtistProviderBulkMatchService {
 
     public static final String STATUS_MATCHED = "MATCHED";
-    public static final String STATUS_NEEDS_REVIEW = "NEEDS_REVIEW";
+    public static final String STATUS_NEEDS_MANUAL = "NEEDS_MANUAL";
     public static final String STATUS_NO_MATCH = "NO_MATCH";
     public static final String STATUS_SKIPPED_EXISTING = "SKIPPED_EXISTING";
     public static final String STATUS_ERROR = "ERROR";
@@ -47,13 +47,13 @@ public class ArtistProviderBulkMatchService {
         }
 
         int matched = count(items, STATUS_MATCHED);
-        int review = count(items, STATUS_NEEDS_REVIEW);
+        int manual = count(items, STATUS_NEEDS_MANUAL);
         int noMatch = count(items, STATUS_NO_MATCH);
         int skipped = count(items, STATUS_SKIPPED_EXISTING);
         int errors = count(items, STATUS_ERROR);
         int processed = Math.max(0, items.size() - skipped);
         String message = "MusicBrainz bulk match: matched " + matched
-                + ", review " + review
+                + ", manual " + manual
                 + ", no match " + noMatch
                 + ", skipped " + skipped
                 + ", errors " + errors + ".";
@@ -61,7 +61,7 @@ public class ArtistProviderBulkMatchService {
                 items.size(),
                 processed,
                 matched,
-                review,
+                manual,
                 noMatch,
                 skipped,
                 errors,
@@ -108,8 +108,8 @@ public class ArtistProviderBulkMatchService {
                         top,
                         candidates);
             }
-            return item(artist, STATUS_NEEDS_REVIEW,
-                    "MusicBrainz candidates need review before linking.",
+            return item(artist, STATUS_NEEDS_MANUAL,
+                    "MusicBrainz candidates need manual selection before linking.",
                     null,
                     null,
                     candidates);

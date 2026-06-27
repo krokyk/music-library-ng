@@ -230,8 +230,7 @@ public class ArtistProviderLinkRepository {
     public void markSuccess(long id) {
         String sql = """
                 UPDATE artist_provider_links
-                SET last_checked_at = CURRENT_TIMESTAMP,
-                    last_success_at = CURRENT_TIMESTAMP,
+                SET last_success_at = CURRENT_TIMESTAMP,
                     last_error_message = NULL,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
@@ -242,8 +241,7 @@ public class ArtistProviderLinkRepository {
     public void markError(long id, String message) {
         String sql = """
                 UPDATE artist_provider_links
-                SET last_checked_at = CURRENT_TIMESTAMP,
-                    last_error_at = CURRENT_TIMESTAMP,
+                SET last_error_at = CURRENT_TIMESTAMP,
                     last_error_message = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
@@ -273,7 +271,7 @@ public class ArtistProviderLinkRepository {
                        apl.provider_artist_type, apl.provider_artist_country,
                        apl.provider_artist_disambiguation, apl.provider_artist_active,
                        apl.provider_url, apl.enabled,
-                       apl.last_checked_at, apl.last_success_at, apl.last_error_at, apl.last_error_message,
+                       apl.last_success_at, apl.last_error_at, apl.last_error_message,
                        apl.created_at, apl.updated_at
                 FROM artist_provider_links apl
                 JOIN artists ar ON ar.id = apl.artist_id
@@ -294,7 +292,6 @@ public class ArtistProviderLinkRepository {
                 nullableBoolean(rs, "provider_artist_active"),
                 rs.getString("provider_url"),
                 rs.getInt("enabled") == 1,
-                rs.getString("last_checked_at"),
                 rs.getString("last_success_at"),
                 rs.getString("last_error_at"),
                 rs.getString("last_error_message"),

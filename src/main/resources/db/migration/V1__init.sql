@@ -107,21 +107,14 @@ CREATE TABLE user_preferences (
 
 CREATE TABLE providers (
     id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    url_required INTEGER NOT NULL DEFAULT 0,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CHECK (url_required IN (0, 1)),
-    CHECK (enabled IN (0, 1))
+    name TEXT NOT NULL
 );
 
-INSERT INTO providers (id, name, url_required, enabled, sort_order)
+INSERT INTO providers (id, name)
 VALUES
-    ('musicbrainz', 'MusicBrainz', 0, 1, 10),
-    ('spirit_of_metal', 'Spirit of Metal', 1, 1, 20),
-    ('metal_archives', 'Metal Archives', 1, 1, 30);
+    ('musicbrainz', 'MusicBrainz'),
+    ('spirit_of_metal', 'Spirit of Metal'),
+    ('metal_archives', 'Metal Archives');
 
 CREATE TABLE artist_provider_links (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,7 +128,6 @@ CREATE TABLE artist_provider_links (
     provider_artist_active INTEGER,
     provider_url TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
-    last_checked_at TEXT,
     last_success_at TEXT,
     last_error_at TEXT,
     last_error_message TEXT,
@@ -159,11 +151,9 @@ CREATE TABLE album_provider_links (
     provider_title TEXT NOT NULL,
     provider_release_date TEXT,
     provider_url TEXT,
-    match_source TEXT NOT NULL DEFAULT 'AUTO',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
-    CHECK (match_source IN ('AUTO', 'MANUAL')),
     UNIQUE (provider_id, provider_release_group_id),
     UNIQUE (album_id, provider_id, provider_release_group_id)
 );

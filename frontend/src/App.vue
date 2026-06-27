@@ -330,45 +330,7 @@ function providerArtistOutcomes(events: ProviderCheckEvent[]) {
       return
     }
 
-    match = event.message.match(/^MusicBrainz refresh for (.+) read (\d+) albums, already in library (\d+), added (\d+) unchecked albums, needs attention (\d+), ignored (\d+)\.$/)
-    if (match) {
-      const ignored = Number(match[5]) + Number(match[6])
-      applyProviderCounts(providerOutcome(outcomes, match[1], 'MusicBrainz'), match[2], match[3], match[4], String(ignored))
-      currentArtistName = match[1]
-      return
-    }
-
-    match = event.message.match(/^MusicBrainz refresh for (.+) read (\d+) (?:release groups|albums), linked (\d+) existing albums, created (\d+) new albums, left (\d+) not imported automatically, skipped (\d+)\.$/)
-    if (match) {
-      const ignored = Number(match[5]) + Number(match[6])
-      applyProviderCounts(providerOutcome(outcomes, match[1], 'MusicBrainz'), match[2], match[3], match[4], String(ignored))
-      currentArtistName = match[1]
-      return
-    }
-
-    match = event.message.match(/^MusicBrainz refresh for (.+) read (\d+) (?:release groups|albums), linked (\d+) existing albums, created (\d+) new albums, needs review (\d+), skipped (\d+)\.$/)
-    if (match) {
-      const ignored = Number(match[5]) + Number(match[6])
-      applyProviderCounts(providerOutcome(outcomes, match[1], 'MusicBrainz'), match[2], match[3], match[4], String(ignored))
-      currentArtistName = match[1]
-      return
-    }
-
-    match = event.message.match(/^MusicBrainz refresh found (\d+) release groups, linked (\d+), created (\d+), review (\d+), skipped (\d+)\.$/)
-    if (match && currentArtistName) {
-      const ignored = Number(match[4]) + Number(match[5])
-      applyProviderCounts(providerOutcome(outcomes, currentArtistName, 'MusicBrainz'), match[1], match[2], match[3], String(ignored))
-      return
-    }
-
     match = event.message.match(/^Provider check for (.+) read (\d+) (.+) albums, already in library (\d+), added (\d+) unchecked albums\.$/)
-    if (match) {
-      const outcome = providerOutcome(outcomes, match[1], match[3])
-      applyProviderCounts(outcome, match[2], match[4], match[5], '0')
-      return
-    }
-
-    match = event.message.match(/^Provider check for (.+) read (\d+) (.+) albums, linked (\d+) existing albums, created (\d+) new albums\.$/)
     if (match) {
       const outcome = providerOutcome(outcomes, match[1], match[3])
       applyProviderCounts(outcome, match[2], match[4], match[5], '0')

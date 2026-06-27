@@ -26,6 +26,7 @@ public class MusicBrainzClient {
 
     public static final String PROVIDER_ID = "musicbrainz";
 
+    // MusicBrainz rate limits public clients per application, so throttle across all CDI instances.
     private static final Object LIMITER_LOCK = new Object();
     private static long nextRequestAtMillis = 0L;
 

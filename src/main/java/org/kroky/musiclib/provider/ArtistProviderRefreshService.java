@@ -85,7 +85,7 @@ public class ArtistProviderRefreshService {
                 case AUTO_MATCH_EXISTING -> {
                     Album album = plan.album();
                     albums.updateReleaseDateIfMissing(album.id(), releaseGroup.releaseDate());
-                    linkAlbum(album.id(), releaseGroup, "AUTO");
+                    linkAlbum(album.id(), releaseGroup);
                     alreadyInLibrary++;
                     runs.event(runId, link.artistId(), link.id(), "INFO",
                             "MusicBrainz album already in library: " + album.title());
@@ -93,7 +93,7 @@ public class ArtistProviderRefreshService {
                 case AUTO_CREATE -> {
                     Album album = albums.create(link.artistId(), releaseGroup.title(), releaseGroup.releaseDate(),
                             false, null, null);
-                    linkAlbum(album.id(), releaseGroup, "AUTO");
+                    linkAlbum(album.id(), releaseGroup);
                     localAlbums.add(album);
                     createdAlbums++;
                     runs.event(runId, link.artistId(), link.id(), "INFO",
@@ -135,6 +135,7 @@ public class ArtistProviderRefreshService {
                     "Secondary type: " + String.join(", ", releaseGroup.secondaryTypes()));
         }
 
+        // Keep provider import deterministic: exact title matches are existing albums; everything else is a new unchecked full album.
         return localAlbums.stream()
                 .filter(album -> Names.normalize(album.title()).equals(Names.normalize(releaseGroup.title())))
                 .findFirst()
@@ -142,15 +143,14 @@ public class ArtistProviderRefreshService {
                 .orElseGet(() -> new AlbumImportPlan(AlbumImportDecision.AUTO_CREATE, null, "New full album"));
     }
 
-    private void linkAlbum(long albumId, RemoteReleaseGroup releaseGroup, String matchSource) {
+    private void linkAlbum(long albumId, RemoteReleaseGroup releaseGroup) {
         albumProviderLinks.linkAlbum(
                 albumId,
                 releaseGroup.providerId(),
                 releaseGroup.providerReleaseGroupId(),
                 releaseGroup.title(),
                 releaseGroup.releaseDate(),
-                releaseGroup.providerUrl(),
-                matchSource);
+                releaseGroup.providerUrl());
     }
 
     private ArtistProviderLink enabledMusicBrainzProvider(long artistId) {

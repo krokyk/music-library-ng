@@ -1132,7 +1132,7 @@ export const useLibraryStore = defineStore('library', {
           running: false,
           message,
           state: result.errorCount > 0 ? 'failed'
-            : result.reviewCount > 0 || result.noMatchCount > 0 ? 'warning'
+            : result.manualCount > 0 || result.noMatchCount > 0 ? 'warning'
               : 'done',
         }
         return result

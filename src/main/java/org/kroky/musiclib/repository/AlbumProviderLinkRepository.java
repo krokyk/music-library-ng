@@ -34,19 +34,18 @@ public class AlbumProviderLinkRepository {
     }
 
     public void linkAlbum(long albumId, String providerId, String providerReleaseGroupId, String providerTitle,
-            String providerReleaseDate, String providerUrl, String matchSource) {
+            String providerReleaseDate, String providerUrl) {
         String sql = """
                 INSERT INTO album_provider_links (
                     album_id, provider_id, provider_release_group_id,
-                    provider_title, provider_release_date, provider_url, match_source
+                    provider_title, provider_release_date, provider_url
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(provider_id, provider_release_group_id) DO UPDATE SET
                     album_id = excluded.album_id,
                     provider_title = excluded.provider_title,
                     provider_release_date = excluded.provider_release_date,
                     provider_url = excluded.provider_url,
-                    match_source = excluded.match_source,
                     updated_at = CURRENT_TIMESTAMP
                 """;
         try (Connection connection = dataSource.getConnection();
@@ -57,7 +56,6 @@ public class AlbumProviderLinkRepository {
             statement.setString(4, providerTitle);
             statement.setString(5, blankToNull(providerReleaseDate));
             statement.setString(6, blankToNull(providerUrl));
-            statement.setString(7, matchSource);
             statement.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to link album to provider release group", e);
