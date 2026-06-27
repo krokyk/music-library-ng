@@ -49,7 +49,8 @@ const providerDefinitions: ProviderDefinition[] = [
 const store = useLibraryStore()
 const { artists, albums, collections, providerJob, providerLinks, providerStatus, scanJob, uiSettings, loading } = storeToRefs(store)
 
-const search = ref('')
+const artistSearchText = ref('')
+const appliedArtistSearch = ref('')
 const selectedArtistId = ref<number | null>(null)
 const artistToDelete = ref<Artist | null>(null)
 const deleteArtistDialog = ref(false)
@@ -75,6 +76,7 @@ const artistsGridHeaderHeight = 38
 const artistsGridRowHeight = 42
 const artistsGridBufferRows = 12
 const artistsGridFallbackViewportHeight = 900
+const artistSearchDebounceMs = 200
 const artistsPanePercents = ref([...defaultArtistsPanePercents])
 const artistsPaneLayoutSaveTimer = ref<number | null>(null)
 const artistsPaneNames = ['artists', 'details'] as const
@@ -143,12 +145,13 @@ const artistsGridScrollTop = ref(0)
 const artistsGridViewportHeight = ref(0)
 let artistsPaneWidthObserver: ResizeObserver | null = null
 let artistsPaneResizeActive = false
+let artistSearchDebounceTimer: number | null = null
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
 const providerIsRunning = computed(() => providerJob.value?.status === 'RUNNING' || providerStatus.value.running)
 const writeActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value)
 
 const filteredArtists = computed(() => {
-  const needle = search.value.trim().toLowerCase()
+  const needle = appliedArtistSearch.value.toLowerCase()
   if (!needle) return artists.value
   return artists.value.filter((artist) => artist.name.toLowerCase().includes(needle))
 })
@@ -271,6 +274,42 @@ function resetArtistsGridScroll() {
     artistsGridElement.value.scrollTop = 0
     updateArtistsGridViewport(artistsGridElement.value)
   })
+}
+
+function normalizeArtistSearch(value: string | null | undefined) {
+  return value?.trim() ?? ''
+}
+
+function applyArtistSearch(value: string | null | undefined) {
+  const normalized = normalizeArtistSearch(value)
+  if (appliedArtistSearch.value === normalized) {
+    return
+  }
+  appliedArtistSearch.value = normalized
+}
+
+function scheduleArtistSearchApply(value: string | null | undefined) {
+  if (artistSearchDebounceTimer !== null) {
+    window.clearTimeout(artistSearchDebounceTimer)
+    artistSearchDebounceTimer = null
+  }
+  const normalized = normalizeArtistSearch(value)
+  if (appliedArtistSearch.value === normalized) {
+    return
+  }
+  artistSearchDebounceTimer = window.setTimeout(() => {
+    artistSearchDebounceTimer = null
+    applyArtistSearch(value)
+  }, artistSearchDebounceMs)
+}
+
+function clearArtistSearch() {
+  if (artistSearchDebounceTimer !== null) {
+    window.clearTimeout(artistSearchDebounceTimer)
+    artistSearchDebounceTimer = null
+  }
+  artistSearchText.value = ''
+  applyArtistSearch('')
 }
 
 function updateArtistsGridViewport(element: HTMLElement) {
@@ -966,12 +1005,20 @@ onBeforeUnmount(() => {
   document.body.classList.remove('is-column-resizing')
   artistsPaneWidthObserver?.disconnect()
   artistsPaneWidthObserver = null
+  if (artistSearchDebounceTimer !== null) {
+    window.clearTimeout(artistSearchDebounceTimer)
+    artistSearchDebounceTimer = null
+  }
   if (artistsPaneLayoutSaveTimer.value !== null) {
     saveArtistsPaneLayout()
   }
 })
 
-watch(search, () => {
+watch(artistSearchText, (value) => {
+  scheduleArtistSearchApply(value)
+})
+
+watch(appliedArtistSearch, () => {
   resetArtistsGridScroll()
 })
 
@@ -1001,13 +1048,29 @@ watch(sortedArtists, (currentArtists) => {
 
         <div class="pane-filter-bar artists-search-bar">
           <v-text-field
-            v-model="search"
+            v-model="artistSearchText"
             class="artists-search-field"
             prepend-inner-icon="mdi-magnify"
             density="compact"
             label="Search artists"
+            aria-label="Search artists"
             hide-details
-          ></v-text-field>
+            @keydown.esc.prevent.stop="clearArtistSearch"
+          >
+            <template #append-inner>
+              <v-btn
+                v-if="artistSearchText"
+                icon="mdi-close"
+                size="x-small"
+                density="compact"
+                variant="text"
+                class="artists-search-clear"
+                aria-label="Clear artist search"
+                @mousedown.prevent
+                @click.stop="clearArtistSearch"
+              ></v-btn>
+            </template>
+          </v-text-field>
         </div>
 
         <div v-if="loading && sortedArtists.length === 0" class="pane-loading">
