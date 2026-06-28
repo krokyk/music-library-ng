@@ -1,5 +1,8 @@
 # Evolution 03: Artist-Centric Album Scanning
 
+Historical note: This evolution document is archival context, not current source of truth.
+Use `docs/current-application.md` and the current code when behavior conflicts.
+
 ## Goal
 
 Add explicit local and remote album refresh workflows for artist-centric collections without making normal navigation mutate data.

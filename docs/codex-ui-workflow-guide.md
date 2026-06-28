@@ -21,47 +21,25 @@ This file owns practical UI and working-process rules for future Codex sessions 
 ## Session Collaboration And Handoff
 
 Independent Codex sessions do not share hidden chat memory.
-Use repository files and commits as the shared memory.
+Use the current source-of-truth docs and the codebase as shared memory.
 
 - Keep `AGENTS.md` for stable project rules and pointers only.
+- Use `current-application.md` as the authoritative reference for current behavior, model, API semantics, provider behavior, scan behavior, settings behavior, and current constraints.
 - Use `codex-ui-workflow-guide.md` for stable workflow and UI rules.
-- Use `evolution-*.md` files as durable design and handoff documents for major feature streams.
+- Use `ideas.md` for unimplemented ideas only.
+- Remove or shrink ideas from `ideas.md` when implementing or rejecting them.
+- Treat `evolution-*.md` files as historical archaeology only.
+- Consult evolution docs only when the current docs and code do not explain why an older decision exists.
 - Do not put long session transcripts into `AGENTS.md`.
-- Do not put chat chronology, session labels, suggested prompts, abandoned ideas, or speculative alternatives into durable docs.
-- Evolution docs must say what changed, why it matters, what current behavior exists, what constraints remain, and which commits or code paths support the description.
-- Any deferred item in an evolution doc must be a real accepted constraint or planned next step, not a passing idea.
-- Before committing documentation, search the relevant code and named commits for terms and behavior that could make the doc stale.
+- Do not put chat chronology, session labels, suggested prompts, abandoned ideas, speculative alternatives, or commit archaeology into current docs.
+- Do not create an evolution document for every session.
+- Create a new evolution or design note only for a major decision that needs durable rationale beyond the current behavior reference.
+- After a major decision is implemented, update `current-application.md` and leave the evolution doc as historical context.
+- Before committing documentation, search the relevant code paths for behavior that could make the doc stale.
 - When starting a separate session, give it a narrow ownership boundary, for example: "work only on album grid behavior" or "work only on settings layout".
 - When two sessions work in parallel, use separate branches or worktrees and merge through normal Git review.
-- At the end of a substantial session, update the relevant `evolution-*.md` file with decisions, assumptions, TODOs, and known risks.
-- If the work is short-lived and not worth an evolution file, create a temporary `handoff-<topic>.md` file and remove or fold it into an evolution file later.
-
-Recommended handoff shape:
-
-```text
-# Handoff: <topic>
-
-## Scope
-- What this session owned.
-- What it deliberately did not touch.
-
-## Changed
-- User-visible behavior changes.
-- Backend/API/storage changes.
-- Frontend/layout/state changes.
-
-## Decisions
-- Important choices and why they were made.
-
-## Assumptions
-- Facts the next session should verify if they matter.
-
-## TODO
-- Concrete next steps.
-
-## Risks
-- Known weak spots, unverified behavior, or integration concerns.
-```
+- At the end of a substantial session, update `current-application.md`, `ideas.md`, `README.md`, `AGENTS.md`, or this guide as appropriate for the behavior that actually changed.
+- Temporary handoff files are allowed only for explicit parallel work and should be removed or folded into the source-of-truth docs before the work is finished.
 
 Before merging parallel UI work, run one integration/review session that checks for conflicting assumptions, duplicated components, inconsistent state handling, and missing validation.
 

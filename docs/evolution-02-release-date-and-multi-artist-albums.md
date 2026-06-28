@@ -1,5 +1,8 @@
 # Evolution 02: Release Dates And Multi-Artist Albums
 
+Historical note: This evolution document is archival context, not current source of truth.
+Use `docs/current-application.md` and the current code when behavior conflicts.
+
 ## Goal
 
 Make release metadata consistent across the app and allow one album/title to be linked to multiple artists without creating fake composite artist names.

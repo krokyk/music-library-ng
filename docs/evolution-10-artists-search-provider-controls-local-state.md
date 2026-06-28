@@ -1,5 +1,8 @@
 # Evolution 10: Artists Search, Provider Controls, And Local State
 
+Historical note: This evolution document is archival context, not current source of truth.
+Use `docs/current-application.md` and the current code when behavior conflicts.
+
 ## Scope
 
 This document records Artists screen search refinements and provider/local-state workflow updates made after Evolution 09.

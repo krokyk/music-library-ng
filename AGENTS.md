@@ -4,16 +4,14 @@ Project-specific instructions for AI agents and other contributors working in th
 
 ## Startup Context
 
-Every new Codex session should read the shared repo context before broad work:
+Every new Codex session should read these shared source-of-truth files before broad work:
 
-- `README.md`
-- `docs/PLAN.md`
-- `docs/music-library-ng-implementation-plan.md`
+- `docs/current-application.md`
 - `docs/codex-ui-workflow-guide.md`
-- all `docs/evolution-*.md` files
 
-For small, targeted questions or one-file fixes, read only the files needed for the task plus any directly relevant context above.
-For UI, workflow, layout, settings, scanning, or multi-session handoff work, read `codex-ui-workflow-guide.md` before making changes.
+For small, targeted questions or one-file fixes, read those two files plus only the files needed for the task.
+`docs/evolution-*.md` files are historical archaeology only.
+Consult an evolution document only when the current source-of-truth docs and code do not explain why an older decision exists.
 
 ## Project Summary
 
@@ -30,6 +28,9 @@ Music Library NG is a local-first music collection app for one user running on o
 
 Important paths:
 
+- `docs/current-application.md`: current app behavior, model, API, and constraints.
+- `docs/codex-ui-workflow-guide.md`: current UI, workflow, and verification rules.
+- `docs/ideas.md`: unimplemented ideas only.
 - `src/main/java/org/kroky/musiclib/resource`: HTTP resources.
 - `src/main/java/org/kroky/musiclib/repository`: SQLite access.
 - `src/main/java/org/kroky/musiclib/scan`: filesystem scan logic.
@@ -44,6 +45,8 @@ Important paths:
 
 `codex-ui-workflow-guide.md` owns working style, frontend layout rules, UI smoke-test workflow, settings behavior, scan/status UI behavior, and final verification rules.
 Keep those rules there instead of duplicating them here.
+`current-application.md` owns current app behavior, data model, API semantics, and current constraints.
+Keep current behavior there instead of scattering it through evolution docs.
 
 If there is doubt about whether the requested action should remove data, delete data, mutate files on disk, or change a broader workflow than stated, ask before implementing.
 Do not guess on destructive or domain-ambiguous actions.
@@ -54,14 +57,20 @@ Document behavior that a maintainer or user needs to know.
 
 - Update `README.md` when setup, build, runtime behavior, native packaging, config, or user-visible workflows change.
 - Update this file when repository conventions or agent workflow expectations change.
+- Update `docs/current-application.md` when current behavior, data model, API surface, provider behavior, scan behavior, settings behavior, or current constraints change.
+- Update `docs/codex-ui-workflow-guide.md` when UI rules, workflow rules, verification expectations, or reusable layout contracts change.
+- Update `docs/ideas.md` when an unimplemented idea is implemented, rejected, split, or materially redefined.
+- Remove implemented or rejected ideas from `docs/ideas.md` instead of leaving stale backlog text behind.
 - Keep docs practical.
   Prefer commands, file locations, and rules over broad explanation.
 - Keep docs factual and maintainer-facing.
   Do not add narrative labels, session timing labels, literary phrasing, or conversation summaries.
 - Do not document abandoned ideas, rejected alternatives, passing implementation ideas, or unrelated future work.
 - Mention follow-up work only when it is an intentional current constraint or a concrete planned next step.
-- Evolution docs must distinguish current shipped behavior from deferred or target behavior.
-- Before committing an evolution doc, cross-check it against the commits it names and the current code paths it describes.
+- Do not create an evolution document for every session.
+- Create a new evolution or design note only for a major decision that needs durable rationale beyond the current behavior reference.
+- Evolution docs are historical references and must not be required startup context.
+- Do not use evolution docs as the source of truth for current behavior.
 - Do not leave `???`, open-ended brainstorming questions, or suggested future prompts in durable docs.
 - Avoid hard-coded personal paths in docs.
   Use placeholders such as `<project-root>`, `<music-root>`, `<graalvm-jdk-21>`, or environment variables.

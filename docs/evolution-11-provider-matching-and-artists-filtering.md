@@ -1,5 +1,8 @@
 # Evolution 11: Provider Matching And Artists Filtering
 
+Historical note: This evolution document is archival context, not current source of truth.
+Use `docs/current-application.md` and the current code when behavior conflicts.
+
 ## Scope
 
 This document records the provider matching and main Artists screen filtering changes after Evolution 10.

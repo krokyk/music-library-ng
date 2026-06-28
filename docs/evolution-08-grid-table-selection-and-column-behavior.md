@@ -1,5 +1,8 @@
 # Evolution 08: Row Selection And Grid Table Behavior
 
+Historical note: This evolution document is archival context, not current source of truth.
+Use `docs/current-application.md` and the current code when behavior conflicts.
+
 Date: 2026-06-24
 
 ## Scope

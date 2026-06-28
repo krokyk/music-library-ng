@@ -11,7 +11,9 @@ The default app URL is `http://localhost:8795/`, and runtime data lives under `d
 - Frontend code is under `frontend/src`.
 - Shared defaults and inline config comments live in `src/main/resources/application.properties`.
 - Private local overrides live in ignored `config/application.properties`.
-- Longer planning and workflow notes live under `docs/`.
+- Current application behavior is documented in `docs/current-application.md`.
+- UI and workflow rules are documented in `docs/codex-ui-workflow-guide.md`.
+- Unimplemented ideas are tracked in `docs/ideas.md`.
 
 ## Setup
 

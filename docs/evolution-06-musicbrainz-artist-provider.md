@@ -1,5 +1,8 @@
 # Evolution 06: MusicBrainz Artist Provider
 
+Historical note: This evolution document is archival context, not current source of truth.
+Use `docs/current-application.md` and the current code when behavior conflicts.
+
 Date: 2026-06-15
 Updated: 2026-06-27
 

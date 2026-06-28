@@ -1,5 +1,8 @@
 # Evolution 04: Collection Albums And Title-Centric Collections
 
+Historical note: This evolution document is archival context, not current source of truth.
+Use `docs/current-application.md` and the current code when behavior conflicts.
+
 ## Goal
 
 Clarify the model for title-centric collections, such as soundtracks, while also fixing album membership edge cases in artist-centric collections.
