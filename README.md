@@ -183,6 +183,8 @@ Provider scans from Collections add new or otherwise unassigned provider albums 
 Local album scans and provider scans run in background jobs so the workspace remains navigable while status updates continue.
 Scan buttons and write actions such as add, edit, delete, and provider-link changes are disabled while a local or provider scan is running.
 Batch provider scans skip provider links checked within the configured batch rescan delay, while individual artist provider scans always run.
+The Artists view can bulk-match visible unlinked artists against MusicBrainz, Spirit of Metal, or Metal Archives after search and collection filters are applied.
+Provider candidate dialogs use provider chips, and ambiguous provider search results remain manual choices.
 
 Artist-centric album folder shapes:
 

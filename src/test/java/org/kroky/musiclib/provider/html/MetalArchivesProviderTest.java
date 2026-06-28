@@ -6,9 +6,41 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.kroky.musiclib.provider.ProviderArtistSearchResult;
 import org.kroky.musiclib.provider.RemoteAlbum;
 
 class MetalArchivesProviderTest {
+
+    @Test
+    void parsesBandSearchResultsFromAjaxJson() throws Exception {
+        List<ProviderArtistSearchResult> results = MetalArchivesProvider.parseBandSearchResults("""
+                {
+                  "error": "",
+                  "iTotalRecords": 2,
+                  "aaData": [
+                    [
+                      "<a href=\\"https://www.metal-archives.com/bands/Angra/538\\">Angra</a>  <!-- 10.901832 -->",
+                      "Progressive Power Metal",
+                      "Brazil"
+                    ],
+                    [
+                      "<a href=\\"https://www.metal-archives.com/bands/Angra_Ahriman/3540332977\\">Angra Ahriman</a>",
+                      "Black Metal",
+                      "Finland"
+                    ]
+                  ]
+                }
+                """, 10);
+
+        assertEquals(2, results.size());
+        assertEquals("Angra", results.get(0).providerArtistName());
+        assertEquals("538", results.get(0).providerArtistId());
+        assertEquals("https://www.metal-archives.com/bands/Angra/538", results.get(0).providerUrl());
+        assertEquals("Progressive Power Metal", results.get(0).type());
+        assertEquals("Brazil", results.get(0).country());
+        assertEquals("Angra Ahriman", results.get(1).providerArtistName());
+        assertEquals("3540332977", results.get(1).providerArtistId());
+    }
 
     @Test
     void buildsMainDiscographyUrlFromBandUrl() {

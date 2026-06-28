@@ -247,7 +247,7 @@ Scanning a title-centric collection should:
 - add or refresh `album_local_paths`
 
 Parsed artists are contributors only.
-They should not automatically become followed artists in `artist_collections`.
+They should not automatically create local scan-state rows in `artist_collections`.
 
 ## Artist-Centric Local Scan
 
@@ -281,7 +281,7 @@ Collections | Artists | Albums
 ```
 
 The Albums pane should show albums that belong to the selected collection and selected artist.
-This should eventually use `collection_albums` plus `album_artists`, not only `artist_collections`.
+Current artist presence uses `collection_albums` plus `album_artists`, with `artist_collections` reserved for local scan-state rows.
 
 Title-centric selected collection:
 
@@ -366,7 +366,7 @@ Invalidate collection metadata after actions that can change counts:
 - collection scan finishes
 - local album scan finishes
 - provider scan finishes for a collection or artist
-- manual artist membership changes
+- derived artist presence changes through album collection links or local scan-state rows
 - manual album/title add or delete
 - title metadata edit that changes contributors or local path state
 - album checked toggle for albums assigned to collections

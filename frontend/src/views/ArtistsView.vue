@@ -2,10 +2,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
-import { providerDefinition, providerDefinitions, validateProviderUrl, type ProviderId } from '@/providers'
+import { providerDefinition, providerDefinitions, type ProviderId } from '@/providers'
 import type {
   Artist,
+  ArtistProviderBulkMatchItem,
+  ArtistProviderBulkMatchResult,
   ArtistProviderCandidate,
+  MusicCollection,
 } from '@/types'
 import type { CSSProperties } from 'vue'
 
@@ -27,13 +30,14 @@ const deletingArtist = ref(false)
 const deletingArtistId = ref<number | null>(null)
 const matchDialog = ref(false)
 const matchLoading = ref(false)
+const matchProviderId = ref<ProviderId>('musicbrainz')
 const providerCandidates = ref<ArtistProviderCandidate[]>([])
 const matchingArtistId = ref<number | null>(null)
-const providerUrlDialog = ref(false)
-const providerUrlSaving = ref(false)
-const providerUrlArtist = ref<Artist | null>(null)
-const providerUrlProviderId = ref<ProviderId | null>(null)
-const providerUrl = ref('')
+const bulkMatchLoadingProviderId = ref<ProviderId | null>(null)
+const bulkMatchDialog = ref(false)
+const bulkMatchResult = ref<ArtistProviderBulkMatchResult | null>(null)
+const collectionFilterMenu = ref(false)
+const artistCollectionFilterIds = ref<string[]>([])
 const artistsScreenElement = ref<HTMLElement | null>(null)
 const artistsTablePaneElement = ref<unknown>(null)
 const artistDetailsPaneElement = ref<unknown>(null)
@@ -49,6 +53,7 @@ const artistsPanePercents = ref([...defaultArtistsPanePercents])
 const artistsPaneLayoutSaveTimer = ref<number | null>(null)
 const artistsPaneNames = ['artists', 'details'] as const
 const artistsPaneLayoutPreferenceKey = 'artists-screen.layout.panes'
+const artistsCollectionFilterPreferenceKey = 'artists-screen.collection-filter.ids'
 const artistsPaneWidths = reactive<Record<ArtistsPaneKey, number>>({
   artists: 0,
   details: 0,
@@ -66,6 +71,9 @@ const artistsScreenActionColumnWidths = {
     + providerDefinitions.length * artistsScreenRowActionGap,
   labeled: 390,
 }
+const artistsSearchControlsMinimumWidth = 390
+const artistsBulkExpandedMinimumWidth = 950
+const artistsBulkFullLabelMinimumWidth = 820
 const artistsScreenColumnWidths = reactive<Record<ArtistScreenColumnKey, number>>({
   name: 250,
   country: 76,
@@ -120,8 +128,16 @@ const writeActionsDisabled = computed(() => scanIsRunning.value || providerIsRun
 
 const filteredArtists = computed(() => {
   const needle = appliedArtistSearch.value.toLowerCase()
-  if (!needle) return artists.value
-  return artists.value.filter((artist) => artist.name.toLowerCase().includes(needle))
+  const selectedCollections = new Set(artistCollectionFilterIds.value)
+  return artists.value.filter((artist) => {
+    if (needle && !artist.name.toLowerCase().includes(needle)) {
+      return false
+    }
+    if (selectedCollections.size === 0) {
+      return true
+    }
+    return artist.collectionIds.some((collectionId) => selectedCollections.has(collectionId))
+  })
 })
 
 const sortedArtists = computed(() =>
@@ -164,6 +180,30 @@ const artistStats = computed(() => ({
   unchecked: artists.value.reduce((sum, artist) => sum + artist.uncheckedAlbumCount, 0),
   providers: artists.value.reduce((sum, artist) => sum + artist.providerLinkCount, 0),
 }))
+const unlinkedVisibleArtists = computed(() =>
+  sortedArtists.value.filter((artist) => !providerForArtist(artist)),
+)
+const bulkMatchLabel = computed(() => {
+  const count = unlinkedVisibleArtists.value.length
+  if (artistsPaneWidths.artists > 0 && artistsPaneWidths.artists < artistsBulkFullLabelMinimumWidth) {
+    return `(${count})`
+  }
+  return `Bulk match ${count} unlinked artists:`
+})
+const bulkProviderChipLabelsVisible = computed(() =>
+  artistsPaneWidths.artists === 0 || artistsPaneWidths.artists >= artistsBulkExpandedMinimumWidth,
+)
+const bulkMatchItems = computed(() => bulkMatchResult.value?.items ?? [])
+const selectedFilterCollections = computed(() =>
+  artistCollectionFilterIds.value
+    .map((id) => collections.value.find((collection) => collection.id === id))
+    .filter((collection): collection is MusicCollection => Boolean(collection)),
+)
+const visibleSelectedFilterCollections = computed(() => selectedFilterCollections.value.slice(0, 4))
+const hiddenSelectedFilterCollectionCount = computed(() =>
+  Math.max(0, selectedFilterCollections.value.length - visibleSelectedFilterCollections.value.length),
+)
+const allCollectionsFilterSelected = computed(() => artistCollectionFilterIds.value.length === 0)
 
 const selectedArtist = computed(() => artists.value.find((artist) => artist.id === selectedArtistId.value) ?? null)
 const selectedProvider = computed(() => selectedArtist.value ? providerForArtist(selectedArtist.value) : null)
@@ -180,14 +220,6 @@ const selectedAlbums = computed(() => {
       || left.title.localeCompare(right.title),
     )
 })
-const providerUrlDefinition = computed(() =>
-  providerUrlProviderId.value ? providerDefinition(providerUrlProviderId.value) : null,
-)
-
-const providerUrlValidation = computed(() =>
-  validateProviderUrl(providerUrlProviderId.value, providerUrl.value),
-)
-
 function compareArtistRows(left: Artist, right: Artist) {
   const leftValue = artistSortValue(left, artistSort.key)
   const rightValue = artistSortValue(right, artistSort.key)
@@ -282,6 +314,63 @@ function clearArtistSearch() {
   }
   artistSearchText.value = ''
   applyArtistSearch('')
+}
+
+function setAllCollectionFilter() {
+  updateArtistCollectionFilter([])
+}
+
+function toggleCollectionFilter(collectionId: string) {
+  const selected = new Set(artistCollectionFilterIds.value)
+  if (selected.has(collectionId)) {
+    selected.delete(collectionId)
+  } else {
+    selected.add(collectionId)
+  }
+  updateArtistCollectionFilter([...selected])
+}
+
+function collectionFilterSelected(collectionId: string) {
+  return artistCollectionFilterIds.value.includes(collectionId)
+}
+
+function removeCollectionFilter(collectionId: string) {
+  updateArtistCollectionFilter(artistCollectionFilterIds.value.filter((id) => id !== collectionId))
+}
+
+function updateArtistCollectionFilter(collectionIds: string[]) {
+  artistCollectionFilterIds.value = [...new Set(collectionIds)].filter(Boolean)
+  void saveArtistsCollectionFilter()
+}
+
+function pruneArtistCollectionFilter() {
+  if (artistCollectionFilterIds.value.length === 0) {
+    return
+  }
+  const knownCollections = new Set(collections.value.map((collection) => collection.id))
+  const current = artistCollectionFilterIds.value.filter((collectionId) => knownCollections.has(collectionId))
+  if (current.length !== artistCollectionFilterIds.value.length) {
+    updateArtistCollectionFilter(current)
+  }
+}
+
+async function loadArtistsCollectionFilter() {
+  const preference = await store.loadPreference(artistsCollectionFilterPreferenceKey)
+  if (!preference?.value) {
+    return
+  }
+  try {
+    const parsed = JSON.parse(preference.value)
+    if (Array.isArray(parsed)) {
+      artistCollectionFilterIds.value = parsed.filter((value): value is string => typeof value === 'string')
+    }
+  } catch (error) {
+    artistCollectionFilterIds.value = []
+  }
+}
+
+async function saveArtistsCollectionFilter() {
+  await store.savePreference(artistsCollectionFilterPreferenceKey, JSON.stringify(artistCollectionFilterIds.value))
 }
 
 function updateArtistsGridViewport(element: HTMLElement) {
@@ -546,7 +635,7 @@ function startArtistsPaneResize(event: PointerEvent) {
 }
 
 function artistsPaneMinimums(areaWidth: number) {
-  const raw = [Math.max(420, artistsScreenMinimumGridWidth()), 280]
+  const raw = [Math.max(420, artistsScreenMinimumGridWidth(), artistsSearchControlsMinimumWidth), 280]
   const total = raw[0] + raw[1]
   if (total <= areaWidth) {
     return raw
@@ -663,19 +752,32 @@ function markArtistSelected(artist: Artist) {
   selectedArtistId.value = artist.id
 }
 
-async function openMusicBrainzMatch(artist: Artist) {
+async function openProviderMatch(artist: Artist, providerId: ProviderId) {
   if (writeActionsDisabled.value) {
     return
   }
   selectedArtistId.value = artist.id
+  matchProviderId.value = providerId
   matchingArtistId.value = artist.id
   matchDialog.value = true
+  await loadProviderCandidatesForMatch(providerId)
+}
+
+async function loadProviderCandidatesForMatch(providerId = matchProviderId.value) {
+  if (writeActionsDisabled.value) {
+    return
+  }
+  const artistId = selectedArtistId.value
+  if (!artistId) {
+    return
+  }
+  matchProviderId.value = providerId
   matchLoading.value = true
   providerCandidates.value = []
   try {
-    providerCandidates.value = await store.searchMusicBrainzCandidates(artist.id)
+    providerCandidates.value = await store.searchProviderCandidates(artistId, providerId)
   } catch (error) {
-    store.showErrorStatus(error, 'Unable to search MusicBrainz')
+    store.showErrorStatus(error, `Unable to search ${providerDefinition(providerId).label}`)
   } finally {
     matchLoading.value = false
     matchingArtistId.value = null
@@ -688,9 +790,10 @@ async function useCandidate(candidate: ArtistProviderCandidate) {
   }
   const artistId = selectedArtistId.value
   if (!artistId) return
+  const provider = providerDefinition(candidate.providerId)
   try {
     await store.saveArtistProvider(artistId, {
-      providerId: 'musicbrainz',
+      providerId: candidate.providerId,
       providerArtistId: candidate.providerArtistId,
       providerArtistName: candidate.providerArtistName,
       providerArtistType: candidate.type,
@@ -701,10 +804,10 @@ async function useCandidate(candidate: ArtistProviderCandidate) {
       enabled: true,
     })
     matchDialog.value = false
-    store.showStatus(`MusicBrainz provider saved for ${candidate.providerArtistName}.`, 'done')
+    store.showStatus(`${provider.label} provider saved for ${candidate.providerArtistName}.`, 'done')
     await scanArtistProviderById(artistId)
   } catch (error) {
-    store.showErrorStatus(error, 'Unable to save MusicBrainz provider')
+    store.showErrorStatus(error, `Unable to save ${provider.label} provider`)
   }
 }
 
@@ -713,42 +816,120 @@ async function startProviderSetup(artist: Artist, providerId: ProviderId) {
     return
   }
   await selectArtist(artist)
-  if (providerId === 'musicbrainz') {
-    await openMusicBrainzMatch(artist)
-    return
-  }
-  providerUrlArtist.value = artist
-  providerUrlProviderId.value = providerId
-  providerUrl.value = ''
-  providerUrlDialog.value = true
+  await openProviderMatch(artist, providerId)
 }
 
-async function saveUrlProvider() {
+async function runBulkProviderMatch(providerId: ProviderId) {
+  if (writeActionsDisabled.value || bulkMatchLoadingProviderId.value || unlinkedVisibleArtists.value.length === 0) {
+    return
+  }
+  const artistIds = unlinkedVisibleArtists.value.map((artist) => artist.id)
+  bulkMatchLoadingProviderId.value = providerId
+  bulkMatchResult.value = null
+  try {
+    bulkMatchResult.value = await store.bulkMatchProvider(providerId, artistIds)
+    bulkMatchDialog.value = true
+  } catch (error) {
+    if (!store.providerStatus.message?.includes('bulk match failed')) {
+      store.showErrorStatus(error, `${providerDefinition(providerId).label} bulk match failed`)
+    }
+  } finally {
+    bulkMatchLoadingProviderId.value = null
+  }
+}
+
+async function useBulkCandidate(item: ArtistProviderBulkMatchItem) {
   if (writeActionsDisabled.value) {
     return
   }
-  if (!providerUrlArtist.value || !providerUrlProviderId.value) {
+  const candidate = bulkCandidate(item)
+  if (!candidate) {
     return
   }
-  const url = providerUrl.value.trim()
-  if (!url || providerUrlValidation.value) {
-    return
-  }
-  providerUrlSaving.value = true
+  const provider = providerDefinition(candidate.providerId)
   try {
-    const provider = providerDefinition(providerUrlProviderId.value)
-    await store.saveArtistProvider(providerUrlArtist.value.id, {
-      providerId: providerUrlProviderId.value,
-      providerUrl: url,
+    const providerLink = await store.saveArtistProvider(item.artistId, {
+      providerId: candidate.providerId,
+      providerArtistId: candidate.providerArtistId,
+      providerArtistName: candidate.providerArtistName,
+      providerArtistType: candidate.type,
+      providerArtistCountry: candidate.country,
+      providerArtistDisambiguation: candidate.disambiguation,
+      providerArtistActive: candidate.active,
+      providerUrl: candidate.providerUrl,
       enabled: true,
     })
-    store.showStatus(`${provider.label} provider saved for ${providerUrlArtist.value.name}.`, 'done')
-    providerUrlDialog.value = false
-    await scanArtistProviderById(providerUrlArtist.value.id)
+    if (!bulkMatchResult.value) {
+      return
+    }
+    const previousStatus = item.status
+    bulkMatchResult.value = {
+      ...bulkMatchResult.value,
+      matchedCount: bulkMatchResult.value.matchedCount + (previousStatus === 'MATCHED' ? 0 : 1),
+      manualCount: bulkMatchResult.value.manualCount - (previousStatus === 'NEEDS_MANUAL' ? 1 : 0),
+      noMatchCount: bulkMatchResult.value.noMatchCount - (previousStatus === 'NO_MATCH' ? 1 : 0),
+      skippedCount: bulkMatchResult.value.skippedCount - (previousStatus === 'SKIPPED_EXISTING' ? 1 : 0),
+      errorCount: bulkMatchResult.value.errorCount - (previousStatus === 'ERROR' ? 1 : 0),
+      items: bulkMatchResult.value.items.map((current) => current.artistId === item.artistId
+        ? {
+            ...current,
+            status: 'MATCHED',
+            message: `${provider.label} provider saved: ${candidate.providerArtistName}`,
+            providerLink,
+            acceptedCandidate: candidate,
+          }
+        : current),
+    }
+    store.showStatus(`${provider.label} provider saved for ${candidate.providerArtistName}.`, 'done')
   } catch (error) {
-    store.showErrorStatus(error, 'Unable to save provider')
-  } finally {
-    providerUrlSaving.value = false
+    store.showErrorStatus(error, `Unable to save ${provider.label} provider`)
+  }
+}
+
+function bulkCandidate(item: ArtistProviderBulkMatchItem) {
+  return item.acceptedCandidate ?? item.candidates[0] ?? null
+}
+
+function bulkEvidenceText(item: ArtistProviderBulkMatchItem) {
+  const candidate = bulkCandidate(item)
+  if (!candidate) {
+    return ''
+  }
+  const provider = providerDefinition(candidate.providerId)
+  const albumMatches = candidate.matchedLocalAlbums.length
+  const albumText = albumMatches === 1 ? '1 local album' : `${albumMatches} local albums`
+  return `${candidate.matchScore} match / ${candidate.providerScore} ${provider.label}${albumMatches > 0 ? ` / ${albumText}` : ''}`
+}
+
+function bulkStatusText(status: ArtistProviderBulkMatchItem['status']) {
+  switch (status) {
+    case 'MATCHED':
+      return 'Matched'
+    case 'NEEDS_MANUAL':
+      return 'Needs manual'
+    case 'NO_MATCH':
+      return 'No match'
+    case 'SKIPPED_EXISTING':
+      return 'Skipped'
+    case 'ERROR':
+      return 'Error'
+    default:
+      return status
+  }
+}
+
+function bulkStatusColor(status: ArtistProviderBulkMatchItem['status']) {
+  switch (status) {
+    case 'MATCHED':
+      return 'success'
+    case 'NEEDS_MANUAL':
+      return 'warning'
+    case 'SKIPPED_EXISTING':
+      return 'info'
+    case 'ERROR':
+      return 'error'
+    default:
+      return 'default'
   }
 }
 
@@ -829,6 +1010,26 @@ function providerChipClasses(artist: Artist) {
 function providerChipIconSrc(artist: Artist) {
   const provider = providerForArtist(artist)
   return provider ? providerDefinition(provider.providerId).iconSrc : ''
+}
+
+function providerActionChipClasses(providerId: ProviderId, selected = false, compact = false) {
+  return [
+    'artists-provider-chip',
+    'provider-action-chip',
+    providerDefinition(providerId).chipClass,
+    {
+      'provider-action-chip--selected': selected,
+      'provider-action-chip--compact': compact,
+    },
+  ]
+}
+
+function providerActionChipLabel(providerId: ProviderId) {
+  return providerDefinition(providerId).label
+}
+
+function providerActionChipIconSrc(providerId: ProviderId) {
+  return providerDefinition(providerId).iconSrc
 }
 
 function providerIdentityLabel() {
@@ -975,8 +1176,10 @@ onMounted(async () => {
   await Promise.all([
     loadArtistsScreenColumnWidths(),
     loadArtistsPaneLayout(),
+    loadArtistsCollectionFilter(),
     store.loadAll(),
   ])
+  pruneArtistCollectionFilter()
   await nextTick()
   setupArtistsPaneWidthObserver()
 })
@@ -1001,6 +1204,10 @@ watch(artistSearchText, (value) => {
 })
 
 watch(appliedArtistSearch, () => {
+  resetArtistsGridScroll()
+})
+
+watch(artistCollectionFilterIds, () => {
   resetArtistsGridScroll()
 })
 
@@ -1053,6 +1260,114 @@ watch(sortedArtists, (currentArtists) => {
               ></v-btn>
             </template>
           </v-text-field>
+
+          <div class="artists-bulk-match-controls">
+            <span class="artists-bulk-match-label">{{ bulkMatchLabel }}</span>
+            <v-tooltip
+              v-for="provider in providerDefinitions"
+              :key="provider.id"
+              :text="`Bulk match ${provider.label}`"
+              location="top"
+            >
+              <template #activator="{ props }">
+                <v-chip
+                  v-bind="props"
+                  :class="providerActionChipClasses(provider.id, false, !bulkProviderChipLabelsVisible)"
+                  size="small"
+                  variant="flat"
+                  :disabled="writeActionsDisabled || unlinkedVisibleArtists.length === 0 || Boolean(bulkMatchLoadingProviderId)"
+                  @click="runBulkProviderMatch(provider.id)"
+                >
+                  <v-progress-circular
+                    v-if="bulkMatchLoadingProviderId === provider.id"
+                    indeterminate
+                    size="14"
+                    width="2"
+                    class="provider-action-chip__spinner"
+                  ></v-progress-circular>
+                  <img
+                    v-else-if="providerActionChipIconSrc(provider.id)"
+                    class="artists-provider-chip__icon"
+                    :src="providerActionChipIconSrc(provider.id)"
+                    alt=""
+                    aria-hidden="true"
+                  >
+                  <span v-if="bulkProviderChipLabelsVisible" class="artists-provider-chip__text">{{ provider.label }}</span>
+                </v-chip>
+              </template>
+            </v-tooltip>
+          </div>
+        </div>
+
+        <div class="artists-collection-filter-row">
+          <span class="artists-collection-filter-row__label">Collections</span>
+          <v-chip
+            size="small"
+            :color="allCollectionsFilterSelected ? 'primary' : undefined"
+            :variant="allCollectionsFilterSelected ? 'flat' : 'tonal'"
+            class="artists-collection-filter-chip"
+            @click="setAllCollectionFilter"
+          >
+            All
+          </v-chip>
+          <v-chip
+            v-for="collection in visibleSelectedFilterCollections"
+            :key="collection.id"
+            size="small"
+            color="primary"
+            variant="tonal"
+            closable
+            close-icon="mdi-close"
+            class="artists-collection-filter-chip"
+            @click:close.stop="removeCollectionFilter(collection.id)"
+          >
+            {{ collection.name }}
+          </v-chip>
+          <v-chip
+            v-if="hiddenSelectedFilterCollectionCount > 0"
+            size="small"
+            variant="tonal"
+            class="artists-collection-filter-chip"
+          >
+            +{{ hiddenSelectedFilterCollectionCount }}
+          </v-chip>
+          <v-menu
+            v-model="collectionFilterMenu"
+            :close-on-content-click="false"
+            location="bottom end"
+          >
+            <template #activator="{ props }">
+              <v-btn
+                v-bind="props"
+                icon="mdi-plus"
+                size="x-small"
+                density="compact"
+                variant="text"
+                color="primary"
+                class="artists-collection-filter-add"
+                aria-label="Choose collections"
+              ></v-btn>
+            </template>
+            <v-card class="artists-collection-filter-menu">
+              <v-list density="compact">
+                <v-list-item
+                  v-for="collection in collections"
+                  :key="collection.id"
+                  @click="toggleCollectionFilter(collection.id)"
+                >
+                  <template #prepend>
+                    <v-checkbox
+                      :model-value="collectionFilterSelected(collection.id)"
+                      density="compact"
+                      hide-details
+                      @click.stop="toggleCollectionFilter(collection.id)"
+                    ></v-checkbox>
+                  </template>
+                  <v-list-item-title>{{ collection.name }}</v-list-item-title>
+                </v-list-item>
+              </v-list>
+            </v-card>
+          </v-menu>
         </div>
 
         <div v-if="loading && sortedArtists.length === 0" class="pane-loading">
@@ -1185,7 +1500,7 @@ watch(sortedArtists, (currentArtists) => {
                       variant="text"
                       color="primary"
                       :class="artistScreenRowActionClass()"
-                      :loading="provider.id === 'musicbrainz' && matchingArtistId === artist.id"
+                      :loading="provider.id === matchProviderId && matchingArtistId === artist.id"
                       :disabled="writeActionsDisabled || deletingArtistId === artist.id"
                       @click.stop="startProviderSetup(artist, provider.id)"
                     >
@@ -1335,11 +1650,38 @@ watch(sortedArtists, (currentArtists) => {
 
     <v-dialog v-model="matchDialog" max-width="900">
       <v-card class="dialog-card">
-        <v-card-title>Match MusicBrainz</v-card-title>
+        <v-card-title>Match Provider</v-card-title>
         <v-card-text class="edit-form">
+          <div class="provider-chip-selector">
+            <v-chip
+              v-for="provider in providerDefinitions"
+              :key="provider.id"
+              :class="providerActionChipClasses(provider.id, provider.id === matchProviderId)"
+              size="small"
+              variant="flat"
+              :disabled="writeActionsDisabled || matchLoading"
+              @click="loadProviderCandidatesForMatch(provider.id)"
+            >
+              <v-progress-circular
+                v-if="matchLoading && provider.id === matchProviderId"
+                indeterminate
+                size="14"
+                width="2"
+                class="provider-action-chip__spinner"
+              ></v-progress-circular>
+              <img
+                v-else-if="providerActionChipIconSrc(provider.id)"
+                class="artists-provider-chip__icon"
+                :src="providerActionChipIconSrc(provider.id)"
+                alt=""
+                aria-hidden="true"
+              >
+              <span class="artists-provider-chip__text">{{ provider.label }}</span>
+            </v-chip>
+          </div>
           <v-progress-linear v-if="matchLoading" indeterminate color="primary"></v-progress-linear>
           <div v-if="!matchLoading && providerCandidates.length === 0" class="cell-muted">No candidates found.</div>
-          <v-list v-else density="compact" class="provider-list">
+          <v-list v-if="!matchLoading && providerCandidates.length > 0" density="compact" class="provider-list">
             <v-list-item v-for="candidate in providerCandidates" :key="candidate.providerArtistId">
               <v-list-item-title>
                 <span class="cell-strong">{{ candidate.providerArtistName }}</span>
@@ -1378,28 +1720,74 @@ watch(sortedArtists, (currentArtists) => {
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="providerUrlDialog" max-width="560">
+    <v-dialog v-model="bulkMatchDialog" max-width="1100">
       <v-card class="dialog-card">
-        <v-card-title>{{ providerUrlDefinition?.label }} Provider</v-card-title>
+        <v-card-title>Bulk Provider Match</v-card-title>
         <v-card-text class="edit-form">
-          <div class="cell-muted">{{ providerUrlArtist?.name }}</div>
-          <v-text-field
-            v-model="providerUrl"
-            label="URL"
-            prepend-inner-icon="mdi-link-variant"
-            autofocus
-            :disabled="writeActionsDisabled"
-            :error-messages="providerUrlValidation ? [providerUrlValidation] : []"
-            hide-details="auto"
-            @keyup.enter="saveUrlProvider"
-          ></v-text-field>
+          <div v-if="bulkMatchResult" class="dialog-chip-row">
+            <v-chip size="small" color="success" variant="tonal">{{ bulkMatchResult.matchedCount }} matched</v-chip>
+            <v-chip size="small" color="warning" variant="tonal">{{ bulkMatchResult.manualCount }} manual</v-chip>
+            <v-chip size="small" variant="tonal">{{ bulkMatchResult.noMatchCount }} no match</v-chip>
+            <v-chip size="small" color="info" variant="tonal">{{ bulkMatchResult.skippedCount }} skipped</v-chip>
+            <v-chip size="small" color="error" variant="tonal">{{ bulkMatchResult.errorCount }} errors</v-chip>
+          </div>
+
+          <div class="bulk-match-dialog__table">
+            <v-table class="music-table" density="compact">
+              <thead>
+                <tr>
+                  <th>Artist</th>
+                  <th>Status</th>
+                  <th>Candidate</th>
+                  <th>Evidence</th>
+                  <th>Message</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in bulkMatchItems" :key="item.artistId">
+                  <td class="cell-strong">{{ item.artistName || `artist ${item.artistId}` }}</td>
+                  <td>
+                    <v-chip size="x-small" :color="bulkStatusColor(item.status)" variant="tonal">
+                      {{ bulkStatusText(item.status) }}
+                    </v-chip>
+                  </td>
+                  <td>
+                    <template v-if="bulkCandidate(item)">
+                      <div class="cell-strong">{{ bulkCandidate(item)?.providerArtistName }}</div>
+                      <div class="mono-path">{{ bulkCandidate(item)?.providerArtistId }}</div>
+                    </template>
+                    <span v-else class="cell-muted">None</span>
+                  </td>
+                  <td>{{ bulkEvidenceText(item) }}</td>
+                  <td>{{ item.message }}</td>
+                  <td class="text-right">
+                    <v-btn
+                      size="small"
+                      variant="text"
+                      icon="mdi-open-in-new"
+                      :disabled="!bulkCandidate(item)?.providerUrl"
+                      @click="openExternal(bulkCandidate(item)?.providerUrl)"
+                    ></v-btn>
+                    <v-btn
+                      v-if="item.status === 'NEEDS_MANUAL'"
+                      size="small"
+                      color="primary"
+                      variant="text"
+                      :disabled="!bulkCandidate(item) || writeActionsDisabled"
+                      @click="useBulkCandidate(item)"
+                    >
+                      Use
+                    </v-btn>
+                  </td>
+                </tr>
+              </tbody>
+            </v-table>
+          </div>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
-          <v-btn variant="text" @click="providerUrlDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="providerUrlSaving" :disabled="writeActionsDisabled || !providerUrl.trim() || Boolean(providerUrlValidation)" @click="saveUrlProvider">
-            Save
-          </v-btn>
+          <v-btn variant="text" @click="bulkMatchDialog = false">Close</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

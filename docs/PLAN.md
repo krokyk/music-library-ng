@@ -12,7 +12,7 @@ This roadmap tracks product capabilities and useful next steps.
 - Artist tracking independent of local disk presence.
 - Album listening state stored as one boolean flag: `checked`.
 - Local disk presence stored through album path rows.
-- Collection membership for artists, including manually added artists without local albums.
+- Collection artist presence derived from collection albums and local scan state, not manual artist assignment.
 - Local scan for `artist - year - album` folders.
 - Local scan for mixed artist collections with `artist/year - album` nested folders.
 - Local scan for `title (artist, year)` soundtrack/musical folders.
@@ -23,7 +23,7 @@ This roadmap tracks product capabilities and useful next steps.
 - One provider identity per artist with a provider lookup row and provider-specific artist identity.
 - MusicBrainz provider identity uses MBID-backed artist matching and stores provider metadata such as country, type, and active status.
 - MusicBrainz release-group refresh that imports supported full albums only, matches exact existing album titles, and creates missing albums as unchecked.
-- Bulk MusicBrainz artist matching with conservative auto-linking and manual candidate selection for uncertain artist identities.
+- Bulk artist provider matching for MusicBrainz, Spirit of Metal, and Metal Archives with conservative auto-linking and manual candidate selection for uncertain artist identities.
 - Three-pane Collections workspace.
 - Global Library and Artists views.
 - Settings view for effective runtime configuration and UI preferences.
@@ -53,7 +53,7 @@ This roadmap tracks product capabilities and useful next steps.
 - Verify `/api/health`.
 - Verify startup fails fast without a valid music root.
 - Verify a fresh SQLite database is created from `V1__init.sql`.
-- Verify manual artist creation with collection membership.
+- Verify artist creation and collection-derived artist presence.
 - Verify manual album creation and checked toggling.
 - Verify scan parser behavior with sample directories.
 - Verify provider identity assignment and provider check run history.

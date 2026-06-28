@@ -12,7 +12,6 @@ interface ArtistForm {
   name: string
   sortName: string
   notes: string
-  collectionIds: string[]
 }
 
 interface ArtistRowMeasurement {
@@ -298,7 +297,6 @@ const artistForm = reactive<ArtistForm>({
   name: '',
   sortName: '',
   notes: '',
-  collectionIds: [],
 })
 
 const selectedCollection = computed(() =>
@@ -352,10 +350,6 @@ const providerSetupUrlValidation = computed(() =>
 
 const providerSetupDefinition = computed(() =>
   providerDefinition(providerSetupProviderId.value),
-)
-
-const collectionOptions = computed(() =>
-  collections.value.map((collection) => ({ title: collection.name, value: collection.id })),
 )
 
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
@@ -600,6 +594,15 @@ function providerChipClasses(artist: Artist) {
 function providerChipIconSrc(artist: Artist) {
   const provider = providerForArtist(artist)
   return provider ? providerDefinition(provider.providerId).iconSrc : ''
+}
+
+function providerSetupChipClasses(providerId: ProviderId) {
+  return [
+    'artists-provider-chip',
+    'provider-action-chip',
+    providerDefinition(providerId).chipClass,
+    { 'provider-action-chip--selected': providerSetupProviderId.value === providerId },
+  ]
 }
 
 function showArtistProviderLabel(artist: Artist) {
@@ -2369,22 +2372,15 @@ function handleDocumentKeyDown(event: KeyboardEvent) {
   }
 }
 
-async function openArtistDialog(artist?: Artist) {
-  if (artist) {
-    selectArtistRow(artist)
-  }
+async function openArtistDialog(artist: Artist) {
+  selectArtistRow(artist)
   if (writeActionsDisabled.value) {
     return
   }
-  artistForm.id = artist?.id ?? null
-  artistForm.name = artist?.name ?? ''
-  artistForm.sortName = artist?.sortName ?? ''
-  artistForm.notes = artist?.notes ?? ''
-  artistForm.collectionIds = artist?.collectionIds?.length
-    ? [...artist.collectionIds]
-    : selectedCollectionId.value
-      ? [selectedCollectionId.value]
-      : []
+  artistForm.id = artist.id
+  artistForm.name = artist.name
+  artistForm.sortName = artist.sortName ?? ''
+  artistForm.notes = artist.notes ?? ''
   artistDialog.value = true
 }
 
@@ -2395,25 +2391,20 @@ async function saveArtistDetails() {
   if (!artistForm.name.trim()) {
     return
   }
+  if (artistForm.id === null) {
+    return
+  }
   savingArtist.value = true
   try {
-    const wasNew = artistForm.id === null
     const artist = await store.saveArtist({
       id: artistForm.id ?? undefined,
       name: artistForm.name.trim(),
       sortName: artistForm.sortName.trim() || null,
       notes: artistForm.notes.trim() || null,
-      collectionIds: artistForm.collectionIds,
     })
     artistForm.id = artist.id
-    if (wasNew && selectedCollectionId.value && artist.collectionIds.includes(selectedCollectionId.value)) {
-      if (!artistIsLocalToSelectedCollection(artist)) {
-        includeNonLocal(artistPresence)
-      }
-      await store.selectArtist(artist.id)
-    }
   } catch (error) {
-    store.showErrorStatus(error, artistForm.id === null ? 'Unable to add artist' : 'Unable to save artist')
+    store.showErrorStatus(error, 'Unable to save artist')
   } finally {
     savingArtist.value = false
   }
@@ -2451,18 +2442,30 @@ function closeProviderSetup() {
 }
 
 async function loadProviderCandidates() {
-  if (!providerSetupArtist.value || providerSetupProviderId.value !== 'musicbrainz') {
+  if (!providerSetupArtist.value) {
     return
   }
   providerSetupMatching.value = true
   providerCandidates.value = []
   try {
-    providerCandidates.value = await store.searchMusicBrainzCandidates(providerSetupArtist.value.id)
+    providerCandidates.value = await store.searchProviderCandidates(
+      providerSetupArtist.value.id,
+      providerSetupProviderId.value,
+    )
   } catch (error) {
-    store.showErrorStatus(error, 'Unable to search MusicBrainz')
+    store.showErrorStatus(error, `Unable to search ${providerSetupDefinition.value.label}`)
   } finally {
     providerSetupMatching.value = false
   }
+}
+
+async function selectProviderSetupProvider(providerId: ProviderId) {
+  if (writeActionsDisabled.value || providerSetupSaving.value) {
+    return
+  }
+  providerSetupProviderId.value = providerId
+  providerSetupUrl.value = ''
+  await loadProviderCandidates()
 }
 
 async function useProviderCandidate(candidate: ArtistProviderCandidate) {
@@ -2471,9 +2474,10 @@ async function useProviderCandidate(candidate: ArtistProviderCandidate) {
   }
   const artist = providerSetupArtist.value
   providerSetupSaving.value = true
+  const provider = providerDefinition(candidate.providerId)
   try {
     await store.saveArtistProvider(artist.id, {
-      providerId: 'musicbrainz',
+      providerId: candidate.providerId,
       providerArtistId: candidate.providerArtistId,
       providerArtistName: candidate.providerArtistName,
       providerArtistType: candidate.type,
@@ -2486,7 +2490,7 @@ async function useProviderCandidate(candidate: ArtistProviderCandidate) {
     closeProviderSetup()
     await scanArtistProvider(artist)
   } catch (error) {
-    store.showErrorStatus(error, 'Unable to save MusicBrainz provider')
+    store.showErrorStatus(error, `Unable to save ${provider.label} provider`)
   } finally {
     providerSetupSaving.value = false
   }
@@ -3430,22 +3434,6 @@ watch(sortedCollectionTitleItems, (items) => {
                 </v-btn>
               </template>
             </v-tooltip>
-            <v-tooltip text="Add artist" location="top">
-              <template #activator="{ props }">
-                <v-btn
-                  v-bind="props"
-                  prepend-icon="mdi-account-plus"
-                  size="small"
-                  variant="text"
-                  color="primary"
-                  :class="[actionLabelClass('artists'), 'app-toolbar-button']"
-                  :disabled="writeActionsDisabled || !selectedCollectionId"
-                  @click="openArtistDialog()"
-                >
-                  <span v-if="showActionLabels('artists')">Add</span>
-                </v-btn>
-              </template>
-            </v-tooltip>
           </div>
         </div>
         <div class="pane-filter-bar">
@@ -3969,41 +3957,40 @@ watch(sortedCollectionTitleItems, (items) => {
         <v-card-title>Add Provider</v-card-title>
         <v-card-text class="edit-form">
           <div class="cell-muted">{{ providerSetupArtist?.name }}</div>
-          <v-btn-toggle
-            v-model="providerSetupProviderId"
-            mandatory
-            density="compact"
-            color="primary"
-            class="app-toolbar-toggle provider-setup-toggle"
-            :disabled="writeActionsDisabled || providerSetupSaving"
-          >
-            <v-btn
+          <div class="provider-chip-selector">
+            <v-chip
               v-for="provider in providerDefinitions"
               :key="provider.id"
-              :value="provider.id"
               size="small"
-              :prepend-icon="provider.actionIcon"
+              variant="flat"
+              :class="providerSetupChipClasses(provider.id)"
+              :disabled="writeActionsDisabled || providerSetupSaving || providerSetupMatching"
+              @click="selectProviderSetupProvider(provider.id)"
             >
-              {{ provider.label }}
-            </v-btn>
-          </v-btn-toggle>
+              <v-progress-circular
+                v-if="providerSetupMatching && provider.id === providerSetupProviderId"
+                indeterminate
+                size="14"
+                width="2"
+                class="provider-action-chip__spinner"
+              ></v-progress-circular>
+              <img
+                v-else-if="provider.iconSrc"
+                class="artists-provider-chip__icon"
+                :src="provider.iconSrc"
+                alt=""
+                aria-hidden="true"
+              >
+              <span class="artists-provider-chip__text">{{ provider.label }}</span>
+            </v-chip>
+          </div>
 
-          <div v-if="providerSetupProviderId === 'musicbrainz'" class="provider-setup-section">
-            <v-btn
-              color="primary"
-              variant="tonal"
-              prepend-icon="mdi-magnify"
-              :loading="providerSetupMatching"
-              :disabled="writeActionsDisabled || providerSetupSaving || !providerSetupArtist"
-              @click="loadProviderCandidates"
-            >
-              Search MusicBrainz
-            </v-btn>
+          <div class="provider-setup-section">
             <v-progress-linear v-if="providerSetupMatching" indeterminate color="primary"></v-progress-linear>
             <div v-if="!providerSetupMatching && providerCandidates.length === 0" class="cell-muted">
               No candidates loaded.
             </div>
-            <v-list v-else density="compact" class="provider-list">
+            <v-list v-if="!providerSetupMatching && providerCandidates.length > 0" density="compact" class="provider-list">
               <v-list-item v-for="candidate in providerCandidates" :key="candidate.providerArtistId">
                 <v-list-item-title>
                   <span class="cell-strong">{{ candidate.providerArtistName }}</span>
@@ -4022,7 +4009,7 @@ watch(sortedCollectionTitleItems, (items) => {
             </v-list>
           </div>
 
-          <div v-else class="provider-setup-section">
+          <div v-if="providerSetupProviderId !== 'musicbrainz'" class="provider-setup-section">
             <v-text-field
               v-model="providerSetupUrl"
               :label="`${providerSetupDefinition.label} URL`"
@@ -4053,7 +4040,7 @@ watch(sortedCollectionTitleItems, (items) => {
 
     <v-dialog v-model="artistDialog" max-width="860">
       <v-card class="dialog-card">
-        <v-card-title>{{ artistForm.id ? 'Artist Details' : 'Add Artist' }}</v-card-title>
+        <v-card-title>Artist Details</v-card-title>
         <v-card-text class="edit-form">
           <v-row dense class="edit-form__grid">
             <v-col cols="12" md="6">
@@ -4061,19 +4048,6 @@ watch(sortedCollectionTitleItems, (items) => {
             </v-col>
             <v-col cols="12" md="6">
               <v-text-field v-model="artistForm.sortName" label="Sort name" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
-            </v-col>
-            <v-col cols="12">
-              <v-select
-                v-model="artistForm.collectionIds"
-                :items="collectionOptions"
-                :menu-props="{ maxHeight: 184 }"
-                class="artist-collection-select"
-                label="Collections"
-                multiple
-                chips
-                :disabled="writeActionsDisabled"
-                hide-details="auto"
-              ></v-select>
             </v-col>
             <v-col cols="12">
               <v-textarea

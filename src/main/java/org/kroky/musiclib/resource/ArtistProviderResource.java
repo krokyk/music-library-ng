@@ -53,10 +53,11 @@ public class ArtistProviderResource {
     }
 
     @GET
-    @Path("/provider-candidates/musicbrainz")
-    public List<ArtistProviderCandidate> musicBrainzCandidates(@PathParam("artistId") long artistId) {
+    @Path("/provider-candidates/{providerId}")
+    public List<ArtistProviderCandidate> providerCandidates(@PathParam("artistId") long artistId,
+            @PathParam("providerId") String providerId) {
         try {
-            return matches.searchMusicBrainzCandidates(artistId);
+            return matches.searchCandidates(artistId, providerId);
         } catch (ProviderException e) {
             throw new BadRequestException(e.getMessage(), e);
         }

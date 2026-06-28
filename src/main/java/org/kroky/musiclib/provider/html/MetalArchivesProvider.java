@@ -1,14 +1,19 @@
 package org.kroky.musiclib.provider.html;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -17,6 +22,7 @@ import org.jsoup.select.Elements;
 import org.kroky.musiclib.model.ReleaseDates;
 import org.kroky.musiclib.provider.DiscographyProvider;
 import org.kroky.musiclib.provider.ProviderException;
+import org.kroky.musiclib.provider.ProviderArtistSearchResult;
 import org.kroky.musiclib.provider.ProviderUrlNormalizer;
 import org.kroky.musiclib.provider.RemoteAlbum;
 
@@ -27,11 +33,13 @@ public class MetalArchivesProvider implements DiscographyProvider {
 
     private static final String BASE_URL = "https://www.metal-archives.com";
     private static final String MAIN_DISCOGRAPHY_PATH = "/band/discography/id/%s/tab/main";
+    private static final String BAND_SEARCH_PATH = "/search/ajax-band-search/?field=name&query=%s";
     private static final String USER_AGENT = "music-library-ng";
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final int MAX_ATTEMPTS = 3;
     private static final Pattern BAND_URL_ID = Pattern.compile("/bands/[^/]+/(\\d+)(?:[/?#].*)?$");
     private static final Pattern DISCOGRAPHY_URL_ID = Pattern.compile("/band/discography/id/(\\d+)(?:/.*)?$");
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(20))
@@ -54,6 +62,16 @@ public class MetalArchivesProvider implements DiscographyProvider {
             return parseMainDiscography(fetch(discographyUrl(providerUrl), providerUrl));
         } catch (Exception e) {
             throw new ProviderException("Unable to fetch Metal Archives albums from " + providerUrl, e);
+        }
+    }
+
+    public List<ProviderArtistSearchResult> searchArtists(String artistName, int limit) throws ProviderException {
+        try {
+            URI uri = URI.create(BASE_URL + BAND_SEARCH_PATH.formatted(
+                    URLEncoder.encode(artistName, StandardCharsets.UTF_8)));
+            return parseBandSearchResults(fetch(uri, BASE_URL + "/search"), Math.max(1, limit));
+        } catch (Exception e) {
+            throw new ProviderException("Unable to search Metal Archives artists for " + artistName, e);
         }
     }
 
@@ -93,6 +111,51 @@ public class MetalArchivesProvider implements DiscographyProvider {
                     link.absUrl("href")));
         }
         return albums;
+    }
+
+    static List<ProviderArtistSearchResult> parseBandSearchResults(String json, int limit) throws Exception {
+        JsonNode root = OBJECT_MAPPER.readTree(json);
+        List<ProviderArtistSearchResult> results = new ArrayList<>();
+        int index = 0;
+        for (JsonNode row : root.path("aaData")) {
+            if (results.size() >= Math.max(1, limit)) {
+                break;
+            }
+            if (!row.isArray() || row.size() < 3) {
+                continue;
+            }
+            Element link = Jsoup.parse(row.get(0).asText(), BASE_URL).selectFirst("a[href*=/bands/]");
+            if (link == null || link.text().isBlank()) {
+                continue;
+            }
+            String url = link.absUrl("href");
+            results.add(new ProviderArtistSearchResult(
+                    "metal_archives",
+                    bandId(url),
+                    link.text().trim(),
+                    url,
+                    text(row, 1),
+                    text(row, 2),
+                    disambiguation(row.get(0).asText()),
+                    null,
+                    Math.max(1, 100 - index * 8)));
+            index++;
+        }
+        return results;
+    }
+
+    private static String text(JsonNode row, int index) {
+        if (!row.has(index) || !row.get(index).isTextual()) {
+            return null;
+        }
+        String value = Jsoup.parse(row.get(index).asText()).text().trim();
+        return value.isBlank() ? null : value;
+    }
+
+    private static String disambiguation(String html) {
+        String text = Jsoup.parse(html).text().trim();
+        int marker = text.indexOf("a.k.a.");
+        return marker >= 0 ? text.substring(marker).trim() : null;
     }
 
     private String fetch(URI url, String refererUrl) throws ProviderException {

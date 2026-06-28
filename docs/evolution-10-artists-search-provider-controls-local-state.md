@@ -4,8 +4,10 @@
 
 This document records Artists screen search refinements and provider/local-state workflow updates made after Evolution 09.
 Future commits that continue compact Artists screen search, filtering, provider controls, collection artist scan ergonomics, or Albums pane local-state filtering should extend this document instead of adding those notes to Evolution 09.
+Evolution 11 supersedes the provider matching and global Artists screen bulk-control details that were current when this document was written.
+Evolution 11 also supersedes the manual artist collection membership details that were current when this document was written.
 
-## Current Behavior
+## Behavior Captured In Evolution 10
 
 ### Artists Search
 
@@ -29,8 +31,8 @@ Future commits that continue compact Artists screen search, filtering, provider 
 ### Provider Controls
 
 - The Collections artists pane shows `Add provider` when an artist has no provider.
-- Choosing MusicBrainz opens candidate search, and choosing a candidate saves the provider then immediately starts that artist provider scan.
-- Choosing Spirit of Metal or Metal Archives prompts for a URL, validates it before save, saves it, and immediately starts that artist provider scan.
+- Choosing MusicBrainz opened candidate search, and choosing a candidate saved the provider then immediately started that artist provider scan.
+- Choosing Spirit of Metal or Metal Archives prompted for a URL, validated it before save, saved it, and immediately started that artist provider scan.
 - When an artist already has a provider, the provider control is the provider chip.
 - Clicking the provider chip starts a provider scan for that artist.
 - The provider chip trash icon removes the provider and returns the control to `Add provider`.
@@ -58,7 +60,7 @@ Future commits that continue compact Artists screen search, filtering, provider 
 
 ### Scan Failure Signals
 
-- Local artist scan failures are stored on the artist collection membership row.
+- Local artist scan failures are stored on the artist scan-state row.
 - Provider scan failures are stored on the artist provider link.
 - The Collections artists pane shows a red circular failure icon before the artist name only when a local or provider scan failure is present.
 - The failure icon tooltip is intentionally short because the status bar and scan history carry detailed failure messages.

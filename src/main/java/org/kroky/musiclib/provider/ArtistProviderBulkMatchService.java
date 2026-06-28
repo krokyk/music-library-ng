@@ -11,7 +11,6 @@ import org.kroky.musiclib.model.ArtistProviderBulkMatchItem;
 import org.kroky.musiclib.model.ArtistProviderBulkMatchResult;
 import org.kroky.musiclib.model.ArtistProviderCandidate;
 import org.kroky.musiclib.model.ArtistProviderLink;
-import org.kroky.musiclib.provider.musicbrainz.MusicBrainzClient;
 import org.kroky.musiclib.repository.ArtistProviderLinkRepository;
 import org.kroky.musiclib.repository.ArtistRepository;
 
@@ -37,13 +36,17 @@ public class ArtistProviderBulkMatchService {
     ArtistProviderMatchService matches;
 
     public ArtistProviderBulkMatchResult matchMusicBrainzArtists(List<Long> requestedArtistIds) {
+        return matchProviderArtists("musicbrainz", requestedArtistIds);
+    }
+
+    public ArtistProviderBulkMatchResult matchProviderArtists(String providerId, List<Long> requestedArtistIds) {
         List<Long> artistIds = artistIds(requestedArtistIds);
         List<ArtistProviderBulkMatchItem> items = new ArrayList<>();
         for (Long artistId : artistIds) {
             if (artistId == null) {
                 continue;
             }
-            items.add(matchArtist(artistId));
+            items.add(matchArtist(providerId, artistId));
         }
 
         int matched = count(items, STATUS_MATCHED);
@@ -52,7 +55,8 @@ public class ArtistProviderBulkMatchService {
         int skipped = count(items, STATUS_SKIPPED_EXISTING);
         int errors = count(items, STATUS_ERROR);
         int processed = Math.max(0, items.size() - skipped);
-        String message = "MusicBrainz bulk match: matched " + matched
+        String label = providerLabel(providerId);
+        String message = label + " bulk match: matched " + matched
                 + ", manual " + manual
                 + ", no match " + noMatch
                 + ", skipped " + skipped
@@ -69,7 +73,7 @@ public class ArtistProviderBulkMatchService {
                 List.of(message));
     }
 
-    private ArtistProviderBulkMatchItem matchArtist(long artistId) {
+    private ArtistProviderBulkMatchItem matchArtist(String providerId, long artistId) {
         try {
             Artist artist = artists.find(artistId)
                     .orElseThrow(() -> new IllegalArgumentException("Unknown artist: " + artistId));
@@ -83,17 +87,18 @@ public class ArtistProviderBulkMatchService {
                         List.of());
             }
 
-            List<ArtistProviderCandidate> candidates = matches.searchMusicBrainzCandidates(artist.id());
+            String label = providerLabel(providerId);
+            List<ArtistProviderCandidate> candidates = matches.searchCandidates(artist.id(), providerId);
             if (candidates.isEmpty()) {
-                return item(artist, STATUS_NO_MATCH, "No MusicBrainz candidates found.", null, null, candidates);
+                return item(artist, STATUS_NO_MATCH, "No " + label + " candidates found.", null, null, candidates);
             }
 
             ArtistProviderCandidate top = candidates.get(0);
             ArtistProviderCandidate runnerUp = candidates.size() > 1 ? candidates.get(1) : null;
-            if (isHighConfidenceMusicBrainzMatch(artist.name(), top, runnerUp)) {
+            if (isHighConfidenceProviderMatch(artist.name(), top, runnerUp)) {
                 ArtistProviderLink link = providerLinks.upsertForArtist(
                         artist.id(),
-                        MusicBrainzClient.PROVIDER_ID,
+                        top.providerId(),
                         top.providerArtistId(),
                         top.providerArtistName(),
                         top.providerUrl(),
@@ -103,13 +108,13 @@ public class ArtistProviderBulkMatchService {
                         top.active(),
                         true);
                 return item(artist, STATUS_MATCHED,
-                        "Auto-linked MusicBrainz provider: " + top.providerArtistName(),
+                        "Auto-linked " + label + " provider: " + top.providerArtistName(),
                         link,
                         top,
                         candidates);
             }
             return item(artist, STATUS_NEEDS_MANUAL,
-                    "MusicBrainz candidates need manual selection before linking.",
+                    label + " candidates need manual selection before linking.",
                     null,
                     null,
                     candidates);
@@ -126,6 +131,11 @@ public class ArtistProviderBulkMatchService {
     }
 
     static boolean isHighConfidenceMusicBrainzMatch(String artistName, ArtistProviderCandidate candidate,
+            ArtistProviderCandidate runnerUp) {
+        return isHighConfidenceProviderMatch(artistName, candidate, runnerUp);
+    }
+
+    static boolean isHighConfidenceProviderMatch(String artistName, ArtistProviderCandidate candidate,
             ArtistProviderCandidate runnerUp) {
         if (candidate == null) {
             return false;
@@ -147,6 +157,15 @@ public class ArtistProviderBulkMatchService {
                 && candidate.providerScore() >= 95
                 && candidate.matchScore() >= 75
                 && margin >= 12;
+    }
+
+    private static String providerLabel(String providerId) {
+        return switch (providerId) {
+            case "musicbrainz" -> "MusicBrainz";
+            case ProviderUrlNormalizer.SPIRIT_OF_METAL -> "Spirit of Metal";
+            case ProviderUrlNormalizer.METAL_ARCHIVES -> "Metal Archives";
+            default -> providerId == null || providerId.isBlank() ? "Provider" : providerId;
+        };
     }
 
     private List<Long> artistIds(List<Long> requestedArtistIds) {

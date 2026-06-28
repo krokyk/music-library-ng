@@ -3,8 +3,6 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 import type {
-  ArtistProviderBulkMatchItem,
-  ArtistProviderBulkMatchResult,
   UiSettingsValues,
 } from '@/types'
 
@@ -29,7 +27,7 @@ interface UiForm {
 }
 
 const store = useLibraryStore()
-const { artists, collections, providerJob, providerStatus, scanJob, scanRuns, scanEvents, musicRoot, uiSettings } = storeToRefs(store)
+const { collections, providerJob, providerStatus, scanJob, scanRuns, scanEvents, musicRoot, uiSettings } = storeToRefs(store)
 
 const scanPollMin = 100
 const scanPollMax = 2000
@@ -61,10 +59,6 @@ const pendingUiSettingKeys = new Set<EditableUiSettingKey>()
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
 const providerIsRunning = computed(() => providerJob.value?.status === 'RUNNING' || providerStatus.value.running)
 const scanActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value)
-const bulkMatchLoading = ref(false)
-const bulkMatchDialog = ref(false)
-const bulkMatchResult = ref<ArtistProviderBulkMatchResult | null>(null)
-const bulkMatchItems = computed(() => bulkMatchResult.value?.items ?? [])
 
 function syncUiForm() {
   uiForm.statusCompleteVisibleMs = uiSettings.value.statusCompleteVisibleMs
@@ -117,127 +111,6 @@ async function scanCollection(collectionId: string) {
     await store.runScanJob(collectionId)
   } catch (scanError) {
     store.showErrorStatus(scanError, 'Unable to start collection scan')
-  }
-}
-
-async function runBulkMusicBrainzMatch() {
-  if (scanActionsDisabled.value) {
-    return
-  }
-  if (artists.value.length === 0) {
-    await store.loadArtists()
-  }
-  const artistIds = artists.value.map((artist) => artist.id)
-  if (artistIds.length === 0) {
-    return
-  }
-  bulkMatchLoading.value = true
-  bulkMatchResult.value = null
-  try {
-    const result = await store.bulkMatchMusicBrainz(artistIds)
-    bulkMatchResult.value = result
-    bulkMatchDialog.value = true
-  } catch (matchError) {
-    if (!store.providerStatus.message?.startsWith('MusicBrainz bulk match failed')) {
-      store.showErrorStatus(matchError, 'MusicBrainz bulk match failed')
-    }
-  } finally {
-    bulkMatchLoading.value = false
-  }
-}
-
-async function useBulkCandidate(item: ArtistProviderBulkMatchItem) {
-  if (scanActionsDisabled.value) {
-    return
-  }
-  const candidate = bulkCandidate(item)
-  if (!candidate) {
-    return
-  }
-  try {
-    const providerLink = await store.saveArtistProvider(item.artistId, {
-      providerId: 'musicbrainz',
-      providerArtistId: candidate.providerArtistId,
-      providerArtistName: candidate.providerArtistName,
-      providerUrl: candidate.providerUrl,
-      enabled: true,
-    })
-    if (!bulkMatchResult.value) {
-      return
-    }
-    const previousStatus = item.status
-    bulkMatchResult.value = {
-      ...bulkMatchResult.value,
-      matchedCount: bulkMatchResult.value.matchedCount + (previousStatus === 'MATCHED' ? 0 : 1),
-      manualCount: bulkMatchResult.value.manualCount - (previousStatus === 'NEEDS_MANUAL' ? 1 : 0),
-      noMatchCount: bulkMatchResult.value.noMatchCount - (previousStatus === 'NO_MATCH' ? 1 : 0),
-      skippedCount: bulkMatchResult.value.skippedCount - (previousStatus === 'SKIPPED_EXISTING' ? 1 : 0),
-      errorCount: bulkMatchResult.value.errorCount - (previousStatus === 'ERROR' ? 1 : 0),
-      items: bulkMatchResult.value.items.map((current) => current.artistId === item.artistId
-        ? {
-            ...current,
-            status: 'MATCHED',
-            message: `MusicBrainz provider saved: ${candidate.providerArtistName}`,
-            providerLink,
-            acceptedCandidate: candidate,
-          }
-        : current),
-    }
-    store.showStatus(`MusicBrainz provider saved for ${candidate.providerArtistName}.`, 'done')
-  } catch (saveError) {
-    store.showErrorStatus(saveError, 'Unable to save MusicBrainz provider')
-  }
-}
-
-function bulkCandidate(item: ArtistProviderBulkMatchItem) {
-  return item.acceptedCandidate ?? item.candidates[0] ?? null
-}
-
-function bulkEvidenceText(item: ArtistProviderBulkMatchItem) {
-  const candidate = bulkCandidate(item)
-  if (!candidate) {
-    return ''
-  }
-  const albumMatches = candidate.matchedLocalAlbums.length
-  const albumText = albumMatches === 1 ? '1 local album' : `${albumMatches} local albums`
-  return `${candidate.matchScore} match / ${candidate.providerScore} MB${albumMatches > 0 ? ` / ${albumText}` : ''}`
-}
-
-function bulkStatusText(status: ArtistProviderBulkMatchItem['status']) {
-  switch (status) {
-    case 'MATCHED':
-      return 'Matched'
-    case 'NEEDS_MANUAL':
-      return 'Needs manual'
-    case 'NO_MATCH':
-      return 'No match'
-    case 'SKIPPED_EXISTING':
-      return 'Skipped'
-    case 'ERROR':
-      return 'Error'
-    default:
-      return status
-  }
-}
-
-function bulkStatusColor(status: ArtistProviderBulkMatchItem['status']) {
-  switch (status) {
-    case 'MATCHED':
-      return 'success'
-    case 'NEEDS_MANUAL':
-      return 'warning'
-    case 'SKIPPED_EXISTING':
-      return 'info'
-    case 'ERROR':
-      return 'error'
-    default:
-      return 'default'
-  }
-}
-
-function openExternal(url?: string | null) {
-  if (url) {
-    window.open(url, '_blank', 'noopener')
   }
 }
 
@@ -391,7 +264,7 @@ async function resetUiSettings() {
 }
 
 onMounted(async () => {
-  await Promise.all([store.loadSettings(), store.loadUiSettings(), store.loadScanJob(), store.loadProviderJob(), store.loadArtists()])
+  await Promise.all([store.loadSettings(), store.loadUiSettings(), store.loadScanJob(), store.loadProviderJob()])
   if (scanIsRunning.value) {
     store.startScanJobPolling()
   }
@@ -627,33 +500,6 @@ onBeforeUnmount(() => {
         <section class="settings-section">
           <div class="settings-section__header">
             <div>
-              <h2 class="settings-section__title">Provider Setup</h2>
-              <div class="settings-section__subtitle">{{ artists.length }} artists</div>
-            </div>
-            <v-btn
-              color="primary"
-              variant="tonal"
-              prepend-icon="mdi-account-search"
-              :loading="bulkMatchLoading"
-              :disabled="artists.length === 0 || bulkMatchLoading || scanActionsDisabled"
-              @click="runBulkMusicBrainzMatch"
-            >
-              Bulk Match MusicBrainz
-            </v-btn>
-          </div>
-
-          <div v-if="bulkMatchResult" class="dialog-chip-row">
-            <v-chip size="small" color="success" variant="tonal">{{ bulkMatchResult.matchedCount }} matched</v-chip>
-            <v-chip size="small" color="warning" variant="tonal">{{ bulkMatchResult.manualCount }} manual</v-chip>
-            <v-chip size="small" variant="tonal">{{ bulkMatchResult.noMatchCount }} no match</v-chip>
-            <v-chip size="small" color="info" variant="tonal">{{ bulkMatchResult.skippedCount }} skipped</v-chip>
-            <v-chip size="small" color="error" variant="tonal">{{ bulkMatchResult.errorCount }} errors</v-chip>
-          </div>
-        </section>
-
-        <section class="settings-section">
-          <div class="settings-section__header">
-            <div>
               <h2 class="settings-section__title">Collections</h2>
               <div class="settings-section__subtitle">{{ collections.length }} configured</div>
             </div>
@@ -763,76 +609,5 @@ onBeforeUnmount(() => {
       </div>
     </v-sheet>
 
-    <v-dialog v-model="bulkMatchDialog" max-width="1100">
-      <v-card class="dialog-card">
-        <v-card-title>Bulk MusicBrainz Match</v-card-title>
-        <v-card-text class="edit-form">
-          <div v-if="bulkMatchResult" class="dialog-chip-row">
-            <v-chip size="small" color="success" variant="tonal">{{ bulkMatchResult.matchedCount }} matched</v-chip>
-            <v-chip size="small" color="warning" variant="tonal">{{ bulkMatchResult.manualCount }} manual</v-chip>
-            <v-chip size="small" variant="tonal">{{ bulkMatchResult.noMatchCount }} no match</v-chip>
-            <v-chip size="small" color="info" variant="tonal">{{ bulkMatchResult.skippedCount }} skipped</v-chip>
-            <v-chip size="small" color="error" variant="tonal">{{ bulkMatchResult.errorCount }} errors</v-chip>
-          </div>
-
-          <div class="bulk-match-dialog__table">
-            <v-table class="music-table" density="compact">
-              <thead>
-                <tr>
-                  <th>Artist</th>
-                  <th>Status</th>
-                  <th>Candidate</th>
-                  <th>Evidence</th>
-                  <th>Message</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in bulkMatchItems" :key="item.artistId">
-                  <td class="cell-strong">{{ item.artistName || `artist ${item.artistId}` }}</td>
-                  <td>
-                    <v-chip size="x-small" :color="bulkStatusColor(item.status)" variant="tonal">
-                      {{ bulkStatusText(item.status) }}
-                    </v-chip>
-                  </td>
-                  <td>
-                    <template v-if="bulkCandidate(item)">
-                      <div class="cell-strong">{{ bulkCandidate(item)?.providerArtistName }}</div>
-                      <div class="mono-path">{{ bulkCandidate(item)?.providerArtistId }}</div>
-                    </template>
-                    <span v-else class="cell-muted">None</span>
-                  </td>
-                  <td>{{ bulkEvidenceText(item) }}</td>
-                  <td>{{ item.message }}</td>
-                  <td class="text-right">
-                    <v-btn
-                      size="small"
-                      variant="text"
-                      icon="mdi-open-in-new"
-                      :disabled="!bulkCandidate(item)?.providerUrl"
-                      @click="openExternal(bulkCandidate(item)?.providerUrl)"
-                    ></v-btn>
-                    <v-btn
-                      v-if="item.status === 'NEEDS_MANUAL'"
-                      size="small"
-                      color="primary"
-                      variant="text"
-                      :disabled="!bulkCandidate(item) || scanActionsDisabled"
-                      @click="useBulkCandidate(item)"
-                    >
-                      Use
-                    </v-btn>
-                  </td>
-                </tr>
-              </tbody>
-            </v-table>
-          </div>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer></v-spacer>
-          <v-btn variant="text" @click="bulkMatchDialog = false">Close</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
   </v-container>
 </template>

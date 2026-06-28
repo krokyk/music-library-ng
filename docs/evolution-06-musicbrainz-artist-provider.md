@@ -5,8 +5,9 @@ Updated: 2026-06-27
 
 ## Scope
 
-This document records the current MusicBrainz artist-provider workflow.
-The workflow covers MusicBrainz artist identity assignment, release-group fetching, provider album import, provider run history, and the related Settings bulk artist matching.
+This document records the MusicBrainz artist-provider workflow.
+The workflow covers MusicBrainz artist identity assignment, release-group fetching, provider album import, provider run history, and the MusicBrainz-specific parts of generic provider matching.
+Evolution 11 owns the current Artists-screen bulk matching UI and the shared provider candidate API.
 
 ## Related Commits
 
@@ -44,7 +45,7 @@ The workflow covers MusicBrainz artist identity assignment, release-group fetchi
 - The Artists screen can search MusicBrainz candidates for a local artist.
 - Candidate search returns provider ID, MBID, provider artist name, URL, type, country, disambiguation, provider score, local match score, matched local album evidence, and preview release groups.
 - The user chooses the provider identity before it is stored.
-- Bulk MusicBrainz artist matching is available from Settings.
+- MusicBrainz bulk artist matching is available from the Artists screen through the shared provider matching controls.
 - Bulk matching auto-links only high-confidence artist identities.
 - Uncertain bulk artist matches remain manual candidate-selection results and do not change the artist until accepted.
 - Artists that already have a provider identity are skipped by bulk matching.
@@ -100,7 +101,8 @@ The workflow covers MusicBrainz artist identity assignment, release-group fetchi
 - `GET /api/artists/{artistId}/provider` returns the selected provider identity for an artist.
 - `PUT /api/artists/{artistId}/provider` stores or replaces the selected provider identity.
 - `DELETE /api/artists/{artistId}/provider` clears the selected provider identity.
-- `GET /api/artists/{artistId}/provider-candidates/musicbrainz` returns MusicBrainz artist candidates.
+- `GET /api/artists/{artistId}/provider-candidates/musicbrainz` is superseded by `GET /api/artists/{artistId}/provider-candidates/{providerId}` for shared provider candidate search.
+- `POST /api/provider-matches/{providerId}/artists` performs shared bulk artist matching for the requested provider.
 - `POST /api/artists/{artistId}/provider/refresh` refreshes one artist's MusicBrainz provider albums.
 - `POST /api/provider-checks/jobs/artist/{artistId}` starts a provider job for one artist.
 - `POST /api/provider-checks/jobs/collection/{collectionId}` starts a provider job for one collection.
@@ -114,7 +116,7 @@ The workflow covers MusicBrainz artist identity assignment, release-group fetchi
 
 - `MusicBrainzClient` owns MusicBrainz HTTP calls, rate limiting, pagination, and release-group filtering.
 - `ArtistProviderMatchService` searches candidates for one artist.
-- `ArtistProviderBulkMatchService` performs Settings bulk artist matching.
+- `ArtistProviderBulkMatchService` performs shared provider bulk artist matching.
 - `ArtistProviderRefreshService` imports MusicBrainz albums for a provider identity.
 - `ProviderCheckService` coordinates provider checks across MusicBrainz and HTML providers.
 - `ProviderCheckJobService` owns background provider job state and status messages.

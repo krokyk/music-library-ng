@@ -96,8 +96,17 @@ public class MusicCollectionRepository {
         String sql = """
                 SELECT
                     (SELECT count(*)
-                     FROM artist_collections ac
-                     WHERE ac.collection_id = ?) AS artist_count,
+                     FROM (
+                         SELECT aa.artist_id
+                         FROM collection_albums ca
+                         JOIN album_artists aa ON aa.album_id = ca.album_id
+                         WHERE ca.collection_id = ?
+                         UNION
+                         SELECT ac.artist_id
+                         FROM artist_collections ac
+                         WHERE ac.collection_id = ?
+                           AND (ac.local = 1 OR ac.last_local_scan_error_message IS NOT NULL)
+                     )) AS artist_count,
                     (SELECT count(DISTINCT aa.artist_id)
                      FROM collection_albums ca
                      JOIN album_artists aa ON aa.album_id = ca.album_id
@@ -119,7 +128,7 @@ public class MusicCollectionRepository {
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
-            for (int i = 1; i <= 6; i++) {
+            for (int i = 1; i <= 7; i++) {
                 statement.setString(i, id);
             }
             try (ResultSet rs = statement.executeQuery()) {

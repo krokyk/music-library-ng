@@ -14,6 +14,8 @@ import org.kroky.musiclib.model.Album;
 import org.kroky.musiclib.model.Artist;
 import org.kroky.musiclib.model.ArtistProviderCandidate;
 import org.kroky.musiclib.model.RemoteReleaseGroup;
+import org.kroky.musiclib.provider.html.MetalArchivesProvider;
+import org.kroky.musiclib.provider.html.SpiritOfMetalProvider;
 import org.kroky.musiclib.provider.musicbrainz.MusicBrainzArtistResult;
 import org.kroky.musiclib.provider.musicbrainz.MusicBrainzClient;
 import org.kroky.musiclib.repository.AlbumRepository;
@@ -25,6 +27,8 @@ import jakarta.inject.Inject;
 @ApplicationScoped
 public class ArtistProviderMatchService {
 
+    private static final int HTML_SEARCH_CANDIDATE_LIMIT = 10;
+
     @Inject
     ArtistRepository artists;
 
@@ -35,17 +39,25 @@ public class ArtistProviderMatchService {
     MusicBrainzClient musicBrainz;
 
     @Inject
+    SpiritOfMetalProvider spiritOfMetal;
+
+    @Inject
+    MetalArchivesProvider metalArchives;
+
+    @Inject
     MusicLibraryConfig config;
 
     public List<ArtistProviderCandidate> searchMusicBrainzCandidates(long artistId) throws ProviderException {
+        return searchCandidates(artistId, MusicBrainzClient.PROVIDER_ID);
+    }
+
+    public List<ArtistProviderCandidate> searchCandidates(long artistId, String providerId) throws ProviderException {
         Artist artist = artists.find(artistId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown artist: " + artistId));
         List<Album> localAlbums = albums.list(artist.id(), null, null, null, null).stream()
                 .filter(ArtistProviderMatchService::isScoringAlbum)
                 .toList();
-        List<MusicBrainzArtistResult> results = musicBrainz.searchArtists(
-                artist.name(), config.providers().musicbrainz().searchCandidateLimit());
-        return results.stream()
+        return searchProviderResults(artist.name(), providerId).stream()
                 .map(result -> candidate(artist, localAlbums, result))
                 .sorted(Comparator.comparingInt(ArtistProviderCandidate::matchScore).reversed()
                         .thenComparing(Comparator.comparingInt(ArtistProviderCandidate::providerScore).reversed())
@@ -54,10 +66,42 @@ public class ArtistProviderMatchService {
                 .toList();
     }
 
-    private ArtistProviderCandidate candidate(Artist artist, List<Album> localAlbums, MusicBrainzArtistResult result) {
+    private List<ProviderArtistSearchResult> searchProviderResults(String artistName, String providerId)
+            throws ProviderException {
+        if (MusicBrainzClient.PROVIDER_ID.equals(providerId)) {
+            return searchMusicBrainzResults(artistName);
+        }
+        if (ProviderUrlNormalizer.SPIRIT_OF_METAL.equals(providerId)) {
+            return spiritOfMetal.searchArtists(artistName, HTML_SEARCH_CANDIDATE_LIMIT);
+        }
+        if (ProviderUrlNormalizer.METAL_ARCHIVES.equals(providerId)) {
+            return metalArchives.searchArtists(artistName, HTML_SEARCH_CANDIDATE_LIMIT);
+        }
+        throw new ProviderException("Unsupported provider: " + providerId);
+    }
+
+    private List<ProviderArtistSearchResult> searchMusicBrainzResults(String artistName) throws ProviderException {
+        List<MusicBrainzArtistResult> results = musicBrainz.searchArtists(
+                artistName, config.providers().musicbrainz().searchCandidateLimit());
+        return results.stream()
+                .map(result -> new ProviderArtistSearchResult(
+                        MusicBrainzClient.PROVIDER_ID,
+                        result.id(),
+                        result.name(),
+                        musicBrainz.artistUrl(result.id()),
+                        result.type(),
+                        result.country(),
+                        result.disambiguation(),
+                        result.active(),
+                        result.score()))
+                .toList();
+    }
+
+    private ArtistProviderCandidate candidate(Artist artist, List<Album> localAlbums,
+            ProviderArtistSearchResult result) {
         List<RemoteReleaseGroup> releaseGroups;
         try {
-            releaseGroups = musicBrainz.fetchReleaseGroups(result.id());
+            releaseGroups = fetchReleaseGroups(result);
         } catch (ProviderException e) {
             releaseGroups = List.of();
         }
@@ -71,20 +115,44 @@ public class ArtistProviderMatchService {
                 .distinct()
                 .toList();
         int titleAndYearMatches = titleAndYearMatches(localAlbums, releaseGroups);
-        int matchScore = matchScore(artist.name(), result, matchedAlbums.size(), titleAndYearMatches);
+        int matchScore = matchScore(
+                artist.name(),
+                result.providerArtistName(),
+                result.providerScore(),
+                matchedAlbums.size(),
+                titleAndYearMatches);
         return new ArtistProviderCandidate(
-                MusicBrainzClient.PROVIDER_ID,
-                result.id(),
-                result.name(),
-                musicBrainz.artistUrl(result.id()),
+                result.providerId(),
+                result.providerArtistId(),
+                result.providerArtistName(),
+                result.providerUrl(),
                 result.type(),
                 result.country(),
                 result.disambiguation(),
                 result.active(),
-                result.score(),
+                result.providerScore(),
                 matchScore,
                 matchedAlbums,
                 releaseGroups);
+    }
+
+    private List<RemoteReleaseGroup> fetchReleaseGroups(ProviderArtistSearchResult result) throws ProviderException {
+        if (MusicBrainzClient.PROVIDER_ID.equals(result.providerId())) {
+            return musicBrainz.fetchReleaseGroups(result.providerArtistId());
+        }
+        DiscographyProvider provider = ProviderUrlNormalizer.SPIRIT_OF_METAL.equals(result.providerId())
+                ? spiritOfMetal
+                : metalArchives;
+        return provider.fetchAlbums(result.providerUrl()).stream()
+                .map(album -> new RemoteReleaseGroup(
+                        result.providerId(),
+                        album.sourceUrl() == null || album.sourceUrl().isBlank() ? album.title() : album.sourceUrl(),
+                        album.title(),
+                        album.releaseDate(),
+                        "Album",
+                        List.of(),
+                        album.sourceUrl()))
+                .toList();
     }
 
     private static int titleAndYearMatches(List<Album> localAlbums, List<RemoteReleaseGroup> releaseGroups) {
@@ -104,12 +172,12 @@ public class ArtistProviderMatchService {
         return matches;
     }
 
-    private static int matchScore(String localArtistName, MusicBrainzArtistResult result, int titleMatches,
-            int titleAndYearMatches) {
+    private static int matchScore(String localArtistName, String providerArtistName, int providerScore,
+            int titleMatches, int titleAndYearMatches) {
         String local = Names.normalize(localArtistName);
-        String remote = Names.normalize(result.name());
+        String remote = Names.normalize(providerArtistName);
         int nameScore = local.equals(remote) ? 35 : nameSimilarity(local, remote);
-        int score = (int) Math.round(result.score() * 0.35)
+        int score = (int) Math.round(providerScore * 0.35)
                 + nameScore
                 + Math.min(20, titleMatches * 5)
                 + Math.min(10, titleAndYearMatches * 3);

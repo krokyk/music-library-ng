@@ -727,15 +727,81 @@ body,
 }
 
 .pane-filter-bar.artists-search-bar {
+  gap: 10px;
   flex: 0 0 56px;
   height: 56px;
 }
 
 .artists-search-field {
-  flex: 0 1 50%;
-  max-width: 50%;
+  flex: 1 1 50%;
+  max-width: none;
+  min-width: 140px;
+  width: auto;
+}
+
+.artists-bulk-match-controls {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
   min-width: 0;
-  width: 50%;
+}
+
+.artists-bulk-match-label {
+  color: rgba(255, 255, 255, 0.72);
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.artists-collection-filter-row {
+  align-items: center;
+  background: #101010;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex: 0 0 34px;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 10px 0 14px;
+}
+
+.artists-collection-filter-row__label {
+  color: rgba(255, 255, 255, 0.54);
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.artists-collection-filter-chip.v-chip {
+  flex: 0 0 auto;
+  max-width: 150px;
+}
+
+.artists-collection-filter-chip .v-chip__content {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artists-collection-filter-add.v-btn {
+  flex: 0 0 auto;
+  height: 24px !important;
+  min-height: 24px !important;
+  min-width: 24px !important;
+  width: 24px !important;
+}
+
+.artists-collection-filter-menu {
+  max-height: min(360px, calc(var(--app-vh) - 180px));
+  min-width: 240px;
+  overflow: auto;
 }
 
 .artists-search-field .v-field {
@@ -816,6 +882,40 @@ body,
   min-width: 0;
   overflow: hidden;
   text-overflow: clip;
+}
+
+.provider-action-chip.v-chip {
+  cursor: pointer;
+  flex: 0 0 auto;
+  height: 26px !important;
+  min-height: 26px !important;
+  max-width: 150px;
+}
+
+.provider-action-chip--compact.v-chip {
+  justify-content: center;
+  max-width: 28px;
+  min-width: 28px;
+  padding-inline: 4px;
+  width: 28px;
+}
+
+.provider-action-chip--selected.v-chip {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 0 0 1px rgba(var(--v-theme-primary), 0.9);
+}
+
+.provider-action-chip__spinner {
+  color: currentColor;
+  flex: 0 0 auto;
+}
+
+.provider-chip-selector {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .artists-provider-chip__icon {

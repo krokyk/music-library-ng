@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { apiGet, apiSend, apiText } from '@/api'
 import { formatDateWithJavaPattern } from '@/dateFormat'
+import { providerDefinition, type ProviderId } from '@/providers'
 import type {
   Album,
   Artist,
@@ -30,7 +31,6 @@ interface ArtistPayload {
   name: string
   sortName?: string | null
   notes?: string | null
-  collectionIds: string[]
 }
 
 interface ProviderLinkPayload {
@@ -254,13 +254,14 @@ export const useLibraryStore = defineStore('library', {
       return collection
     },
     async updateCollection(collectionId: string, payload: { name?: string; type?: MusicCollection['type'] }) {
+      const previous = this.collections.find((item) => item.id === collectionId)
       const collection = await apiSend<MusicCollection>(`/api/collections/${encodeURIComponent(collectionId)}`, 'PUT', {
         name: payload.name,
         type: payload.type,
       })
       this.collections = this.collections.map((item) => (item.id === collection.id ? collection : item))
-      this.invalidateCollectionContent(collection.id)
-      if (this.selectedCollectionId === collection.id) {
+      if (this.selectedCollectionId === collection.id && previous?.type !== collection.type) {
+        this.invalidateCollectionContent(collection.id)
         await this.selectCollection(collection.id)
       }
       return collection
@@ -412,7 +413,7 @@ export const useLibraryStore = defineStore('library', {
       }
       await this.loadTitlesForCollection(this.selectedCollectionId)
     },
-    async loadTitlesForCollection(collectionId: string, force = false) {
+    async loadTitlesForCollection(collectionId: string, force = false, options: { clearCurrent?: boolean } = {}) {
       if (!force && hasCachedValue(this.collectionTitleItemsByCollection, collectionId)) {
         this.collectionTitleItems = this.collectionTitleItemsByCollection[collectionId]
         return this.collectionTitleItems
@@ -420,7 +421,7 @@ export const useLibraryStore = defineStore('library', {
       if (!force && this.collectionTitleItemsLoading[collectionId]) {
         return this.collectionTitleItemsByCollection[collectionId] ?? []
       }
-      if (this.selectedCollectionId === collectionId) {
+      if (this.selectedCollectionId === collectionId && options.clearCurrent !== false) {
         this.collectionTitleItems = []
       }
       this.collectionTitleItemsLoading = { ...this.collectionTitleItemsLoading, [collectionId]: true }
@@ -484,7 +485,7 @@ export const useLibraryStore = defineStore('library', {
       }
       await this.loadArtistsForCollection(this.selectedCollectionId)
     },
-    async loadArtistsForCollection(collectionId: string, force = false) {
+    async loadArtistsForCollection(collectionId: string, force = false, options: { clearCurrent?: boolean } = {}) {
       if (!force && hasCachedValue(this.collectionArtistsByCollection, collectionId)) {
         this.collectionArtists = this.collectionArtistsByCollection[collectionId]
         this.clearInvalidSelectedArtist()
@@ -493,7 +494,7 @@ export const useLibraryStore = defineStore('library', {
       if (!force && this.collectionArtistsLoading[collectionId]) {
         return this.collectionArtistsByCollection[collectionId] ?? []
       }
-      if (this.selectedCollectionId === collectionId) {
+      if (this.selectedCollectionId === collectionId && options.clearCurrent !== false) {
         this.collectionArtists = []
       }
       this.collectionArtistsLoading = { ...this.collectionArtistsLoading, [collectionId]: true }
@@ -579,6 +580,22 @@ export const useLibraryStore = defineStore('library', {
         await this.loadAlbumsForArtist(this.selectedArtistId, true)
       }
     },
+    async refreshCollectionAfterScan(collectionId?: string | null) {
+      this.invalidateCollectionMetadata(collectionId ?? undefined)
+      await this.loadSettings()
+      if (!collectionId || this.selectedCollectionId !== collectionId) {
+        return
+      }
+      const collection = this.collections.find((item) => item.id === collectionId)
+      if (collection?.type === 'TITLE') {
+        await this.loadTitlesForCollection(collectionId, true, { clearCurrent: false })
+        return
+      }
+      await this.loadArtistsForCollection(collectionId, true, { clearCurrent: false })
+      if (this.selectedArtistId) {
+        await this.loadAlbumsForArtist(this.selectedArtistId, true, { clearCurrent: false })
+      }
+    },
     async refreshCollectionArtistsOnly(clearArtistSelection = false) {
       if (!this.selectedCollectionId) {
         return
@@ -594,8 +611,8 @@ export const useLibraryStore = defineStore('library', {
         await this.loadArtistsForCollection(this.selectedCollectionId, true)
       }
     },
-    async addArtist(name: string, collectionIds: string[] = []) {
-      await this.saveArtist({ name, sortName: null, notes: null, collectionIds })
+    async addArtist(name: string) {
+      await this.saveArtist({ name, sortName: null, notes: null })
       await this.loadArtists()
     },
     async saveArtist(payload: ArtistPayload) {
@@ -603,11 +620,15 @@ export const useLibraryStore = defineStore('library', {
         name: payload.name,
         sortName: payload.sortName ?? null,
         notes: payload.notes ?? null,
-        collectionIds: payload.collectionIds,
       }
       const artist = payload.id
         ? await apiSend<Artist>(`/api/artists/${payload.id}`, 'PUT', body)
         : await apiSend<Artist>('/api/artists', 'POST', body)
+      if (payload.id) {
+        this.replaceArtist(artist)
+        this.replaceCollectionArtist(artist, this.currentCollectionScopeForArtist(artist.id))
+        return artist
+      }
       await this.loadArtists()
       this.invalidateCollectionContent()
       await this.refreshCollectionContext()
@@ -703,7 +724,7 @@ export const useLibraryStore = defineStore('library', {
       if (ids.length === 0) {
         return
       }
-      const scopedCollectionId = collectionId ?? this.selectedCollectionId
+      const scopedCollectionId = collectionId === undefined ? this.selectedCollectionId : collectionId
       if (ids.length === 1) {
         await this.refreshSingleArtistAfterScopedJob(ids[0], scopedCollectionId)
         return
@@ -926,16 +947,12 @@ export const useLibraryStore = defineStore('library', {
             this.stopScanJobPolling()
             const collectionId = status?.requestedCollectionId ?? status?.activeCollectionId ?? undefined
             const artistId = status?.requestedArtistId ?? undefined
-            this.invalidateCollectionMetadata(collectionId)
-            await this.loadSettings()
             if (status?.kind === 'LOCAL_ALBUMS' && artistId) {
+              this.invalidateCollectionMetadata(collectionId)
+              await this.loadSettings()
               await this.refreshArtistAfterScopedJob(artistId, collectionId)
-            } else if (status?.kind === 'LOCAL_ALBUMS') {
-              this.invalidateCollectionContent(collectionId)
-              await this.refreshCollectionContext()
             } else {
-              this.invalidateCollectionContent(collectionId)
-              await this.refreshCollectionArtistsOnly(true)
+              await this.refreshCollectionAfterScan(collectionId)
             }
           }
         } catch (error) {
@@ -1114,18 +1131,25 @@ export const useLibraryStore = defineStore('library', {
       }
     },
     async searchMusicBrainzCandidates(artistId: number) {
-      return apiGet<ArtistProviderCandidate[]>(`/api/artists/${artistId}/provider-candidates/musicbrainz`)
+      return this.searchProviderCandidates(artistId, 'musicbrainz')
+    },
+    async searchProviderCandidates(artistId: number, providerId: ProviderId) {
+      return apiGet<ArtistProviderCandidate[]>(`/api/artists/${artistId}/provider-candidates/${providerId}`)
     },
     async bulkMatchMusicBrainz(artistIds: number[]) {
+      return this.bulkMatchProvider('musicbrainz', artistIds)
+    },
+    async bulkMatchProvider(providerId: ProviderId, artistIds: number[]) {
       const count = artistIds.length
+      const provider = providerDefinition(providerId)
       this.providerStatus = {
         running: true,
-        message: `Matching MusicBrainz for ${count} artist${count === 1 ? '' : 's'}`,
+        message: `Matching ${provider.label} for ${count} artist${count === 1 ? '' : 's'}`,
         state: 'running',
       }
       try {
         const result = await apiSend<ArtistProviderBulkMatchResult>(
-          '/api/provider-matches/musicbrainz/artists',
+          `/api/provider-matches/${providerId}/artists`,
           'POST',
           { artistIds },
         )
@@ -1134,12 +1158,12 @@ export const useLibraryStore = defineStore('library', {
             this.providerLinks[item.artistId] = [item.providerLink]
           }
         }
-        this.invalidateCollectionContent()
-        await this.loadArtists()
-        await this.refreshCollectionContext()
-        this.invalidateCollectionMetadata()
+        const refreshedArtistIds = uniqueArtistIds(result.items.map((item) => item.artistId))
+        const collectionScope = this.currentCollectionScopeForArtists(refreshedArtistIds)
+        await this.refreshArtistsAfterScopedJob(refreshedArtistIds, collectionScope)
+        this.invalidateCollectionMetadata(collectionScope ?? undefined)
         const detail = result.messages.join(' ').trim()
-        const message = detail || `MusicBrainz bulk match complete: ${result.matchedCount} matched`
+        const message = detail || `${provider.label} bulk match complete: ${result.matchedCount} matched`
         this.providerStatus = {
           running: false,
           message,
@@ -1150,7 +1174,7 @@ export const useLibraryStore = defineStore('library', {
         return result
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        this.providerStatus = { running: false, message: `MusicBrainz bulk match failed: ${message}`, state: 'failed' }
+        this.providerStatus = { running: false, message: `${provider.label} bulk match failed: ${message}`, state: 'failed' }
         throw error
       }
     },
@@ -1167,17 +1191,30 @@ export const useLibraryStore = defineStore('library', {
         enabled: payload.enabled,
       })
       this.providerLinks[artistId] = [provider]
-      this.invalidateCollectionContent()
-      await this.loadArtists()
-      await this.refreshCollectionContext()
+      await this.refreshArtistAfterScopedJob(artistId, this.currentCollectionScopeForArtist(artistId))
       return provider
     },
     async clearArtistProvider(artistId: number) {
       await apiSend(`/api/artists/${artistId}/provider`, 'DELETE')
       this.providerLinks[artistId] = []
-      this.invalidateCollectionContent()
-      await this.loadArtists()
-      await this.refreshCollectionContext()
+      await this.refreshArtistAfterScopedJob(artistId, this.currentCollectionScopeForArtist(artistId))
+    },
+    currentCollectionScopeForArtist(artistId: number) {
+      if (!this.selectedCollectionId) {
+        return null
+      }
+      return this.collectionArtists.some((artist) => artist.id === artistId)
+        ? this.selectedCollectionId
+        : null
+    },
+    currentCollectionScopeForArtists(artistIds: number[]) {
+      if (!this.selectedCollectionId || artistIds.length === 0) {
+        return null
+      }
+      const ids = new Set(artistIds)
+      return this.collectionArtists.some((artist) => ids.has(artist.id))
+        ? this.selectedCollectionId
+        : null
     },
     async saveProviderLink(artistId: number, payload: ProviderLinkPayload) {
       const body = {

@@ -198,6 +198,10 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   Do not expose pane-width action-label thresholds in Settings.
 - Controls that can collapse must keep their icons visible.
   When space gets tight, remove labels first; never allow the pane, row, or action column to shrink below the width required to show all required icons.
+- Main Artists screen bulk provider matching uses visible unlinked artists after search and collection filters.
+  Keep the displayed count and submitted artist IDs from the same filtered list.
+- Main Artists screen bulk provider controls use provider chips.
+  Collapse provider chip labels before collapsing the bulk-match text to the count-only form, and shrink the search field only after the count and provider icons are preserved.
 - Pane-local filters use pane-scoped keys, for example `collections-screen.artists-pane.presence-filter`, `collections-screen.artists-pane.unchecked-filter`, `collections-screen.albums-pane.show-all-filter`, and `collections-screen.titles-pane.presence-filter`.
 - Pane-local scan indicators use pane-scoped keys, for example `collections-screen.collections-pane.scan-spinner-enabled`, `collections-screen.collections-pane.scan-progress-enabled`, and `collections-screen.artists-pane.scan-spinner-enabled`.
 - Use the shared Vuetify tooltip pattern for UI help and hover labels.
@@ -234,6 +238,8 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   - `Remove` removes only the artist association with the selected collection.
   - It does not delete the artist from the library database.
   - The artist should disappear from that collection pane after removal.
+  - Artist details edit metadata only and must not expose manual collection membership editing.
+  - Artist presence in a collection is derived from collection albums, provider-discovered collection albums, and local scan state.
   - `Unchecked` is a pane-local filter modifier that narrows the current Local/Non-local artist set to artists with unchecked albums.
 - Collections screen Albums pane uses `Show All` as a pane-local toggle under the pane title.
   The default is on when no saved preference exists.

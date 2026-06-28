@@ -94,16 +94,14 @@ Artists pane:
 - Show a compact indication when the artist has unchecked albums or scan failures.
 - Unchecked album indication is based on provider data and updates after provider checks.
 - Selecting an artist refreshes the albums table to show that artist's albums.
-- Artists shown here are artists assigned to the selected collection, including manually added artists with no local tracks.
+- Artists shown here are artists present through selected-collection albums, provider-discovered collection albums, or local scan state.
 - Artist rows have hover actions:
   - pencil icon opens artist detail modal;
   - refresh icon checks/refreshes discography for that artist using configured provider links.
-- Artist detail modal contains editable artist details only:
+- Artist detail modal contains editable artist metadata only:
   - name;
   - sort name;
-  - notes;
-  - collection membership;
-  - provider links/URLs.
+  - notes.
 - Artist detail modal does not show album summary/list.
   Album management stays in the albums pane.
 
@@ -330,6 +328,8 @@ public record Artist(
 ) {}
 ```
 
+`collectionIds` is response state derived from album collection membership and local scan-state rows, not a manual edit field in the Collections artist dialog.
+
 ### Album
 
 ```java
@@ -514,33 +514,26 @@ Create/update body:
 {
   "name": "Amaranthe",
   "sortName": null,
-  "notes": null,
-  "collectionIds": ["melodeath"]
+  "notes": null
 }
 ```
 
-Artist collection membership:
+Collection-scoped artists:
 
 ```text
 GET /api/collections/{collectionId}/artists
-PUT /api/artists/{id}/collections
-```
-
-Membership update body:
-
-```json
-{
-  "collectionIds": ["melodeath", "metal"]
-}
 ```
 
 Artist membership rules:
 
-- Manual artists can be assigned to one or more collections even before they have local paths.
-- Local scan should assign discovered artists to the scanned collection.
+- The UI does not expose manual artist-to-collection assignment.
+- The public artist create/update API does not accept collection IDs.
+- Artist presence in a collection is derived from collection albums, provider-discovered collection albums, and local scan state.
+- Local scan should mark discovered artists as local for the scanned collection.
 - Provider scans from Collections add discovered albums to the active collection only when the album has no collection memberships yet.
 - Provider scans do not change existing album collection memberships.
-- The Collections screen artists pane uses this membership table, not only local paths.
+- The Collections screen artists pane uses the derived artist presence for the selected collection, not manually edited artist membership.
+- Removing an artist from the selected collection removes that artist's collection album links and scan-state row for the collection, so the row disappears from the pane.
 
 ### Albums
 
@@ -625,6 +618,21 @@ Provider link body:
 }
 ```
 
+Provider candidate search:
+
+```text
+GET /api/artists/{artistId}/provider-candidates/{providerId}
+```
+
+Provider bulk matching:
+
+```text
+POST /api/provider-matches/{providerId}/artists
+```
+
+Bulk provider matching receives the exact artist IDs selected by the frontend scope and skips artists that already have a provider.
+Bulk provider matching auto-links only high-confidence candidates and returns manual candidate rows for ambiguous matches.
+
 ### Provider Checks
 
 ```text
@@ -664,14 +672,14 @@ For each parsed local folder:
 6. If album exists and local files are found, set `checked = true`.
 7. Upsert `album_local_paths` by collection + relative path.
 8. Set `last_seen_at = now`.
-9. Ensure the artist is assigned to the scanned collection in `artist_collections`.
-10. Mark the artist collection membership local when local disk evidence is present.
+9. Ensure a local scan-state row exists for the discovered artist and scanned collection.
+10. Mark the artist scan-state row local when local disk evidence is present.
 11. Remove stale `album_local_paths` rows for local folders that were not seen, while preserving `collection_albums` membership and checked album state.
 
 At the start or end of a collection scan:
 
 - Remove local path rows for known paths that were not seen in this scan.
-- Mark artist collection memberships local only for artists with local disk evidence in this scan.
+- Mark artist scan-state rows local only for artists with local disk evidence in this scan.
 - Do not delete albums automatically.
 - Do not delete album collection memberships automatically.
 
@@ -794,13 +802,15 @@ For `Local`, choose a compact UX such as:
 Features:
 
 - Search artists.
+- Filter artists by collection membership with OR semantics across selected collections.
 - Select an artist to manage provider links.
 - Show album counts.
 - Show unchecked album count.
 - Show local album count.
 - Manage provider links.
 - Check releases for one artist.
-- Bulk provider operations.
+- Bulk-match visible unlinked artists against MusicBrainz, Spirit of Metal, or Metal Archives.
+- Use provider chips for provider setup and provider matching controls.
 
 Suggested columns:
 
@@ -816,9 +826,8 @@ Actions
 Artist detail modal:
 
 - opens from pencil hover action in the Collections artists table;
-- contains editable artist details only;
-- includes provider link editing;
-- includes collection membership editing;
+- contains editable artist metadata only;
+- does not include collection membership editing;
 - does not include album summary/list.
 
 ### Settings View
@@ -839,19 +848,20 @@ Features:
 - Check all enabled provider links.
 - Show recent provider check runs.
 - Show how many new unchecked albums were added.
+- Match artist provider identities before provider checks when an artist has no provider link.
 
 ## 10. Implementation Checklist
 
-1. Maintain `V1__init.sql` as the base schema, including `artist_collections`.
+1. Maintain `V1__init.sql` as the base schema, including `artist_collections` as local scan-state support.
 2. Keep album listening state as the single `checked` flag.
 3. Validate `music-library.music-root` before database migration.
 4. Keep domain records and repositories aligned with the database schema.
-5. Provide collection-scoped artist membership APIs.
-6. Provide artist APIs with collection membership and provider links.
+5. Provide collection-scoped artist listing APIs.
+6. Provide artist APIs for artist metadata and provider links.
 7. Provide album APIs with `checked`, `hasLocalPath`, and `onDisk`.
-8. Keep local scan idempotent through `album_local_paths` and `artist_collections`.
+8. Keep local scan idempotent through `album_local_paths` and artist scan-state rows.
 9. Keep Collections view as the three-pane default screen.
-10. Keep artist detail modal focused on artist details, provider links, and collection membership only.
+10. Keep artist detail modal focused on artist metadata only.
 11. Keep album delete behind confirmation.
 12. Keep Library view focused on global album search and listened/local state.
 13. Keep Artists view focused on global artist management and provider checks.
@@ -879,7 +889,7 @@ Backend tests:
 Frontend smoke checks:
 
 - Empty DB loads.
-- Add artist.
+- Create global artist.
 - Add listened album with no local files.
 - Toggle listened checkbox.
 - Scan local collection.

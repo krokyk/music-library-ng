@@ -8,8 +8,9 @@ import org.kroky.musiclib.provider.ArtistProviderBulkMatchService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 
-@Path("/api/provider-matches/musicbrainz/artists")
+@Path("/api/provider-matches/{providerId}/artists")
 public class ArtistProviderBulkMatchResource {
 
     private static final Logger LOG = Logger.getLogger(ArtistProviderBulkMatchResource.class);
@@ -18,9 +19,10 @@ public class ArtistProviderBulkMatchResource {
     ArtistProviderBulkMatchService bulkMatches;
 
     @POST
-    public ArtistProviderBulkMatchResult match(ArtistProviderBulkMatchRequest request) {
+    public ArtistProviderBulkMatchResult match(@PathParam("providerId") String providerId,
+            ArtistProviderBulkMatchRequest request) {
         int requested = request == null || request.artistIds() == null ? 0 : request.artistIds().size();
-        LOG.infof("Bulk MusicBrainz artist match request artists=%d", requested);
-        return bulkMatches.matchMusicBrainzArtists(request == null ? null : request.artistIds());
+        LOG.infof("Bulk provider artist match request provider=%s artists=%d", providerId, requested);
+        return bulkMatches.matchProviderArtists(providerId, request == null ? null : request.artistIds());
     }
 }
