@@ -3,7 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 import { formatDateWithJavaPattern } from '@/dateFormat'
-import type { Album, Artist, CollectionFolderCandidate, MusicCollection } from '@/types'
+import { providerDefinition, providerDefinitions, validateProviderUrl, type ProviderId } from '@/providers'
+import type { Album, Artist, ArtistProviderCandidate, CollectionFolderCandidate, MusicCollection } from '@/types'
 import type { CSSProperties } from 'vue'
 
 interface ArtistForm {
@@ -22,6 +23,7 @@ interface ArtistRowMeasurement {
 interface ArtistRowFit {
   actionLabels: boolean
   issueLabel: boolean
+  providerLabel: boolean
 }
 
 interface CollectionRowMeasurement {
@@ -65,6 +67,13 @@ const {
 } = storeToRefs(store)
 
 const artistDialog = ref(false)
+const providerSetupDialog = ref(false)
+const providerSetupSaving = ref(false)
+const providerSetupMatching = ref(false)
+const providerSetupArtist = ref<Artist | null>(null)
+const providerSetupProviderId = ref<ProviderId>('musicbrainz')
+const providerSetupUrl = ref('')
+const providerCandidates = ref<ArtistProviderCandidate[]>([])
 const deleteDialog = ref(false)
 const addCollectionDropdownOpen = ref(false)
 const deleteCollectionDialog = ref(false)
@@ -173,7 +182,8 @@ const titleSort = reactive<{ key: TitleSortKey; direction: SortDirection }>({
 const titleSortMode = ref<TitleSortMode>('sortName')
 const artistPresence = ref<PresenceFilter[]>(['local', 'nonLocal'])
 const artistUnchecked = ref<ArtistUncheckedFilter[]>([])
-const albumShowAll = ref<AlbumShowAllFilter[]>([])
+const defaultAlbumShowAllFilter: AlbumShowAllFilter[] = ['showAll']
+const albumShowAll = ref<AlbumShowAllFilter[]>([...defaultAlbumShowAllFilter])
 const titlePresence = ref<PresenceFilter[]>(['local'])
 const hoveredCollectionId = ref<string | null>(null)
 const focusedCollectionId = ref<string | null>(null)
@@ -241,7 +251,9 @@ const rowActionButtonWidths = {
   gap: 2,
   info: 24,
   local: 64,
-  provider: 96,
+  provider: 118,
+  providerChip: 126,
+  providerChipCompact: 58,
   edit: 58,
   scan: 62,
   remove: 90,
@@ -268,6 +280,7 @@ const artistRowNameTrailingGap = 20
 const artistRowVisibleItemGap = 6
 const artistGridScrollbarGutterWidth = 16
 const artistIconActionButtonWidth = 30
+const artistFailureIconWidth = 18
 
 const artistIssueColumnWidths = {
   compact: 34,
@@ -333,6 +346,14 @@ const selectedArtist = computed(() =>
   collectionArtists.value.find((artist) => artist.id === selectedArtistId.value) ?? null,
 )
 
+const providerSetupUrlValidation = computed(() =>
+  validateProviderUrl(providerSetupProviderId.value, providerSetupUrl.value),
+)
+
+const providerSetupDefinition = computed(() =>
+  providerDefinition(providerSetupProviderId.value),
+)
+
 const collectionOptions = computed(() =>
   collections.value.map((collection) => ({ title: collection.name, value: collection.id })),
 )
@@ -351,6 +372,11 @@ const paneLayoutPreferenceKeys = {
 
 const artistUncheckedEnabled = computed(() => artistUnchecked.value.includes('unchecked'))
 const albumShowAllEnabled = computed(() => albumShowAll.value.includes('showAll'))
+const noCollectionAlbums = computed(() =>
+  selectedArtist.value && albumShowAllEnabled.value
+    ? collectionAlbums.value.filter((album) => album.collections.length === 0)
+    : [],
+)
 
 const sortedCollectionArtists = computed(() =>
   collectionArtists.value
@@ -416,7 +442,9 @@ const sortedCollectionAlbums = computed(() =>
 )
 
 const showAlbumCollectionsColumn = computed(() =>
-  sortedCollectionAlbums.value.some((album) => albumDisplayedCollections(album).length > 0),
+  sortedCollectionAlbums.value.some((album) =>
+    albumDisplayedCollections(album).length > 0 || albumShowsNoCollectionChip(album),
+  ),
 )
 
 const albumVirtualViewportHeight = computed(() =>
@@ -514,6 +542,68 @@ function artistIssueLabel(artist: Artist) {
     return `${artist.uncheckedAlbumCount} unchecked`
   }
   return ''
+}
+
+function artistFailureTooltip(artist: Artist) {
+  const localFailed = Boolean(artist.localScanErrorMessage)
+  const providerFailed = Boolean(providerForArtist(artist)?.lastErrorMessage ?? artist.providerLastErrorMessage)
+  if (localFailed && providerFailed) {
+    return 'Local and provider scans failed'
+  }
+  if (localFailed) {
+    return 'Local scan failed'
+  }
+  if (providerFailed) {
+    return 'Provider scan failed'
+  }
+  return ''
+}
+
+function providerForArtist(artist: Artist) {
+  if (!artist.providerId) {
+    return null
+  }
+  return {
+    providerId: artist.providerId,
+    providerArtistId: artist.providerArtistId,
+    providerArtistName: artist.providerArtistName,
+    providerArtistType: artist.providerArtistType,
+    providerArtistCountry: artist.providerArtistCountry,
+    providerArtistDisambiguation: artist.providerArtistDisambiguation,
+    providerArtistActive: artist.providerArtistActive,
+    providerUrl: artist.providerUrl,
+    lastErrorMessage: artist.providerLastErrorMessage ?? null,
+  }
+}
+
+function providerChipText(artist: Artist) {
+  const provider = providerForArtist(artist)
+  return provider ? providerDefinition(provider.providerId).label : 'Add provider'
+}
+
+function providerChipClasses(artist: Artist) {
+  const provider = providerForArtist(artist)
+  if (!provider) {
+    return []
+  }
+  return [
+    'artists-provider-chip',
+    'collections-provider-chip',
+    providerDefinition(provider.providerId).chipClass,
+    {
+      'artists-provider-chip--error': Boolean(provider.lastErrorMessage),
+      'collections-provider-chip--compact': !showArtistProviderLabel(artist),
+    },
+  ]
+}
+
+function providerChipIconSrc(artist: Artist) {
+  const provider = providerForArtist(artist)
+  return provider ? providerDefinition(provider.providerId).iconSrc : ''
+}
+
+function showArtistProviderLabel(artist: Artist) {
+  return artistRowFit(artist).providerLabel
 }
 
 function compareText(left: string | null | undefined, right: string | null | undefined) {
@@ -795,15 +885,8 @@ function titleSortModeTooltip() {
 }
 
 function albumDiskTitle(album: Album) {
-  const activePaths = album.localPaths.filter((path) => !path.missingSince)
-  if (activePaths.length > 0) {
-    return activePaths.map((path) => path.relativePath).join('\n')
-  }
-  const missingPaths = album.localPaths.filter((path) => path.missingSince)
-  if (missingPaths.length > 0) {
-    return missingPaths
-      .map((path) => `Missing: ${path.relativePath}`)
-      .join('\n')
+  if (album.localPaths.length > 0) {
+    return album.localPaths.map((path) => path.relativePath).join('\n')
   }
   return 'No local folder'
 }
@@ -826,6 +909,10 @@ function albumDisplayedCollections(album: Album) {
   return albumExtraCollections(album)
 }
 
+function albumShowsNoCollectionChip(album: Album) {
+  return albumShowAllEnabled.value && album.collections.length === 0
+}
+
 function albumCollectionsColumnLabel() {
   return albumShowAllEnabled.value ? 'In' : 'Also in'
 }
@@ -833,7 +920,12 @@ function albumCollectionsColumnLabel() {
 function albumShowAllTooltip() {
   return albumShowAllEnabled.value
     ? 'Showing all albums. Turn off to show only albums in this collection.'
-    : 'Show all albums for this artist, including albums outside this collection.'
+    : 'Show all albums for this artist, including provider-only albums and albums local to other collections.'
+}
+
+function addNoCollectionAlbumsTooltip() {
+  const collectionName = selectedCollection.value?.name ?? 'active collection'
+  return `Add all orphans to ${collectionName}`
 }
 
 function albumPaneEmptyMessage() {
@@ -849,7 +941,6 @@ function albumIsLocalToSelectedCollection(album: Album) {
   }
   return album.localPaths.some((path) =>
     path.collectionId === selectedCollectionId.value
-    && !path.missingSince
     && path.onDisk,
   )
 }
@@ -857,7 +948,7 @@ function albumIsLocalToSelectedCollection(album: Album) {
 function artistIsLocalToSelectedCollection(artist: Artist) {
   return Boolean(
     selectedCollectionId.value
-    && artist.localAlbumCount > 0,
+    && artist.localCollectionIds.includes(selectedCollectionId.value),
   )
 }
 
@@ -866,7 +957,7 @@ function artistCanBeRemovedFromSelectedCollection(artist: Artist) {
     selectedCollectionIsArtist.value
     && selectedCollectionId.value
     && artist.collectionIds.includes(selectedCollectionId.value)
-    && !artistIsLocalToSelectedCollection(artist),
+    && artist.collectionAlbumCount === 0,
   )
 }
 
@@ -1096,9 +1187,10 @@ function measuredCollectionNameWidth(name: string) {
   return Math.ceil(context.measureText(name).width)
 }
 
-function artistRowMinimumWidth(actionWidth: number, issueWidth: number) {
+function artistRowMinimumWidth(actionWidth: number, issueWidth: number, statusWidth: number) {
   return actionWidth
     + issueWidth
+    + statusWidth
     + artistReadableNameMinimumWidth
     + artistRowCellHorizontalPadding
     + artistRowNameTrailingGap
@@ -1109,7 +1201,11 @@ function artistRowMinimumWidth(actionWidth: number, issueWidth: number) {
 function artistPaneMinimumWidth() {
   return Math.max(
     paneHeaderMinimumWidths.artists,
-    artistRowMinimumWidth(artistIconActionWidthForCollection(), artistIssueColumnWidthForCollection()),
+    artistRowMinimumWidth(
+      artistIconActionWidthForCollection(),
+      artistIssueColumnWidthForCollection(),
+      artistStatusIconWidthForCollection(),
+    ),
   )
 }
 
@@ -1124,7 +1220,7 @@ function showArtistRowActionLabels(artist: Artist) {
 function artistRowFit(artist: Artist): ArtistRowFit {
   const measurement = currentArtistRowMeasurement(artist)
   if (!measurement) {
-    return { actionLabels: false, issueLabel: false }
+    return { actionLabels: false, issueLabel: false, providerLabel: false }
   }
 
   const active = artistRowActionsVisible(artist)
@@ -1135,19 +1231,20 @@ function artistRowFit(artist: Artist): ArtistRowFit {
     return {
       actionLabels: false,
       issueLabel: expandedIssueWidth > 0 && artistRowFits(measurement, 0, expandedIssueWidth),
+      providerLabel: false,
     }
   }
 
   if (artistRowFits(measurement, artistLabeledActionWidth(artist), expandedIssueWidth)) {
-    return { actionLabels: true, issueLabel: expandedIssueWidth > 0 }
+    return { actionLabels: true, issueLabel: expandedIssueWidth > 0, providerLabel: true }
   }
   if (artistRowFits(measurement, artistIconActionWidth(artist), expandedIssueWidth)) {
-    return { actionLabels: false, issueLabel: expandedIssueWidth > 0 }
+    return { actionLabels: false, issueLabel: expandedIssueWidth > 0, providerLabel: false }
   }
   if (artistRowFits(measurement, artistIconActionWidth(artist), compactIssueWidth)) {
-    return { actionLabels: false, issueLabel: false }
+    return { actionLabels: false, issueLabel: false, providerLabel: false }
   }
-  return { actionLabels: false, issueLabel: false }
+  return { actionLabels: false, issueLabel: false, providerLabel: false }
 }
 
 function artistRowFits(measurement: ArtistRowMeasurement, actionWidth: number, issueWidth: number) {
@@ -1167,8 +1264,12 @@ function currentArtistRowMeasurement(artist: Artist) {
   }
   return {
     contentWidth,
-    nameWidth: measuredArtistNameWidth(artist.name),
+    nameWidth: measuredArtistNameWidth(artist.name) + artistLeadingStatusWidth(artist),
   }
+}
+
+function artistLeadingStatusWidth(artist: Artist) {
+  return artistFailureTooltip(artist) ? artistFailureIconWidth : 0
 }
 
 function measuredArtistNameWidth(name: string) {
@@ -1200,6 +1301,10 @@ function artistIssueColumnWidthForCollection() {
     return 0
   }
   return artistIssueColumnWidths.compact
+}
+
+function artistStatusIconWidthForCollection() {
+  return collectionArtists.value.some((artist) => artistFailureTooltip(artist)) ? artistFailureIconWidth : 0
 }
 
 function showCollectionAddLabel() {
@@ -1917,7 +2022,7 @@ async function loadAlbumShowAllPreference() {
 
 function normalizeAlbumShowAllFilter(value: unknown) {
   if (!Array.isArray(value)) {
-    return []
+    return [...defaultAlbumShowAllFilter]
   }
   const normalized: AlbumShowAllFilter[] = []
   if (value.includes('showAll')) {
@@ -2037,7 +2142,7 @@ function collectionIconActionWidth() {
 function artistLabeledActionWidth(artist: Artist) {
   const widths: number[] = [
     rowActionButtonWidths.local,
-    rowActionButtonWidths.provider,
+    artistProviderActionWidth(artist, true),
     rowActionButtonWidths.edit,
   ]
   if (artistCanBeRemovedFromSelectedCollection(artist)) {
@@ -2054,8 +2159,22 @@ function artistLabeledActionWidthForCollection() {
 }
 
 function artistIconActionWidth(artist: Artist) {
-  const actionCount = artistCanBeRemovedFromSelectedCollection(artist) ? 4 : 3
-  return actionSetWidth(Array(actionCount).fill(artistIconActionButtonWidth))
+  const widths = [
+    artistIconActionButtonWidth,
+    artistProviderActionWidth(artist, false),
+    artistIconActionButtonWidth,
+  ]
+  if (artistCanBeRemovedFromSelectedCollection(artist)) {
+    widths.push(artistIconActionButtonWidth)
+  }
+  return actionSetWidth(widths)
+}
+
+function artistProviderActionWidth(artist: Artist, labeled: boolean) {
+  if (providerForArtist(artist)) {
+    return labeled ? rowActionButtonWidths.providerChip : rowActionButtonWidths.providerChipCompact
+  }
+  return labeled ? rowActionButtonWidths.provider : artistIconActionButtonWidth
 }
 
 function artistIconActionWidthForCollection() {
@@ -2069,9 +2188,6 @@ function albumLabeledActionWidth() {
   const widths: number[] = [rowActionButtonWidths.edit, rowActionButtonWidths.delete]
   if (sortedCollectionAlbums.value.some((album) => album.localPaths.length > 0)) {
     widths.unshift(rowActionButtonWidths.info)
-  }
-  if (sortedCollectionAlbums.value.some((album) => albumHasMissingLocalPath(album))) {
-    widths.splice(widths.length - 1, 0, rowActionButtonWidths.untrack)
   }
   return actionSetWidth(widths)
 }
@@ -2315,7 +2431,114 @@ async function removeArtistFromCollection(artist: Artist) {
   }
 }
 
-async function refreshArtist(artist: Artist) {
+function openProviderSetup(artist: Artist) {
+  selectArtistRow(artist)
+  if (writeActionsDisabled.value) {
+    return
+  }
+  providerSetupArtist.value = artist
+  providerSetupProviderId.value = 'musicbrainz'
+  providerSetupUrl.value = ''
+  providerCandidates.value = []
+  providerSetupDialog.value = true
+}
+
+function closeProviderSetup() {
+  providerSetupDialog.value = false
+  providerSetupArtist.value = null
+  providerSetupUrl.value = ''
+  providerCandidates.value = []
+}
+
+async function loadProviderCandidates() {
+  if (!providerSetupArtist.value || providerSetupProviderId.value !== 'musicbrainz') {
+    return
+  }
+  providerSetupMatching.value = true
+  providerCandidates.value = []
+  try {
+    providerCandidates.value = await store.searchMusicBrainzCandidates(providerSetupArtist.value.id)
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to search MusicBrainz')
+  } finally {
+    providerSetupMatching.value = false
+  }
+}
+
+async function useProviderCandidate(candidate: ArtistProviderCandidate) {
+  if (!providerSetupArtist.value || writeActionsDisabled.value) {
+    return
+  }
+  const artist = providerSetupArtist.value
+  providerSetupSaving.value = true
+  try {
+    await store.saveArtistProvider(artist.id, {
+      providerId: 'musicbrainz',
+      providerArtistId: candidate.providerArtistId,
+      providerArtistName: candidate.providerArtistName,
+      providerArtistType: candidate.type,
+      providerArtistCountry: candidate.country,
+      providerArtistDisambiguation: candidate.disambiguation,
+      providerArtistActive: candidate.active,
+      providerUrl: candidate.providerUrl,
+      enabled: true,
+    })
+    closeProviderSetup()
+    await scanArtistProvider(artist)
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to save MusicBrainz provider')
+  } finally {
+    providerSetupSaving.value = false
+  }
+}
+
+async function saveUrlProvider() {
+  if (!providerSetupArtist.value || writeActionsDisabled.value || providerSetupUrlValidation.value) {
+    return
+  }
+  const artist = providerSetupArtist.value
+  const providerId = providerSetupProviderId.value
+  const url = providerSetupUrl.value.trim()
+  if (!url || providerId === 'musicbrainz') {
+    return
+  }
+  providerSetupSaving.value = true
+  try {
+    await store.saveArtistProvider(artist.id, {
+      providerId,
+      providerUrl: url,
+      enabled: true,
+    })
+    closeProviderSetup()
+    await scanArtistProvider(artist)
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to save provider')
+  } finally {
+    providerSetupSaving.value = false
+  }
+}
+
+async function clearArtistProvider(artist: Artist) {
+  selectArtistRow(artist)
+  if (writeActionsDisabled.value) {
+    return
+  }
+  try {
+    await store.clearArtistProvider(artist.id)
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to remove provider')
+  }
+}
+
+async function handleArtistProviderAction(artist: Artist) {
+  if (providerForArtist(artist)) {
+    await scanArtistProvider(artist)
+    return
+  }
+  openProviderSetup(artist)
+}
+
+async function scanArtistProvider(artist: Artist) {
   selectArtistRow(artist)
   if (scanActionsDisabled.value) {
     return
@@ -2429,16 +2652,25 @@ async function updateAlbumChecked(album: Album, checked: boolean) {
   }
 }
 
+async function addNoCollectionAlbumsToSelectedCollection() {
+  if (writeActionsDisabled.value || !selectedCollectionId.value || noCollectionAlbums.value.length === 0) {
+    return
+  }
+  const albumIds = noCollectionAlbums.value.map((album) => album.id)
+  try {
+    await store.addAlbumsToCollection(selectedCollectionId.value, albumIds)
+    store.showStatus(`Added ${albumIds.length} orphan album${albumIds.length === 1 ? '' : 's'} to ${selectedCollection.value?.name ?? 'collection'}.`, 'done')
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to add orphan albums')
+  }
+}
+
 function albumCheckedValue(album: Album) {
   return album.onDisk || album.checked
 }
 
 function albumCheckedToggleDisabled(album: Album) {
   return album.onDisk
-}
-
-function albumHasMissingLocalPath(album: Album) {
-  return album.localPaths.some((path) => path.missingSince)
 }
 
 function openAlbumEditDialog(album: Album) {
@@ -2474,21 +2706,6 @@ async function saveAlbumTitle() {
     store.showErrorStatus(error, 'Unable to save album title')
   } finally {
     albumEditSaving.value = false
-  }
-}
-
-async function untrackMissingAlbumLocalPaths(album: Album) {
-  selectAlbumRow(album)
-  if (writeActionsDisabled.value) {
-    return
-  }
-  if (!selectedCollectionId.value) {
-    return
-  }
-  try {
-    await store.untrackMissingAlbumLocalPaths(album.id, selectedCollectionId.value)
-  } catch (error) {
-    store.showErrorStatus(error, 'Unable to untrack missing album path')
   }
 }
 
@@ -2672,6 +2889,11 @@ watch(albumShowAll, (value) => {
   resetAlbumGridScroll()
   saveAlbumShowAllFilter(value)
 }, { deep: true })
+
+watch(providerSetupProviderId, () => {
+  providerCandidates.value = []
+  providerSetupUrl.value = ''
+})
 
 watch([() => artistSort.key, () => artistSort.direction], () => {
   resetArtistGridScroll()
@@ -3240,7 +3462,7 @@ watch(sortedCollectionTitleItems, (items) => {
               Local
             </v-btn>
             <v-btn value="nonLocal" size="small" prepend-icon="mdi-cloud-outline">
-              <v-tooltip activator="parent" text="Show artists linked to this collection without local albums here." location="top"></v-tooltip>
+              <v-tooltip activator="parent" text="Show artists linked to this collection without local disk evidence here." location="top"></v-tooltip>
               Non-local
             </v-btn>
           </v-btn-toggle>
@@ -3296,6 +3518,16 @@ watch(sortedCollectionTitleItems, (items) => {
                   width="2"
                   class="artist-cell__spinner"
                 ></v-progress-circular>
+                <v-tooltip v-if="artistFailureTooltip(artist)" :text="artistFailureTooltip(artist)" location="top">
+                  <template #activator="{ props }">
+                    <v-icon
+                      v-bind="props"
+                      icon="mdi-alert-circle"
+                      size="16"
+                      class="artist-cell__failure"
+                    ></v-icon>
+                  </template>
+                </v-tooltip>
                 <span class="cell-strong">{{ artist.name }}</span>
                 <div class="artist-row-trailing" :class="artistRowTrailingClass(artist)">
                   <v-tooltip v-if="artistIssueLabel(artist)" :text="artistIssueLabel(artist)" location="top">
@@ -3332,20 +3564,47 @@ watch(sortedCollectionTitleItems, (items) => {
                         </v-btn>
                       </template>
                     </v-tooltip>
-                    <v-tooltip text="Scan this artist's provider" location="top">
+                    <v-tooltip
+                      v-if="providerForArtist(artist)"
+                      :text="`Scan ${providerChipText(artist)}`"
+                      location="top"
+                    >
+                      <template #activator="{ props }">
+                        <v-chip
+                          v-bind="props"
+                          :class="providerChipClasses(artist)"
+                          size="small"
+                          variant="flat"
+                          closable
+                          close-icon="mdi-trash-can-outline"
+                          :disabled="scanActionsDisabled"
+                          @click.stop="scanArtistProvider(artist)"
+                          @click:close.stop="clearArtistProvider(artist)"
+                        >
+                          <img
+                            v-if="providerChipIconSrc(artist)"
+                            class="artists-provider-chip__icon"
+                            :src="providerChipIconSrc(artist)"
+                            alt=""
+                            aria-hidden="true"
+                          >
+                          <span v-if="showArtistProviderLabel(artist)" class="artists-provider-chip__text">{{ providerChipText(artist) }}</span>
+                        </v-chip>
+                      </template>
+                    </v-tooltip>
+                    <v-tooltip v-else text="Add provider" location="top">
                       <template #activator="{ props }">
                         <v-btn
                           v-bind="props"
-                          prepend-icon="mdi-cloud-sync-outline"
+                          prepend-icon="mdi-cloud-plus-outline"
                           size="x-small"
                           variant="text"
                           color="primary"
                           :class="artistRowActionClass(artist)"
-                          :loading="providerScanIsRunningForArtist(artist)"
                           :disabled="scanActionsDisabled"
-                          @click.stop="refreshArtist(artist)"
+                          @click.stop="handleArtistProviderAction(artist)"
                         >
-                          <span v-if="showArtistRowActionLabels(artist)">Provider</span>
+                          <span v-if="showArtistRowActionLabels(artist)">Add provider</span>
                         </v-btn>
                       </template>
                     </v-tooltip>
@@ -3367,7 +3626,7 @@ watch(sortedCollectionTitleItems, (items) => {
                     </v-tooltip>
                     <v-tooltip
                       v-if="artistCanBeRemovedFromSelectedCollection(artist)"
-                      text="Remove artist from this collection"
+                      text="Remove from collection"
                       location="top"
                     >
                       <template #activator="{ props }">
@@ -3407,6 +3666,24 @@ watch(sortedCollectionTitleItems, (items) => {
             <span class="pane-header__title">Albums</span>
             <span v-if="selectedArtist" class="pane-header__meta">{{ selectedArtist.name }}</span>
           </div>
+          <div class="pane-header__actions">
+            <v-tooltip v-if="selectedArtist && albumShowAllEnabled && noCollectionAlbums.length > 0" :text="addNoCollectionAlbumsTooltip()" location="top">
+              <template #activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  prepend-icon="mdi-plus"
+                  size="small"
+                  variant="tonal"
+                  color="warning"
+                  class="app-toolbar-button"
+                  :disabled="writeActionsDisabled"
+                  @click="addNoCollectionAlbumsToSelectedCollection"
+                >
+                  Add orphans
+                </v-btn>
+              </template>
+            </v-tooltip>
+          </div>
         </div>
         <div class="pane-filter-bar">
           <span class="pane-filter-bar__label">Filter</span>
@@ -3442,15 +3719,43 @@ watch(sortedCollectionTitleItems, (items) => {
               Scan local folders
             </v-btn>
             <v-btn
+              v-if="!providerForArtist(selectedArtist)"
               color="primary"
               variant="tonal"
-              prepend-icon="mdi-cloud-sync-outline"
-              :loading="providerScanIsRunningForArtist(selectedArtist)"
+              prepend-icon="mdi-cloud-plus-outline"
               :disabled="scanActionsDisabled"
-              @click="refreshArtist(selectedArtist)"
+              @click="handleArtistProviderAction(selectedArtist)"
             >
-              Scan provider
+              Add provider
             </v-btn>
+            <v-tooltip
+              v-else
+              :text="`Scan ${providerChipText(selectedArtist)}`"
+              location="top"
+            >
+              <template #activator="{ props }">
+                <v-chip
+                  v-bind="props"
+                  :class="[...providerChipClasses(selectedArtist), 'pane-empty-provider-chip']"
+                  size="large"
+                  variant="flat"
+                  closable
+                  close-icon="mdi-trash-can-outline"
+                  :disabled="scanActionsDisabled"
+                  @click="scanArtistProvider(selectedArtist)"
+                  @click:close.stop="clearArtistProvider(selectedArtist)"
+                >
+                  <img
+                    v-if="providerChipIconSrc(selectedArtist)"
+                    class="artists-provider-chip__icon"
+                    :src="providerChipIconSrc(selectedArtist)"
+                    alt=""
+                    aria-hidden="true"
+                  >
+                  <span class="artists-provider-chip__text">{{ providerChipText(selectedArtist) }}</span>
+                </v-chip>
+              </template>
+            </v-tooltip>
           </div>
         </div>
         <div
@@ -3593,6 +3898,11 @@ watch(sortedCollectionTitleItems, (items) => {
                     {{ collection.name }}
                   </v-chip>
                 </div>
+                <div v-else-if="albumShowsNoCollectionChip(album)" class="album-collection-chips">
+                  <v-chip size="x-small" variant="tonal" color="warning" class="album-no-collection-chip">
+                    No collection
+                  </v-chip>
+                </div>
               </div>
               <div class="workspace-grid__cell row-action-cell">
                 <div class="row-actions">
@@ -3621,22 +3931,6 @@ watch(sortedCollectionTitleItems, (items) => {
                         @click.stop="openAlbumEditDialog(album)"
                       >
                         <span v-if="showGridActionLabels('album')">Edit</span>
-                      </v-btn>
-                    </template>
-                  </v-tooltip>
-                  <v-tooltip v-if="albumHasMissingLocalPath(album)" text="Forget missing local folder" location="top">
-                    <template #activator="{ props }">
-                      <v-btn
-                        v-bind="props"
-                        prepend-icon="mdi-folder-remove-outline"
-                        size="x-small"
-                        variant="text"
-                        color="warning"
-                        :class="gridRowActionClass('album')"
-                        :disabled="writeActionsDisabled"
-                        @click.stop="untrackMissingAlbumLocalPaths(album)"
-                      >
-                        <span v-if="showGridActionLabels('album')">Untrack</span>
                       </v-btn>
                     </template>
                   </v-tooltip>
@@ -3669,6 +3963,93 @@ watch(sortedCollectionTitleItems, (items) => {
       </v-sheet>
       </template>
     </div>
+
+    <v-dialog v-model="providerSetupDialog" max-width="760">
+      <v-card class="dialog-card">
+        <v-card-title>Add Provider</v-card-title>
+        <v-card-text class="edit-form">
+          <div class="cell-muted">{{ providerSetupArtist?.name }}</div>
+          <v-btn-toggle
+            v-model="providerSetupProviderId"
+            mandatory
+            density="compact"
+            color="primary"
+            class="app-toolbar-toggle provider-setup-toggle"
+            :disabled="writeActionsDisabled || providerSetupSaving"
+          >
+            <v-btn
+              v-for="provider in providerDefinitions"
+              :key="provider.id"
+              :value="provider.id"
+              size="small"
+              :prepend-icon="provider.actionIcon"
+            >
+              {{ provider.label }}
+            </v-btn>
+          </v-btn-toggle>
+
+          <div v-if="providerSetupProviderId === 'musicbrainz'" class="provider-setup-section">
+            <v-btn
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-magnify"
+              :loading="providerSetupMatching"
+              :disabled="writeActionsDisabled || providerSetupSaving || !providerSetupArtist"
+              @click="loadProviderCandidates"
+            >
+              Search MusicBrainz
+            </v-btn>
+            <v-progress-linear v-if="providerSetupMatching" indeterminate color="primary"></v-progress-linear>
+            <div v-if="!providerSetupMatching && providerCandidates.length === 0" class="cell-muted">
+              No candidates loaded.
+            </div>
+            <v-list v-else density="compact" class="provider-list">
+              <v-list-item v-for="candidate in providerCandidates" :key="candidate.providerArtistId">
+                <v-list-item-title>
+                  <span class="cell-strong">{{ candidate.providerArtistName }}</span>
+                  <v-chip size="x-small" color="primary" variant="tonal" class="ml-2">{{ candidate.matchScore }}</v-chip>
+                </v-list-item-title>
+                <v-list-item-subtitle>
+                  {{ [candidate.type, candidate.country, candidate.disambiguation].filter(Boolean).join(' · ') }}
+                </v-list-item-subtitle>
+                <div class="mono-path">{{ candidate.providerArtistId }}</div>
+                <template #append>
+                  <v-btn size="small" color="primary" :loading="providerSetupSaving" :disabled="writeActionsDisabled" @click="useProviderCandidate(candidate)">
+                    Use
+                  </v-btn>
+                </template>
+              </v-list-item>
+            </v-list>
+          </div>
+
+          <div v-else class="provider-setup-section">
+            <v-text-field
+              v-model="providerSetupUrl"
+              :label="`${providerSetupDefinition.label} URL`"
+              prepend-inner-icon="mdi-link-variant"
+              autofocus
+              :disabled="writeActionsDisabled || providerSetupSaving"
+              :error-messages="providerSetupUrlValidation ? [providerSetupUrlValidation] : []"
+              hide-details="auto"
+              @keyup.enter="saveUrlProvider"
+            ></v-text-field>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="closeProviderSetup">Cancel</v-btn>
+          <v-btn
+            v-if="providerSetupProviderId !== 'musicbrainz'"
+            color="primary"
+            :loading="providerSetupSaving"
+            :disabled="writeActionsDisabled || !providerSetupUrl.trim() || Boolean(providerSetupUrlValidation)"
+            @click="saveUrlProvider"
+          >
+            Save
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <v-dialog v-model="artistDialog" max-width="860">
       <v-card class="dialog-card">
@@ -3721,7 +4102,7 @@ watch(sortedCollectionTitleItems, (items) => {
         <v-card-title>{{ titleItemToEdit ? 'Title Metadata' : 'Add Title' }}</v-card-title>
         <v-card-text class="edit-form">
           <div v-if="titleItemToEdit?.localPaths.length" class="cell-muted edit-form__meta">
-            {{ titleItemToEdit.localPaths.find((path) => !path.missingSince)?.relativePath ?? titleItemToEdit.localPaths[0]?.relativePath }}
+            {{ titleItemToEdit.localPaths[0]?.relativePath }}
           </div>
           <v-row dense class="edit-form__grid">
             <v-col cols="12">
@@ -3765,7 +4146,7 @@ watch(sortedCollectionTitleItems, (items) => {
         <v-card-title>Edit Album</v-card-title>
         <v-card-text class="edit-form">
           <div v-if="albumToEdit?.localPaths.length" class="cell-muted edit-form__meta">
-            {{ albumToEdit.localPaths.find((path) => !path.missingSince)?.relativePath ?? albumToEdit.localPaths[0]?.relativePath }}
+            {{ albumToEdit.localPaths[0]?.relativePath }}
           </div>
           <v-text-field
             v-model="albumEditForm.title"

@@ -88,6 +88,26 @@ public class MusicCollectionResource {
     }
 
     @POST
+    @Path("/{id}/albums")
+    public List<Album> addAlbums(@PathParam("id") String id, AlbumMembershipRequest request) {
+        collections.find(id).orElseThrow(NotFoundException::new);
+        if (request == null || request.albumIds() == null || request.albumIds().isEmpty()) {
+            throw new BadRequestException("albumIds is required");
+        }
+        LOG.infof("Add albums to collection request collection=%s albumIds=%s", id, request.albumIds());
+        List<Album> updated = new ArrayList<>();
+        for (Long albumId : request.albumIds()) {
+            if (albumId == null) {
+                continue;
+            }
+            albums.find(albumId).orElseThrow(NotFoundException::new);
+            albums.assignToCollection(albumId, id);
+            updated.add(albums.find(albumId).orElseThrow(NotFoundException::new));
+        }
+        return updated;
+    }
+
+    @POST
     @Path("/{id}/titles")
     public Album createTitle(@PathParam("id") String id, TitleItemRequest request) {
         if (request == null || request.title() == null || request.title().isBlank()) {
@@ -144,18 +164,8 @@ public class MusicCollectionResource {
             @PathParam("titleItemId") long titleItemId) {
         LOG.infof("Delete title local path request collection=%s id=%d", id, titleItemId);
         albums.find(titleItemId).orElseThrow(NotFoundException::new);
-        albums.markLocalPathsMissing(id, titleItemId);
+        albums.removeLocalPaths(id, titleItemId);
         return Response.noContent().build();
-    }
-
-    @DELETE
-    @Path("/{id}/albums/{albumId}/missing-local-paths")
-    public Album untrackMissingAlbumLocalPaths(
-            @PathParam("id") String id,
-            @PathParam("albumId") long albumId) {
-        LOG.infof("Untrack missing album local paths request collection=%s albumId=%d", id, albumId);
-        albums.find(albumId).orElseThrow(NotFoundException::new);
-        return albums.untrackMissingLocalPaths(id, albumId).orElseThrow(NotFoundException::new);
     }
 
     @PUT
@@ -221,5 +231,8 @@ public class MusicCollectionResource {
             String artistName,
             String releaseDate,
             String sortName) {
+    }
+
+    public record AlbumMembershipRequest(List<Long> albumIds) {
     }
 }

@@ -18,11 +18,12 @@ The work focused on the Collections screen Collections, Artists, Albums, and Tit
 
 - Added an Albums pane `Show All` toggle under the pane title using the same filter-bar style as the existing Artists and Titles pane filters.
 - Kept the `Show All` button text fixed while changing behavior based on toggle state.
-- When `Show All` is off, the Albums pane shows only albums linked to the selected collection.
+- `Show All` defaults to on when no saved preference exists.
+- When `Show All` is off, the Albums pane shows albums that belong to the selected collection.
 - When `Show All` is on, the Albums pane shows all albums for the selected artist.
 - Changed the album collection chip column label from `Also in` to `In` when `Show All` is on.
 - When `Show All` is on, the `In` column shows all collection chips including the selected collection.
-  Bold row text remains as emphasis for albums in the selected collection.
+  Albums with no collection memberships show a warning `No collection` chip in this column.
 - Muted albums with no collection membership so they read as library-only rows.
 - Added an Artists pane `Unchecked` filter modifier for quickly finding artists with unchecked albums.
 - Kept artist filtering as `(Local OR Non-local) AND Unchecked when enabled`.
@@ -41,7 +42,6 @@ The work focused on the Collections screen Collections, Artists, Albums, and Tit
 - The collection pane minimum reserves room for icon-only row actions, the persistent info icon, the collection type icon, and a readable collection-name prefix.
 - Album and title grid row labels now depend on actual rightmost action-column space.
 - Album action-label fitting uses the widest action set present in the current album list.
-- The `Untrack` width is reserved only when at least one current album row can show that action.
 - The `Info` icon width is reserved only when at least one current album row has local paths.
 - Artist row and global Artists screen action labels now collapse based on available action area instead of stored threshold preferences.
 - Artist row action-label fitting reserves `Remove` only when at least one current artist row can show that action.
@@ -81,7 +81,7 @@ The work focused on the Collections screen Collections, Artists, Albums, and Tit
 - Artists `Unchecked` means artists with at least one unchecked album.
 - Titles `Local` means titles with a local folder in the selected collection.
 - Titles `Non-local` means titles not currently found on disk in the selected collection.
-- Albums `Show All` off means collection-scoped album display.
+- Albums `Show All` off means collection membership in the selected collection.
 - Albums `Show All` on means artist-scoped album display across the library.
 - Row action labels appear when the containing pane or action column can fit the complete labeled action set.
 - Row action labels collapse to icon-only when the labeled action set no longer fits.

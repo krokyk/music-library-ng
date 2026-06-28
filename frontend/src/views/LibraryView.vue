@@ -58,16 +58,15 @@ function artistOptions() {
 }
 
 function localLabel(album: Album) {
-  const activePath = album.localPaths.find((path) => !path.missingSince)
+  const activePath = album.localPaths[0]
   return activePath?.collectionName ?? (album.hasLocalPath ? 'local' : 'none')
 }
 
 function localTooltip(album: Album) {
-  const activePaths = album.localPaths.filter((path) => !path.missingSince)
-  if (activePaths.length === 0) {
-    return 'No active local folder'
+  if (album.localPaths.length === 0) {
+    return 'No local folder'
   }
-  return activePaths.map((path) => path.resolvedPath ?? path.relativePath).join('\n')
+  return album.localPaths.map((path) => path.resolvedPath ?? path.relativePath).join('\n')
 }
 
 async function addArtist() {

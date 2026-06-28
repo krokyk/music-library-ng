@@ -73,7 +73,7 @@ public class ScanReportWriter {
         line(text, "Parsed: " + report.parsedCount());
         line(text, "Created: " + report.createdCount());
         line(text, "Existing: " + report.existingCount());
-        line(text, "Missing: " + report.missingCount());
+        line(text, "Removed local paths: " + report.missingCount());
         line(text, "Skipped: " + report.skippedCount());
         line(text, "Message: " + value(report.summaryMessage()));
         line(text, "");
@@ -81,7 +81,7 @@ public class ScanReportWriter {
         section(text, "Created", report.created());
         section(text, "Existing", report.existing());
         section(text, "Skipped", report.skipped());
-        section(text, "Missing", report.missing());
+        section(text, "Removed local paths", report.missing());
         section(text, "Warnings", report.warnings());
         section(text, "Notes", report.notes());
         return text.toString();

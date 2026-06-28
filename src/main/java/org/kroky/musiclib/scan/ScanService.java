@@ -110,7 +110,6 @@ public class ScanService {
                         skipped + 1, messages);
             }
 
-            Set<String> seenArtistNames = new HashSet<>();
             List<Path> folders;
             try (var stream = Files.list(collectionRoot)) {
                 folders = stream.filter(Files::isDirectory).toList();
@@ -159,9 +158,9 @@ public class ScanService {
                     progress.itemProcessed(collection.id(), processedFolders);
                 }
 
-                missing = albumRepository.markMissingPaths(collection.id(), seenPaths);
+                missing = albumRepository.removeUnseenLocalPaths(collection.id(), seenPaths);
                 String message = "Scanned " + collection.name() + ": " + parsed + " titles, " + created
-                        + " created, " + existing + " existing, " + missing + " missing.";
+                        + " created, " + existing + " existing, " + missing + " local paths removed.";
                 messages.add(message);
                 report.finish("DONE", parsed, created, existing, missing, skipped, message);
                 scanRunRepository.event(runId, "INFO", message);
@@ -172,6 +171,8 @@ public class ScanService {
                         messages);
             }
 
+            Set<String> seenPaths = new HashSet<>();
+            Set<Long> seenLocalArtistIds = new HashSet<>();
             for (Path folder : folders) {
                 if (progress.isCancelled()) {
                     String message = "Scan cancelled for " + collection.name() + ".";
@@ -184,38 +185,84 @@ public class ScanService {
                             skipped, messages);
                 }
                 Optional<ParsedAlbum> parsedAlbum = parser.parse(folder, collection.parser(), collection.id());
-                Optional<NestedArtistFolder> nestedArtist = Optional.empty();
-                String artistName = null;
                 if (parsedAlbum.isPresent()) {
-                    artistName = parsedAlbum.get().artistName();
-                } else {
-                    nestedArtist = nestedArtistFolder(folder, collection.id());
-                    if (nestedArtist.isPresent()) {
-                        artistName = nestedArtist.get().artistName();
+                    String parsedArtistName = parsedAlbum.get().artistName();
+                    UpsertResult artistResult = artistRepository.upsertByName(parsedArtistName);
+                    progress.artistStarted(collection.id(), artistResult.id(), parsedArtistName);
+                    artistRepository.assignToCollection(artistResult.id(), collection.id(), true);
+                    seenLocalArtistIds.add(artistResult.id());
+                    String relativePath = folder.getFileName().toString();
+                    seenPaths.add(relativePath);
+                    UpsertResult albumResult = albumRepository.upsertScanned(
+                            artistResult.id(),
+                            parsedAlbum.get().title(),
+                            parsedAlbum.get().releaseDate(),
+                            relativePath,
+                            collection.id());
+                    parsed++;
+                    if (albumResult.created()) {
+                        created++;
+                        report.created(albumReportRow(relativePath, parsedArtistName, parsedAlbum.get().title(),
+                                parsedAlbum.get().releaseDate()));
+                    } else {
+                        existing++;
+                        report.existing(albumReportRow(relativePath, parsedArtistName, parsedAlbum.get().title(),
+                                parsedAlbum.get().releaseDate()));
                     }
-                }
-
-                if (artistName == null) {
-                    skipped++;
-                    LOG.debugf("Skipped unmatched folder %s for collection %s", folder, collection.id());
-                    report.skipped("Unmatched folder: " + folder.getFileName());
-                    if (skippedExamples < MAX_SKIPPED_EXAMPLES) {
-                        scanRunRepository.event(runId, "SKIPPED", "Unmatched folder: " + folder.getFileName());
-                        skippedExamples++;
-                    }
                 } else {
-                    String normalizedArtistName = Names.normalize(artistName);
-                    if (!normalizedArtistName.isBlank() && seenArtistNames.add(normalizedArtistName)) {
-                        parsed++;
-                        LOG.tracef("Discovered artist '%s' in collection %s", artistName, collection.id());
-                        UpsertResult result = artistRepository.upsertByName(artistName);
-                        artistRepository.assignToCollection(result.id(), collection.id(), true);
-                        if (result.created()) {
-                            created++;
-                            report.created(artistName);
-                        } else {
-                            existing++;
-                            report.existing(artistName);
+                    Optional<NestedArtistFolder> nestedArtist = nestedArtistFolder(folder, collection.id());
+                    if (nestedArtist.isEmpty()) {
+                        skipped++;
+                        LOG.debugf("Skipped unmatched folder %s for collection %s", folder, collection.id());
+                        report.skipped("Unmatched folder: " + folder.getFileName());
+                        if (skippedExamples < MAX_SKIPPED_EXAMPLES) {
+                            scanRunRepository.event(runId, "SKIPPED", "Unmatched folder: " + folder.getFileName());
+                            skippedExamples++;
+                        }
+                    } else {
+                        String parsedArtistName = nestedArtist.get().artistName();
+                        UpsertResult artistResult = artistRepository.upsertByName(parsedArtistName);
+                        progress.artistStarted(collection.id(), artistResult.id(), parsedArtistName);
+                        artistRepository.assignToCollection(artistResult.id(), collection.id(), true);
+                        seenLocalArtistIds.add(artistResult.id());
+                        for (Path unmatchedAlbumFolder : nestedArtist.get().unmatchedAlbumFolders()) {
+                            skipped++;
+                            String relativePath = nestedRelativePath(folder, unmatchedAlbumFolder);
+                            report.skipped("Unmatched nested album folder: " + relativePath);
+                            if (skippedExamples < MAX_SKIPPED_EXAMPLES) {
+                                scanRunRepository.event(runId, "SKIPPED",
+                                        "Unmatched nested album folder: " + relativePath);
+                                skippedExamples++;
+                            }
+                        }
+                        if (nestedArtist.get().albums().isEmpty()) {
+                            parsed++;
+                            if (artistResult.created()) {
+                                created++;
+                                report.created("Artist: " + parsedArtistName + " | folder: " + folder.getFileName());
+                            } else {
+                                existing++;
+                                report.existing("Artist: " + parsedArtistName + " | folder: " + folder.getFileName());
+                            }
+                        }
+                        for (LocalAlbumCandidate candidate : nestedArtist.get().albums()) {
+                            seenPaths.add(candidate.relativePath());
+                            UpsertResult albumResult = albumRepository.upsertScanned(
+                                    artistResult.id(),
+                                    candidate.album().title(),
+                                    candidate.album().releaseDate(),
+                                    candidate.relativePath(),
+                                    collection.id());
+                            parsed++;
+                            if (albumResult.created()) {
+                                created++;
+                                report.created(albumReportRow(candidate.relativePath(), parsedArtistName,
+                                        candidate.album().title(), candidate.album().releaseDate()));
+                            } else {
+                                existing++;
+                                report.existing(albumReportRow(candidate.relativePath(), parsedArtistName,
+                                        candidate.album().title(), candidate.album().releaseDate()));
+                            }
                         }
                     }
                 }
@@ -234,8 +281,13 @@ public class ScanService {
                         skipped, messages);
             }
 
-            String message = "Scanned " + collection.name() + ": " + parsed + " artists, " + created
-                    + " created, " + existing + " existing, " + skipped + " skipped.";
+            missing = albumRepository.removeUnseenLocalPaths(collection.id(), seenPaths);
+            artistRepository.replaceLocalArtistsForCollection(collection.id(), seenLocalArtistIds);
+            artistRepository.clearLocalScanErrorsForCollection(collection.id());
+
+            String message = "Scanned " + collection.name() + ": " + parsed + " local items, " + created
+                    + " created, " + existing + " existing, " + missing + " local paths removed, " + skipped
+                    + " skipped.";
             messages.add(message);
             report.finish("DONE", parsed, created, existing, missing, skipped, message);
             scanRunRepository.event(runId, "INFO", message);
@@ -318,6 +370,7 @@ public class ScanService {
             progress.collectionStarted(collection.id(), folders.size());
 
             Set<String> seenPaths = new HashSet<>();
+            Set<Long> seenLocalArtistIds = new HashSet<>();
             int processedFolders = 0;
             for (Path folder : folders) {
                 if (progress.isCancelled()) {
@@ -344,6 +397,7 @@ public class ScanService {
                         UpsertResult artistResult = artistRepository.upsertByName(parsedArtistName);
                         progress.artistStarted(collection.id(), artistResult.id(), parsedArtistName);
                         artistRepository.assignToCollection(artistResult.id(), collection.id(), true);
+                        seenLocalArtistIds.add(artistResult.id());
                         String relativePath = folder.getFileName().toString();
                         seenPaths.add(relativePath);
                         UpsertResult albumResult = albumRepository.upsertScanned(
@@ -385,6 +439,7 @@ public class ScanService {
                             UpsertResult artistResult = artistRepository.upsertByName(parsedArtistName);
                             progress.artistStarted(collection.id(), artistResult.id(), parsedArtistName);
                             artistRepository.assignToCollection(artistResult.id(), collection.id(), true);
+                            seenLocalArtistIds.add(artistResult.id());
                             for (Path unmatchedAlbumFolder : nestedArtist.get().unmatchedAlbumFolders()) {
                                 skipped++;
                                 String relativePath = nestedRelativePath(folder, unmatchedAlbumFolder);
@@ -393,6 +448,16 @@ public class ScanService {
                                     scanRunRepository.event(runId, "SKIPPED",
                                             "Unmatched nested album folder: " + relativePath);
                                     skippedExamples++;
+                                }
+                            }
+                            if (nestedArtist.get().albums().isEmpty()) {
+                                parsed++;
+                                if (artistResult.created()) {
+                                    created++;
+                                    report.created("Artist: " + parsedArtistName + " | folder: " + folder.getFileName());
+                                } else {
+                                    existing++;
+                                    report.existing("Artist: " + parsedArtistName + " | folder: " + folder.getFileName());
                                 }
                             }
                             for (LocalAlbumCandidate candidate : nestedArtist.get().albums()) {
@@ -423,11 +488,19 @@ public class ScanService {
             }
 
             missing = artistId == null
-                    ? albumRepository.markMissingPaths(collection.id(), seenPaths)
-                    : albumRepository.markMissingPathsForArtist(collection.id(), artistId, seenPaths);
+                    ? albumRepository.removeUnseenLocalPaths(collection.id(), seenPaths)
+                    : albumRepository.removeUnseenLocalPathsForArtist(collection.id(), artistId, seenPaths);
+            if (artistId == null) {
+                artistRepository.replaceLocalArtistsForCollection(collection.id(), seenLocalArtistIds);
+                artistRepository.clearLocalScanErrorsForCollection(collection.id());
+            } else {
+                artistRepository.setCollectionLocal(artistId, collection.id(), seenLocalArtistIds.contains(artistId));
+                artistRepository.clearLocalScanError(artistId, collection.id());
+            }
             String scope = selectedArtistName == null ? collection.name() : selectedArtistName;
             String message = "Local album scan complete for " + scope + ": " + parsed + " albums, " + created
-                    + " new, " + existing + " existing, " + missing + " missing, " + skipped + " skipped.";
+                    + " new, " + existing + " existing, " + missing + " local paths removed, " + skipped
+                    + " skipped.";
             messages.add(message);
             report.finish("DONE", parsed, created, existing, missing, skipped, message);
             scanRunRepository.event(runId, "INFO", message);
@@ -440,6 +513,9 @@ public class ScanService {
             return new ScanSummary(runId, collection.id(), "DONE", parsed, created, existing, missing, skipped, messages);
         } catch (Exception e) {
             String message = "Local album scan failed for " + collection.name() + ": " + e.getMessage();
+            if (artistId != null) {
+                artistRepository.markLocalScanError(artistId, collection.id(), e.getMessage());
+            }
             messages.add(message);
             if (report != null) {
                 report.warning(message);

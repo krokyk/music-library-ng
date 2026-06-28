@@ -165,7 +165,7 @@ public class ProviderCheckService {
             try {
                 processedArtists++;
                 if (MusicBrainzClient.PROVIDER_ID.equals(link.providerId())) {
-                    var result = artistProviderRefresh.importMusicBrainz(runId, link);
+                    var result = artistProviderRefresh.importMusicBrainz(runId, link, collectionId);
                     foundAlbums += result.foundReleaseGroupCount();
                     newAlbums += result.createdAlbumCount();
                     existingAlbums += result.existingAlbumCount();
@@ -187,14 +187,13 @@ public class ProviderCheckService {
                 for (RemoteAlbum remoteAlbum : remoteAlbums) {
                     var existing = albums.findDuplicate(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseDate());
                     if (existing.isPresent()) {
-                        if (collectionId != null) {
-                            albums.assignToCollection(existing.get().id(), collectionId);
-                        }
+                        assignToCollectionIfUnassigned(existing.get(), collectionId);
                         existingAlbums++;
                         linkExistingAlbums++;
                         continue;
                     }
-                    albums.create(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseDate(), false, null, collectionId);
+                    albums.create(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseDate(), false, null,
+                            collectionId);
                     newAlbums++;
                     linkNewAlbums++;
                     runs.event(runId, link.artistId(), link.id(), "INFO",
@@ -227,6 +226,12 @@ public class ProviderCheckService {
         messages.add(message);
         return new ProviderCheckSummary(runId, processedArtists, skippedArtists, foundAlbums, newAlbums,
                 existingAlbums, errors, messages);
+    }
+
+    private void assignToCollectionIfUnassigned(org.kroky.musiclib.model.Album album, String collectionId) {
+        if (collectionId != null && album.collections().isEmpty() && album.localPaths().isEmpty()) {
+            albums.assignToCollection(album.id(), collectionId);
+        }
     }
 
     private static String skippedSummary(int skippedArtists, int initialSkippedArtists, int recentlySkippedArtists) {

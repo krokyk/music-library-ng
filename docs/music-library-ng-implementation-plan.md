@@ -34,7 +34,7 @@ Disk presence is separate:
 
 ```text
 onDisk = true  -> the app currently sees a local album folder/path
-onDisk = false -> no current local path is known or the known path is missing
+onDisk = false -> no current local path is known or a previously known path no longer resolves at runtime
 ```
 
 Important combinations:
@@ -91,8 +91,8 @@ Artists pane:
 
 - Middle pane is a basic artists table for the selected collection.
 - Show artist name.
-- Show a compact indication when the artist has missing/unchecked albums.
-- Missing/unchecked indication is based on provider data and updates only after a provider check.
+- Show a compact indication when the artist has unchecked albums or scan failures.
+- Unchecked album indication is based on provider data and updates after provider checks.
 - Selecting an artist refreshes the albums table to show that artist's albums.
 - Artists shown here are artists assigned to the selected collection, including manually added artists with no local tracks.
 - Artist rows have hover actions:
@@ -220,7 +220,6 @@ create table album_local_paths (
   relative_path text not null,
   first_seen_at text not null default current_timestamp,
   last_seen_at text not null default current_timestamp,
-  missing_since text,
   foreign key (album_id) references albums(id) on delete cascade,
   foreign key (collection_id) references collections(id) on delete restrict,
   unique(collection_id, relative_path)
@@ -228,7 +227,6 @@ create table album_local_paths (
 
 create index idx_album_local_paths_album on album_local_paths(album_id);
 create index idx_album_local_paths_collection on album_local_paths(collection_id);
-create index idx_album_local_paths_missing on album_local_paths(missing_since);
 
 create table artist_provider_links (
   id integer primary key autoincrement,
@@ -366,8 +364,7 @@ public record AlbumLocalPath(
     String resolvedPath,
     boolean onDisk,
     String firstSeenAt,
-    String lastSeenAt,
-    String missingSince
+    String lastSeenAt
 ) {}
 ```
 
@@ -541,7 +538,8 @@ Artist membership rules:
 
 - Manual artists can be assigned to one or more collections even before they have local paths.
 - Local scan should assign discovered artists to the scanned collection.
-- Provider-discovered albums do not change collection membership by themselves.
+- Provider scans from Collections add discovered albums to the active collection only when the album has no collection memberships yet.
+- Provider scans do not change existing album collection memberships.
 - The Collections screen artists pane uses this membership table, not only local paths.
 
 ### Albums
@@ -665,14 +663,17 @@ For each parsed local folder:
 5. If album does not exist, create it with `checked = true`.
 6. If album exists and local files are found, set `checked = true`.
 7. Upsert `album_local_paths` by collection + relative path.
-8. Set `last_seen_at = now` and clear `missing_since`.
+8. Set `last_seen_at = now`.
 9. Ensure the artist is assigned to the scanned collection in `artist_collections`.
+10. Mark the artist collection membership local when local disk evidence is present.
+11. Remove stale `album_local_paths` rows for local folders that were not seen, while preserving `collection_albums` membership and checked album state.
 
 At the start or end of a collection scan:
 
-- Mark known paths for that collection missing when they were not seen in this scan.
+- Remove local path rows for known paths that were not seen in this scan.
+- Mark artist collection memberships local only for artists with local disk evidence in this scan.
 - Do not delete albums automatically.
-- Do not delete local path rows automatically.
+- Do not delete album collection memberships automatically.
 
 The scan should be idempotent: rescanning the same folders should not create duplicate albums or paths.
 
@@ -713,6 +714,9 @@ For each remote album:
 
 Provider checks should not infer local disk presence.
 Provider checks run as background jobs from the frontend and update only the active artist row spinner.
+Provider checks scoped to a collection assign newly created or otherwise unassigned albums to that collection.
+Provider checks leave existing album collection memberships unchanged.
+Provider checks from the global Artists screen refresh the selected artist details without assigning collection memberships.
 MusicBrainz calls still go through the process-wide MusicBrainz request limiter.
 MusicBrainz provider checks import only supported full albums.
 MusicBrainz provider checks match exact existing album titles and create missing full albums as unchecked.
@@ -866,7 +870,7 @@ Backend tests:
 - Local scan creates checked albums and local paths.
 - Local scan marks locally present albums checked.
 - Local rescan does not duplicate albums/paths.
-- Missing local folders mark path `missing_since`.
+- Collection scans remove unseen local path rows while preserving album collection membership.
 - Album DTO reports `hasLocalPath` and `onDisk`.
 - Artist DTO reports album counts.
 - Provider check creates unchecked albums.

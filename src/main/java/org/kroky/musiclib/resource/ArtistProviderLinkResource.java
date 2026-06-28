@@ -4,9 +4,11 @@ import java.net.URI;
 import java.util.List;
 
 import org.kroky.musiclib.model.ArtistProviderLink;
+import org.kroky.musiclib.provider.ProviderUrlNormalizer;
 import org.kroky.musiclib.repository.ArtistProviderLinkRepository;
 
 import jakarta.inject.Inject;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
@@ -29,8 +31,9 @@ public class ArtistProviderLinkResource {
 
     @POST
     public Response create(@PathParam("artistId") long artistId, ProviderLinkRequest request) {
-        ArtistProviderLink link = links.upsertForArtist(artistId, request.providerId(), request.providerArtistIdOrUrl(),
-                request.providerArtistName(), request.providerUrl(),
+        String providerUrl = normalizeUrlProvider(request);
+        ArtistProviderLink link = links.upsertForArtist(artistId, request.providerId(), request.providerArtistIdOrUrl(providerUrl),
+                request.providerArtistName(), providerUrl,
                 request.providerArtistType(), request.providerArtistCountry(), request.providerArtistDisambiguation(),
                 request.providerArtistActive(),
                 request.enabledOrDefault());
@@ -42,8 +45,9 @@ public class ArtistProviderLinkResource {
     @PUT
     @Path("/{linkId}")
     public ArtistProviderLink update(@PathParam("linkId") long linkId, ProviderLinkRequest request) {
-        return links.update(linkId, request.providerId(), request.providerArtistIdOrUrl(),
-                request.providerArtistName(), request.providerUrl(),
+        String providerUrl = normalizeUrlProvider(request);
+        return links.update(linkId, request.providerId(), request.providerArtistIdOrUrl(providerUrl),
+                request.providerArtistName(), providerUrl,
                 request.providerArtistType(), request.providerArtistCountry(), request.providerArtistDisambiguation(),
                 request.providerArtistActive(), request.enabledOrDefault())
                 .orElseThrow(NotFoundException::new);
@@ -56,6 +60,20 @@ public class ArtistProviderLinkResource {
         return Response.noContent().build();
     }
 
+    private String normalizeUrlProvider(ProviderLinkRequest request) {
+        if (request == null) {
+            throw new BadRequestException("Provider link request is required");
+        }
+        if (request.providerId() == null || request.providerId().isBlank()) {
+            throw new BadRequestException("Provider id is required");
+        }
+        try {
+            return ProviderUrlNormalizer.normalize(request.providerId(), request.providerUrl());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException(e.getMessage(), e);
+        }
+    }
+
     public record ProviderLinkRequest(String providerId, String providerArtistId, String providerArtistName,
             String providerUrl, String providerArtistType, String providerArtistCountry,
             String providerArtistDisambiguation, Boolean providerArtistActive, Boolean enabled) {
@@ -63,7 +81,7 @@ public class ArtistProviderLinkResource {
             return enabled == null || enabled;
         }
 
-        String providerArtistIdOrUrl() {
+        String providerArtistIdOrUrl(String providerUrl) {
             return providerArtistId == null || providerArtistId.isBlank() ? providerUrl : providerArtistId;
         }
     }

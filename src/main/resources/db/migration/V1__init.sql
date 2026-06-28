@@ -61,6 +61,8 @@ CREATE TABLE artist_collections (
     artist_id INTEGER NOT NULL,
     collection_id TEXT NOT NULL,
     local INTEGER NOT NULL DEFAULT 0,
+    last_local_scan_error_at TEXT,
+    last_local_scan_error_message TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (artist_id, collection_id),
     FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
@@ -89,7 +91,6 @@ CREATE TABLE album_local_paths (
     relative_path TEXT NOT NULL,
     first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    missing_since TEXT,
     FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
     FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
     UNIQUE (collection_id, relative_path)
@@ -97,7 +98,6 @@ CREATE TABLE album_local_paths (
 
 CREATE INDEX idx_album_local_paths_album ON album_local_paths(album_id);
 CREATE INDEX idx_album_local_paths_collection ON album_local_paths(collection_id);
-CREATE INDEX idx_album_local_paths_missing ON album_local_paths(missing_since);
 
 CREATE TABLE user_preferences (
     key TEXT PRIMARY KEY,

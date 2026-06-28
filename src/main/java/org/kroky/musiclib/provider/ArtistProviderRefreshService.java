@@ -2,6 +2,7 @@ package org.kroky.musiclib.provider;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.db.Names;
@@ -62,6 +63,11 @@ public class ArtistProviderRefreshService {
     }
 
     public ProviderRefreshResult importMusicBrainz(long runId, ArtistProviderLink link) throws ProviderException {
+        return importMusicBrainz(runId, link, null);
+    }
+
+    public ProviderRefreshResult importMusicBrainz(long runId, ArtistProviderLink link, String collectionId)
+            throws ProviderException {
         requireMusicBrainzIdentity(link);
         List<RemoteReleaseGroup> releaseGroups = musicBrainz.fetchReleaseGroups(link.providerArtistId());
         List<Album> localAlbums = new ArrayList<>(albums.list(link.artistId(), null, null, null, null));
@@ -75,7 +81,10 @@ public class ArtistProviderRefreshService {
         for (RemoteReleaseGroup releaseGroup : releaseGroups) {
             AlbumImportPlan plan = classify(releaseGroup, localAlbums);
             switch (plan.decision()) {
-                case SKIP_ALREADY_LINKED -> alreadyInLibrary++;
+                case SKIP_ALREADY_LINKED -> {
+                    assignToCollectionIfUnassigned(plan.album(), collectionId);
+                    alreadyInLibrary++;
+                }
                 case SKIP_UNSUPPORTED -> {
                     ignored++;
                     runs.event(runId, link.artistId(), link.id(), "INFO",
@@ -86,13 +95,14 @@ public class ArtistProviderRefreshService {
                     Album album = plan.album();
                     albums.updateReleaseDateIfMissing(album.id(), releaseGroup.releaseDate());
                     linkAlbum(album.id(), releaseGroup);
+                    assignToCollectionIfUnassigned(album, collectionId);
                     alreadyInLibrary++;
                     runs.event(runId, link.artistId(), link.id(), "INFO",
                             "MusicBrainz album already in library: " + album.title());
                 }
                 case AUTO_CREATE -> {
                     Album album = albums.create(link.artistId(), releaseGroup.title(), releaseGroup.releaseDate(),
-                            false, null, null);
+                            false, null, collectionId);
                     linkAlbum(album.id(), releaseGroup);
                     localAlbums.add(album);
                     createdAlbums++;
@@ -120,8 +130,11 @@ public class ArtistProviderRefreshService {
     }
 
     private AlbumImportPlan classify(RemoteReleaseGroup releaseGroup, List<Album> localAlbums) {
-        if (albumProviderLinks.findAlbumId(releaseGroup.providerId(), releaseGroup.providerReleaseGroupId()).isPresent()) {
-            return new AlbumImportPlan(AlbumImportDecision.SKIP_ALREADY_LINKED, null, "Already in library");
+        Optional<Long> linkedAlbumId = albumProviderLinks.findAlbumId(
+                releaseGroup.providerId(), releaseGroup.providerReleaseGroupId());
+        if (linkedAlbumId.isPresent()) {
+            Album album = albums.find(linkedAlbumId.get()).orElse(null);
+            return new AlbumImportPlan(AlbumImportDecision.SKIP_ALREADY_LINKED, album, "Already in library");
         }
         if (releaseGroup.title() == null || releaseGroup.title().isBlank()) {
             return new AlbumImportPlan(AlbumImportDecision.SKIP_UNSUPPORTED, null, "Blank provider album title");
@@ -141,6 +154,12 @@ public class ArtistProviderRefreshService {
                 .findFirst()
                 .map(album -> new AlbumImportPlan(AlbumImportDecision.AUTO_MATCH_EXISTING, album, "Exact title match"))
                 .orElseGet(() -> new AlbumImportPlan(AlbumImportDecision.AUTO_CREATE, null, "New full album"));
+    }
+
+    private void assignToCollectionIfUnassigned(Album album, String collectionId) {
+        if (album != null && collectionId != null && album.collections().isEmpty() && album.localPaths().isEmpty()) {
+            albums.assignToCollection(album.id(), collectionId);
+        }
     }
 
     private void linkAlbum(long albumId, RemoteReleaseGroup releaseGroup) {

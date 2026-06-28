@@ -176,7 +176,10 @@ Logs go to the console and `data/logs/music-library-ng.log`.
 
 Artist-centric collections browse collections, artists, and albums.
 Title-centric collections browse collections and titles.
-Collection scans create direct artists or titles first, while local album scans and provider refreshes are explicit actions.
+Artist-centric collection scans discover local artists and local albums in the same pass for supported flat and nested folder layouts.
+Title-centric collection scans discover title rows, contributor artists, shared albums, and local paths in the same pass.
+Local album scans remain explicit rescan actions for one artist or a whole artist-centric collection.
+Provider scans from Collections add new or otherwise unassigned provider albums to the active collection and leave existing album memberships unchanged.
 Local album scans and provider scans run in background jobs so the workspace remains navigable while status updates continue.
 Scan buttons and write actions such as add, edit, delete, and provider-link changes are disabled while a local or provider scan is running.
 Batch provider scans skip provider links checked within the configured batch rescan delay, while individual artist provider scans always run.

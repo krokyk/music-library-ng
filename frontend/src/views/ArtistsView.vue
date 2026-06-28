@@ -2,49 +2,17 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
+import { providerDefinition, providerDefinitions, validateProviderUrl, type ProviderId } from '@/providers'
 import type {
   Artist,
   ArtistProviderCandidate,
 } from '@/types'
 import type { CSSProperties } from 'vue'
 
-type ProviderId = 'musicbrainz' | 'spirit_of_metal' | 'metal_archives'
 type SortDirection = 'asc' | 'desc'
 type ArtistSortKey = 'name' | 'country' | 'type' | 'status' | 'albumCount' | 'uncheckedAlbumCount' | 'localAlbumCount' | 'provider'
 type ArtistScreenColumnKey = 'name' | 'country' | 'type' | 'status' | 'albums' | 'unchecked' | 'local' | 'provider' | 'action'
 type ArtistsPaneKey = 'artists' | 'details'
-
-interface ProviderDefinition {
-  id: ProviderId
-  label: string
-  actionIcon: string
-  iconSrc: string
-  chipClass: string
-}
-
-const providerDefinitions: ProviderDefinition[] = [
-  {
-    id: 'musicbrainz',
-    label: 'MusicBrainz',
-    actionIcon: 'mdi-music-circle',
-    iconSrc: '/provider-icons/musicbrainz.svg',
-    chipClass: 'artists-provider-chip--musicbrainz',
-  },
-  {
-    id: 'spirit_of_metal',
-    label: 'Spirit of Metal',
-    actionIcon: 'mdi-fire',
-    iconSrc: '/provider-icons/spirit-of-metal.png',
-    chipClass: 'artists-provider-chip--spirit-of-metal',
-  },
-  {
-    id: 'metal_archives',
-    label: 'Metal Archives',
-    actionIcon: 'mdi-archive',
-    iconSrc: '/provider-icons/metal-archives.ico',
-    chipClass: 'artists-provider-chip--metal-archives',
-  },
-]
 
 const store = useLibraryStore()
 const { artists, albums, collections, providerJob, providerLinks, providerStatus, scanJob, uiSettings, loading } = storeToRefs(store)
@@ -214,6 +182,10 @@ const selectedAlbums = computed(() => {
 })
 const providerUrlDefinition = computed(() =>
   providerUrlProviderId.value ? providerDefinition(providerUrlProviderId.value) : null,
+)
+
+const providerUrlValidation = computed(() =>
+  validateProviderUrl(providerUrlProviderId.value, providerUrl.value),
 )
 
 function compareArtistRows(left: Artist, right: Artist) {
@@ -714,9 +686,10 @@ async function useCandidate(candidate: ArtistProviderCandidate) {
   if (writeActionsDisabled.value) {
     return
   }
-  if (!selectedArtistId.value) return
+  const artistId = selectedArtistId.value
+  if (!artistId) return
   try {
-    await store.saveArtistProvider(selectedArtistId.value, {
+    await store.saveArtistProvider(artistId, {
       providerId: 'musicbrainz',
       providerArtistId: candidate.providerArtistId,
       providerArtistName: candidate.providerArtistName,
@@ -729,6 +702,7 @@ async function useCandidate(candidate: ArtistProviderCandidate) {
     })
     matchDialog.value = false
     store.showStatus(`MusicBrainz provider saved for ${candidate.providerArtistName}.`, 'done')
+    await scanArtistProviderById(artistId)
   } catch (error) {
     store.showErrorStatus(error, 'Unable to save MusicBrainz provider')
   }
@@ -757,7 +731,7 @@ async function saveUrlProvider() {
     return
   }
   const url = providerUrl.value.trim()
-  if (!url) {
+  if (!url || providerUrlValidation.value) {
     return
   }
   providerUrlSaving.value = true
@@ -770,6 +744,7 @@ async function saveUrlProvider() {
     })
     store.showStatus(`${provider.label} provider saved for ${providerUrlArtist.value.name}.`, 'done')
     providerUrlDialog.value = false
+    await scanArtistProviderById(providerUrlArtist.value.id)
   } catch (error) {
     store.showErrorStatus(error, 'Unable to save provider')
   } finally {
@@ -790,6 +765,24 @@ async function clearArtistProvider(artist: Artist) {
   }
 }
 
+async function scanArtistProvider(artist: Artist) {
+  selectedArtistId.value = artist.id
+  await scanArtistProviderById(artist.id)
+}
+
+async function scanArtistProviderById(artistId: number) {
+  if (writeActionsDisabled.value) {
+    return
+  }
+  try {
+    await store.runProviderArtistJob(artistId, null)
+  } catch (error) {
+    if (!store.providerJob?.message?.startsWith('Provider check failed')) {
+      store.showErrorStatus(error, 'Provider check failed')
+    }
+  }
+}
+
 function providerForArtist(artist: Artist) {
   const cached = providerLinks.value[artist.id]?.[0]
   if (cached) {
@@ -807,19 +800,8 @@ function providerForArtist(artist: Artist) {
     providerArtistDisambiguation: artist.providerArtistDisambiguation,
     providerArtistActive: artist.providerArtistActive,
     providerUrl: artist.providerUrl,
-    lastErrorMessage: null,
+    lastErrorMessage: artist.providerLastErrorMessage ?? null,
   }
-}
-
-function providerDefinition(providerId?: string | null) {
-  return providerDefinitions.find((provider) => provider.id === providerId)
-    ?? {
-      id: 'musicbrainz' as ProviderId,
-      label: providerId ?? 'Provider',
-      actionIcon: 'mdi-link-variant',
-      iconSrc: '',
-      chipClass: 'artists-provider-chip--generic',
-    }
 }
 
 function providerActionsForArtist(artist: Artist) {
@@ -1173,7 +1155,7 @@ watch(sortedArtists, (currentArtists) => {
                 closable
                 close-icon="mdi-trash-can-outline"
                 :disabled="writeActionsDisabled"
-                @click.stop
+                @click.stop="scanArtistProvider(artist)"
                 @click:close.stop="clearArtistProvider(artist)"
               >
                 <img
@@ -1407,14 +1389,15 @@ watch(sortedArtists, (currentArtists) => {
             prepend-inner-icon="mdi-link-variant"
             autofocus
             :disabled="writeActionsDisabled"
-            hide-details
+            :error-messages="providerUrlValidation ? [providerUrlValidation] : []"
+            hide-details="auto"
             @keyup.enter="saveUrlProvider"
           ></v-text-field>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="providerUrlDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="providerUrlSaving" :disabled="writeActionsDisabled || !providerUrl.trim()" @click="saveUrlProvider">
+          <v-btn color="primary" :loading="providerUrlSaving" :disabled="writeActionsDisabled || !providerUrl.trim() || Boolean(providerUrlValidation)" @click="saveUrlProvider">
             Save
           </v-btn>
         </v-card-actions>

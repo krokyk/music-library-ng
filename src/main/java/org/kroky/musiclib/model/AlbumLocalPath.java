@@ -9,6 +9,5 @@ public record AlbumLocalPath(
         String resolvedPath,
         boolean onDisk,
         String firstSeenAt,
-        String lastSeenAt,
-        String missingSince) {
+        String lastSeenAt) {
 }

@@ -71,7 +71,8 @@ The workflow covers MusicBrainz artist identity assignment, release-group fetchi
 - A supported full album with no exact local title match is created as an unchecked album.
 - Created MusicBrainz albums are linked through `album_artists`.
 - Direct one-artist MusicBrainz refresh creates artist-level albums and does not assign them to a collection.
-- Collection-scoped provider checks can assign non-MusicBrainz provider albums to the selected collection through `collection_albums`.
+- Collection-scoped provider checks add provider-discovered albums to the selected collection only when the album has no collection memberships yet.
+- Provider-discovered albums with existing collection memberships keep those memberships unchanged.
 - MusicBrainz provider records that are filtered out are counted as ignored diagnostics, not surfaced as user decisions.
 
 ## Provider Check Jobs

@@ -60,11 +60,11 @@ public class AlbumRepository {
                     ? IS NULL
                     OR (? = 1 AND EXISTS (
                         SELECT 1 FROM album_local_paths lp
-                        WHERE lp.album_id = a.id AND lp.missing_since IS NULL
+                        WHERE lp.album_id = a.id
                     ))
                     OR (? = 0 AND NOT EXISTS (
                         SELECT 1 FROM album_local_paths lp
-                        WHERE lp.album_id = a.id AND lp.missing_since IS NULL
+                        WHERE lp.album_id = a.id
                     ))
                   )
                   AND (
@@ -383,69 +383,36 @@ public class AlbumRepository {
         }
     }
 
-    public int markMissingPaths(String collectionId, Set<String> seenPaths) {
-        return markMissingPaths(collectionId, null, seenPaths);
+    public int removeUnseenLocalPaths(String collectionId, Set<String> seenPaths) {
+        return removeUnseenLocalPaths(collectionId, null, seenPaths);
     }
 
-    public int markMissingPathsForArtist(String collectionId, long artistId, Set<String> seenPaths) {
-        return markMissingPaths(collectionId, artistId, seenPaths);
+    public int removeUnseenLocalPathsForArtist(String collectionId, long artistId, Set<String> seenPaths) {
+        return removeUnseenLocalPaths(collectionId, artistId, seenPaths);
     }
 
-    public int markLocalPathMissing(String collectionId, String relativePath) {
-        String sql = """
-                UPDATE album_local_paths
-                SET missing_since = CURRENT_TIMESTAMP
-                WHERE collection_id = ? AND relative_path = ? AND missing_since IS NULL
-                """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, collectionId);
-            statement.setString(2, relativePath);
-            return statement.executeUpdate();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to mark album local path missing", e);
-        }
-    }
-
-    public int markLocalPathsMissing(String collectionId, long albumId) {
-        String sql = """
-                UPDATE album_local_paths
-                SET missing_since = CURRENT_TIMESTAMP
-                WHERE collection_id = ? AND album_id = ? AND missing_since IS NULL
-                """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, collectionId);
-            statement.setLong(2, albumId);
-            return statement.executeUpdate();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to mark album local paths missing", e);
-        }
-    }
-
-    public Optional<Album> untrackMissingLocalPaths(String collectionId, long albumId) {
+    public int removeLocalPaths(String collectionId, long albumId) {
         String sql = """
                 DELETE FROM album_local_paths
-                WHERE collection_id = ? AND album_id = ? AND missing_since IS NOT NULL
+                WHERE collection_id = ? AND album_id = ?
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, collectionId);
             statement.setLong(2, albumId);
-            statement.executeUpdate();
-            return find(albumId);
+            return statement.executeUpdate();
         } catch (Exception e) {
-            throw new IllegalStateException("Unable to untrack missing album local paths", e);
+            throw new IllegalStateException("Unable to remove album local paths", e);
         }
     }
 
 
-    private int markMissingPaths(String collectionId, Long artistId, Set<String> seenPaths) {
+    private int removeUnseenLocalPaths(String collectionId, Long artistId, Set<String> seenPaths) {
         Set<String> normalizedSeen = new HashSet<>(seenPaths);
         String select = """
                 SELECT relative_path
                 FROM album_local_paths
-                WHERE collection_id = ? AND missing_since IS NULL
+                WHERE collection_id = ?
                   AND (? IS NULL OR EXISTS (
                       SELECT 1
                       FROM album_artists aa
@@ -453,15 +420,14 @@ public class AlbumRepository {
                         AND aa.artist_id = ?
                   ))
                 """;
-        String update = """
-                UPDATE album_local_paths
-                SET missing_since = CURRENT_TIMESTAMP
-                WHERE collection_id = ? AND relative_path = ? AND missing_since IS NULL
+        String delete = """
+                DELETE FROM album_local_paths
+                WHERE collection_id = ? AND relative_path = ?
                 """;
         int missing = 0;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement selectStatement = connection.prepareStatement(select);
-                PreparedStatement updateStatement = connection.prepareStatement(update)) {
+                PreparedStatement deleteStatement = connection.prepareStatement(delete)) {
             selectStatement.setString(1, collectionId);
             setNullableLong(selectStatement, 2, artistId);
             setNullableLong(selectStatement, 3, artistId);
@@ -471,14 +437,14 @@ public class AlbumRepository {
                     if (normalizedSeen.contains(relativePath)) {
                         continue;
                     }
-                    updateStatement.setString(1, collectionId);
-                    updateStatement.setString(2, relativePath);
-                    missing += updateStatement.executeUpdate();
+                    deleteStatement.setString(1, collectionId);
+                    deleteStatement.setString(2, relativePath);
+                    missing += deleteStatement.executeUpdate();
                 }
             }
             return missing;
         } catch (Exception e) {
-            throw new IllegalStateException("Unable to mark missing paths", e);
+            throw new IllegalStateException("Unable to remove unseen local paths", e);
         }
     }
 
@@ -805,12 +771,11 @@ public class AlbumRepository {
     private void upsertLocalPath(Connection connection, long albumId, String collectionId, String relativePath)
             throws Exception {
         String sql = """
-                INSERT INTO album_local_paths (album_id, collection_id, relative_path, last_seen_at, missing_since)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP, NULL)
+                INSERT INTO album_local_paths (album_id, collection_id, relative_path, last_seen_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(collection_id, relative_path) DO UPDATE SET
                     album_id = excluded.album_id,
-                    last_seen_at = CURRENT_TIMESTAMP,
-                    missing_since = NULL
+                    last_seen_at = CURRENT_TIMESTAMP
                 """;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, albumId);
@@ -824,7 +789,7 @@ public class AlbumRepository {
         long albumId = rs.getLong("id");
         List<AlbumLocalPath> localPaths = listPaths(connection, albumId);
         boolean hasLocalPath = !localPaths.isEmpty();
-        boolean onDisk = localPaths.stream().anyMatch(path -> path.missingSince() == null && path.onDisk());
+        boolean onDisk = localPaths.stream().anyMatch(AlbumLocalPath::onDisk);
         return new Album(
                 albumId,
                 parseArtistIds(rs.getString("artist_ids")),
@@ -870,7 +835,7 @@ public class AlbumRepository {
     private List<AlbumLocalPath> listPaths(Connection connection, long albumId) {
         String sql = """
                 SELECT lp.id, lp.album_id, lp.collection_id, c.name AS collection_name, c.relative_path AS collection_relative_path,
-                       lp.relative_path, lp.first_seen_at, lp.last_seen_at, lp.missing_since
+                       lp.relative_path, lp.first_seen_at, lp.last_seen_at
                 FROM album_local_paths lp
                 JOIN collections c ON c.id = lp.collection_id
                 WHERE lp.album_id = ?
@@ -893,8 +858,7 @@ public class AlbumRepository {
                             resolvedPath,
                             resolvedPath != null && Files.isDirectory(Path.of(resolvedPath)),
                             rs.getString("first_seen_at"),
-                            rs.getString("last_seen_at"),
-                            rs.getString("missing_since")));
+                            rs.getString("last_seen_at")));
                 }
                 return paths;
             }

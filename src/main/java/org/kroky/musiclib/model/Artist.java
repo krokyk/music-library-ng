@@ -22,6 +22,9 @@ public record Artist(
         String providerArtistCountry,
         String providerArtistDisambiguation,
         Boolean providerArtistActive,
+        String providerLastErrorMessage,
+        int collectionAlbumCount,
+        String localScanErrorMessage,
         String createdAt,
         String updatedAt) {
 }

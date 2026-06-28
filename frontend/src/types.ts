@@ -18,6 +18,9 @@ export interface Artist {
   providerArtistCountry?: string | null
   providerArtistDisambiguation?: string | null
   providerArtistActive?: boolean | null
+  providerLastErrorMessage?: string | null
+  collectionAlbumCount: number
+  localScanErrorMessage?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -32,7 +35,6 @@ export interface AlbumLocalPath {
   onDisk: boolean
   firstSeenAt: string
   lastSeenAt: string
-  missingSince?: string | null
 }
 
 export interface AlbumCollection {

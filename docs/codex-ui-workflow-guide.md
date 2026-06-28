@@ -208,11 +208,10 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   - `Provider`
   - `Remove`
   - `Delete`
-  - `Untrack`
 - Use color consistently:
   - primary blue for normal actions, scans, sorting, add, save
   - red/error for destructive delete
-  - warning/yellow for missing or attention-needed local-path states
+  - warning/yellow for attention-needed states such as unchecked albums or albums with no collection
   - green/success for present-on-disk indicators
 - Do not mix always-visible informational icons with hover-only action icons in a way that makes the info icon look like an action.
 - Info icons in collection rows are always visible, muted, and right-aligned so they form a stable visual column.
@@ -237,16 +236,17 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   - The artist should disappear from that collection pane after removal.
   - `Unchecked` is a pane-local filter modifier that narrows the current Local/Non-local artist set to artists with unchecked albums.
 - Collections screen Albums pane uses `Show All` as a pane-local toggle under the pane title.
-  Off shows only albums linked to the selected collection and labels the collection chip column `Also in`.
+  The default is on when no saved preference exists.
+  Off shows albums that belong to the selected collection and labels the collection chip column `Also in`.
   On shows all albums for the selected artist and labels the collection chip column `In`.
-  When `Show All` is on, the `In` column shows all collection chips including the selected collection while bold row text remains as emphasis.
+  When `Show All` is on, the `In` column shows all collection chips including the selected collection, or a warning `No collection` chip when the album has no memberships.
 - Main Artists screen:
   - `Delete` is a real library database delete.
   - If the artist belongs to any collection or has local albums, require a second warning confirmation.
   - Deleting from the library DB never deletes folders or files on disk.
 - Album/title local presence styling in the collection workspace is scoped to the selected collection, not just global `album.onDisk`.
 - Present-on-disk albums/titles are always shown checked and their checkbox is disabled with tooltip text `Present on disk; can't uncheck`.
-- `Untrack` means forget missing local-path history; it does not delete the album or disk content.
+- Collection scans remove local path rows that are no longer seen while preserving collection membership and checked album state.
 
 ### Album Name Display States
 
@@ -257,7 +257,7 @@ This is the canonical UI contract for future changes to album row styling.
 
 | Situation | Condition | Display |
 | --- | --- | --- |
-| Local in selected collection | Active local path for the selected collection: matching `collectionId`, no `missingSince`, and `onDisk=true`. | Bright text, normal style, same size as artist names, bold `800`; checkbox is shown checked and disabled. |
+| Local in selected collection | Active local path for the selected collection: matching `collectionId` and `onDisk=true`. | Bright text, normal style, same size as artist names, bold `800`; checkbox is shown checked and disabled. |
 | Local in another collection | No active local path for the selected collection, not in the selected collection, and has membership in at least one other collection. | Bright text, italic style, one CSS pixel smaller than artist names, not bold; checkbox is shown checked and disabled when `album.onDisk=true`. |
 | Checked, non-local | No active local path for the selected collection, no other collection membership taking precedence, and `checked=true`. | Dim neutral text, normal style, one CSS pixel smaller than artist names, not bold; checked box is primary blue. |
 | Unchecked, non-local | No active local path for the selected collection, no other collection membership taking precedence, and `checked=false`. | Warm muted text, italic style, one CSS pixel smaller than artist names, not bold; checkbox is empty. |
@@ -280,10 +280,13 @@ Nonlocal and other-collection rows use `calc(1em - 1px)`.
 ## Scanning And Status UI
 
 - Same action from different entry points must route through the same store/job path and show the same status, spinners, polling, refresh, and history behavior.
-- Collection scans are lazy and fast.
-- Artist-centric collection scan populates artists only.
-- Artist-centric album scan is explicit and local-album specific.
+- Artist-centric collection scans discover local artists and local albums in the same pass for supported flat and nested folder layouts.
+- Artist-centric local album scans remain explicit rescan actions for one artist or a whole collection.
 - Title-centric scans populate title albums plus contributor artists when parsing provides credible artist values.
+- Collection scans and local album scans do not scan track files.
+- Provider scans from Collections add provider albums to the active collection only when the album has no collection memberships yet.
+- Provider scans from the global Artists screen do not assign collection memberships.
+- Row actions stay visible through the normal selected-row or hover behavior while scan actions are disabled during any running scan or provider job.
 - Status bar messages should be brief but specific: say what is being scanned or checked, not just "Scan starting".
 - Scan/report history may expose detailed information, but the status bar itself should remain concise.
 - Progress should reflect real work where practical, without slowing scans only to improve animation.

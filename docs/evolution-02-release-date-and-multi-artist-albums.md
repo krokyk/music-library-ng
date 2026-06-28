@@ -93,10 +93,8 @@ Title-centric scans now:
 - assign each artist to the collection
 - create or update the shared album and local path when artist metadata exists
 
-Artist-centric collection scans remain lazy:
-
-- discover artists only
-- do not populate albums during the collection scan
+Artist-centric collection scans now discover local artists and local albums together for supported flat and nested folder layouts.
+This supersedes the earlier lazy artist-only collection scan boundary.
 
 Scan job progress fields were renamed from artist-specific names to generic item names because the progress unit is a scanned directory/item:
 

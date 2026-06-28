@@ -104,7 +104,7 @@ public class MusicCollectionRepository {
                      WHERE ca.collection_id = ?) AS contributor_artist_count,
                     (SELECT count(DISTINCT lp.album_id)
                      FROM album_local_paths lp
-                     WHERE lp.collection_id = ? AND lp.missing_since IS NULL) AS local_album_count,
+                     WHERE lp.collection_id = ?) AS local_album_count,
                     (SELECT count(*)
                      FROM collection_albums ca
                      WHERE ca.collection_id = ?) AS known_album_count,

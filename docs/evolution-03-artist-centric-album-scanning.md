@@ -17,15 +17,15 @@ scanning is always an explicit action
 
 ## Current Boundary
 
-Artist-centric collection scan remains fast and shallow:
+Artist-centric collection scan now discovers local artists and local albums:
 
 ```text
-collection folders -> artists
+collection folders -> artists + albums + local paths
 ```
 
-It should not populate albums and should not scan tracks.
+It should not scan tracks.
 
-Albums are discovered through explicit album-level workflows:
+Explicit album-level workflows still exist for rescans and provider refreshes:
 
 - local album scan
 - provider scan
@@ -56,6 +56,7 @@ Recommended icon meanings:
 ## Local Album Scan
 
 Local scan parses album folders for artist-centric collections.
+Collection scan uses the same local album parsing for supported flat and nested folder layouts.
 
 For the current flat layout, parse:
 
@@ -86,10 +87,10 @@ POST /api/scan/jobs/local-albums?collectionId=<collection-id>&artistId=<artist-i
 ```
 
 When `artistId` is supplied, only folders whose parsed artist matches the selected artist are processed.
-Missing local paths are marked missing only for that artist.
+Stale local path rows are removed only for that artist.
 
 When `artistId` is omitted, all matching folders in the selected collection are processed.
-Missing local paths are marked missing for the whole collection.
+Stale local path rows are removed for the whole collection.
 
 ## Provider Scan
 

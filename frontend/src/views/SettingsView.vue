@@ -734,7 +734,7 @@ onBeforeUnmount(() => {
                     {{ run.parsedCount }} parsed,
                     {{ run.createdCount }} created,
                     {{ run.updatedCount }} updated,
-                    {{ run.missingCount }} missing,
+                    {{ run.missingCount }} removed,
                     {{ run.skippedCount }} skipped
                   </span>
                   <span class="text-medium-emphasis ml-auto">{{ run.startedAt }}</span>

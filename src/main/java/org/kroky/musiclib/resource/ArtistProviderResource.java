@@ -10,6 +10,7 @@ import org.kroky.musiclib.provider.ArtistProviderMatchService;
 import org.kroky.musiclib.provider.ArtistProviderRefreshService;
 import org.kroky.musiclib.provider.ProviderException;
 import org.kroky.musiclib.provider.ProviderRegistry;
+import org.kroky.musiclib.provider.ProviderUrlNormalizer;
 import org.kroky.musiclib.provider.musicbrainz.MusicBrainzClient;
 import org.kroky.musiclib.repository.ArtistProviderLinkRepository;
 
@@ -64,13 +65,16 @@ public class ArtistProviderResource {
     @PUT
     @Path("/provider")
     public ArtistProviderLink saveProvider(@PathParam("artistId") long artistId, ProviderRequest request) {
-        validateProviderRequest(request);
+        String normalizedProviderUrl = validateProviderRequest(request);
         String providerUrl = request.providerUrl();
         String providerArtistId = request.providerArtistId();
         if (MusicBrainzClient.PROVIDER_ID.equals(request.providerId())) {
             providerUrl = musicBrainz.artistUrl(request.providerArtistId());
         } else if (providerArtistId == null || providerArtistId.isBlank()) {
+            providerUrl = normalizedProviderUrl;
             providerArtistId = providerUrl;
+        } else {
+            providerUrl = normalizedProviderUrl;
         }
         return providerLinks.upsertForArtist(
                 artistId,
@@ -102,7 +106,7 @@ public class ArtistProviderResource {
         }
     }
 
-    private void validateProviderRequest(ProviderRequest request) {
+    private String validateProviderRequest(ProviderRequest request) {
         if (request == null) {
             throw new BadRequestException("Provider request is required");
         }
@@ -110,19 +114,19 @@ public class ArtistProviderResource {
             if (request.providerArtistId() == null || !MBID.matcher(request.providerArtistId()).matches()) {
                 throw new BadRequestException("MusicBrainz artist MBID is invalid");
             }
-            return;
+            return null;
         }
         if (!"spirit_of_metal".equals(request.providerId()) && !"metal_archives".equals(request.providerId())) {
             throw new BadRequestException("Unsupported provider: " + request.providerId());
         }
-        if (request.providerUrl() == null || request.providerUrl().isBlank()) {
-            throw new BadRequestException("Provider URL is required");
-        }
+        String normalizedProviderUrl;
         try {
-            providerRegistry.find(request.providerId(), request.providerUrl());
-        } catch (ProviderException e) {
+            normalizedProviderUrl = ProviderUrlNormalizer.normalize(request.providerId(), request.providerUrl());
+            providerRegistry.find(request.providerId(), normalizedProviderUrl);
+        } catch (ProviderException | IllegalArgumentException e) {
             throw new BadRequestException(e.getMessage(), e);
         }
+        return normalizedProviderUrl;
     }
 
     public record ProviderRequest(

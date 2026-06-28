@@ -129,7 +129,7 @@ public class ScanJobService {
         String collectionName = job.collectionLabel();
         if ("LOCAL_ALBUMS".equals(job.kind)) {
             return collectionName + " local album scan complete: " + parsed + " albums, " + created + " new, "
-                    + updated + " existing, " + missing + " missing, " + skipped + " skipped.";
+                    + updated + " existing, " + missing + " local paths removed, " + skipped + " skipped.";
         }
         return collectionName + " scan complete: " + parsed + " parsed, " + created + " created, "
                 + updated + " updated, " + skipped + " skipped.";

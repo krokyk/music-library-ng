@@ -17,6 +17,7 @@ import org.jsoup.select.Elements;
 import org.kroky.musiclib.model.ReleaseDates;
 import org.kroky.musiclib.provider.DiscographyProvider;
 import org.kroky.musiclib.provider.ProviderException;
+import org.kroky.musiclib.provider.ProviderUrlNormalizer;
 import org.kroky.musiclib.provider.RemoteAlbum;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -57,15 +58,11 @@ public class MetalArchivesProvider implements DiscographyProvider {
     }
 
     static URI discographyUrl(String providerUrl) {
-        String bandId = bandId(providerUrl);
-        return URI.create(BASE_URL + MAIN_DISCOGRAPHY_PATH.formatted(bandId));
+        return URI.create(ProviderUrlNormalizer.normalizeMetalArchives(providerUrl));
     }
 
     static String bandId(String providerUrl) {
-        if (providerUrl == null || providerUrl.isBlank()) {
-            throw new IllegalArgumentException("Metal Archives URL is required");
-        }
-        URI uri = URI.create(providerUrl.trim());
+        URI uri = URI.create(ProviderUrlNormalizer.normalizeMetalArchives(providerUrl));
         String path = uri.getPath();
         Matcher bandMatch = BAND_URL_ID.matcher(path);
         if (bandMatch.find()) {

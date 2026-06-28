@@ -162,7 +162,6 @@ album_local_paths
 - relative_path
 - first_seen_at
 - last_seen_at
-- missing_since
 ```
 
 Current `album_local_paths` already has the needed local evidence:
@@ -172,7 +171,6 @@ Current `album_local_paths` already has the needed local evidence:
 - `relative_path`
 - `first_seen_at`
 - `last_seen_at`
-- `missing_since`
 
 Fields such as `title`, `normalized_title`, `artist_name`, `release_date`, `sort_name`, and `sort_name_source` should move to `albums` and `album_artists`, not stay on a collection-local title table.
 
@@ -191,8 +189,8 @@ Artist-centric collection:
 ```text
 type = ARTIST
 primary browsing entity = followed artists
-collection scan = discover artists
-local album scan = discover albums/local paths
+collection scan = discover artists and local albums
+local album scan = rescan albums/local paths
 provider scan = available for followed artists
 layout = Collections | Artists | Albums
 ```
@@ -235,7 +233,7 @@ Manual add should:
 
 This supports checked soundtracks that are no longer on disk or were never local in the first place.
 
-Deleting a local title path should mark the `album_local_paths` row missing or remove that local evidence, but it should not remove the `collection_albums` membership.
+Deleting a local title path should remove that `album_local_paths` row, but it should not remove the `collection_albums` membership.
 Removing an album/title from a collection should be a separate explicit action.
 
 ## Title-Centric Local Scan
@@ -253,13 +251,13 @@ They should not automatically become followed artists in `artist_collections`.
 
 ## Artist-Centric Local Scan
 
-Artist-centric collection scan remains shallow:
+Artist-centric collection scan discovers local artists and local albums:
 
 ```text
-collection folders -> followed artists
+collection folders -> followed artists + albums + local paths
 ```
 
-Explicit local album scans should:
+Explicit local album scans should still support rescanning one artist or a whole collection:
 
 - parse album folders
 - create or reuse album rows
@@ -269,10 +267,10 @@ Explicit local album scans should:
 
 Artist selection must not scan or mutate data.
 
-Provider scans for followed artists should also add discovered albums to `collection_albums` for the collection scope where the scan was invoked, instead of relying only on artist membership.
-
-Provider scans that are not scoped to a collection can create or update global album knowledge, but they should not guess collection membership.
-Row-level provider scans from the Artists pane should therefore carry the selected collection context.
+Provider scans create or update artist-level album knowledge only.
+Provider-discovered albums should not be added to `collection_albums` unless a local or title scan later finds collection evidence.
+Row-level provider scans from the Collections artists pane use the selected collection only to choose the artist/provider context.
+Row-level provider scans from the global Artists screen are unscoped and refresh the selected artist details on that screen.
 
 ## Display Rules
 
@@ -422,7 +420,7 @@ These can be revisited only when the workflows require them.
 3. Update album queries to filter by `collection_albums` where appropriate.
 4. Update title-centric scans to create albums plus collection membership.
 5. Update artist-centric local album scans to create collection membership.
-6. Update provider scans to add collection membership when scoped to a collection, including row-level provider scans from the Artists pane.
+6. Keep provider scans from changing existing collection memberships, while allowing collection-scoped provider scans to assign albums that have no memberships yet.
 7. Replace title-centric display data with collection albums.
 8. Add `+ Add Title` for title-centric collections.
 9. Add collection info tooltip using derived DB counts and frontend cache.
