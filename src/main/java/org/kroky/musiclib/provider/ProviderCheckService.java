@@ -177,7 +177,9 @@ public class ProviderCheckService {
                     continue;
                 }
                 DiscographyProvider provider = providers.find(link.providerId(), link.providerUrl());
-                List<RemoteAlbum> remoteAlbums = provider.fetchAlbums(link.providerUrl());
+                ProviderArtistDetails details = provider.fetchArtistDetails(link.providerUrl());
+                providerLinks.updateProviderMetadata(link.id(), details.country(), details.active());
+                List<RemoteAlbum> remoteAlbums = details.albums();
                 foundAlbums += remoteAlbums.size();
                 runs.event(runId, link.artistId(), link.id(), "INFO",
                         "Read " + remoteAlbums.size() + " " + providerLabel(link.providerId())

@@ -17,9 +17,12 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.kroky.musiclib.model.ReleaseDates;
+import org.kroky.musiclib.provider.CountryCodes;
 import org.kroky.musiclib.provider.DiscographyProvider;
+import org.kroky.musiclib.provider.ProviderArtistDetails;
 import org.kroky.musiclib.provider.ProviderException;
 import org.kroky.musiclib.provider.ProviderArtistSearchResult;
+import org.kroky.musiclib.provider.ProviderStatuses;
 import org.kroky.musiclib.provider.RemoteAlbum;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -58,6 +61,15 @@ public class SpiritOfMetalProvider implements DiscographyProvider {
         }
     }
 
+    @Override
+    public ProviderArtistDetails fetchArtistDetails(String providerUrl) throws ProviderException {
+        try {
+            return parseArtistDetails(fetch(URI.create(providerUrl.trim())), providerUrl);
+        } catch (Exception e) {
+            throw new ProviderException("Unable to fetch Spirit of Metal artist details from " + providerUrl, e);
+        }
+    }
+
     public List<ProviderArtistSearchResult> searchArtists(String artistName, int limit) throws ProviderException {
         try {
             URI uri = URI.create(SEARCH_URL.formatted(URLEncoder.encode(artistName, StandardCharsets.UTF_8)));
@@ -92,14 +104,21 @@ public class SpiritOfMetalProvider implements DiscographyProvider {
                     bandId(link, url),
                     name,
                     url,
-                    typeAndCountry[0],
-                    typeAndCountry[1],
+                    CountryCodes.normalize(typeAndCountry[1]),
                     aliasText(link.parent()),
                     null,
                     Math.max(1, 100 - index * 8)));
             index++;
         }
         return results;
+    }
+
+    static ProviderArtistDetails parseArtistDetails(String html, String providerUrl) {
+        Document doc = Jsoup.parse(html, providerUrl);
+        return new ProviderArtistDetails(
+                countryFromProfile(doc),
+                activeFromProfile(doc),
+                parseAlbumDiscography(html, providerUrl));
     }
 
     static List<RemoteAlbum> parseAlbumDiscography(String html, String providerUrl) {
@@ -172,6 +191,27 @@ public class SpiritOfMetalProvider implements DiscographyProvider {
                 descriptor.substring(0, separator).trim(),
                 descriptor.substring(separator + 1).trim().replace('-', ' ')
         };
+    }
+
+    private static String countryFromProfile(Document doc) {
+        return CountryCodes.normalize(profileValue(doc, "Country"));
+    }
+
+    private static Boolean activeFromProfile(Document doc) {
+        return ProviderStatuses.active(profileValue(doc, "Status"));
+    }
+
+    private static String profileValue(Document doc, String label) {
+        for (Element row : doc.select("#profile > div")) {
+            Elements spans = row.select("> span");
+            if (spans.size() < 2) {
+                continue;
+            }
+            if (label.equalsIgnoreCase(spans.get(0).text().trim())) {
+                return spans.get(1).text().trim();
+            }
+        }
+        return null;
     }
 
     private static String aliasText(Element row) {

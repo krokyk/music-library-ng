@@ -89,7 +89,6 @@ public class ArtistProviderMatchService {
                         result.id(),
                         result.name(),
                         musicBrainz.artistUrl(result.id()),
-                        result.type(),
                         result.country(),
                         result.disambiguation(),
                         result.active(),
@@ -99,12 +98,13 @@ public class ArtistProviderMatchService {
 
     private ArtistProviderCandidate candidate(Artist artist, List<Album> localAlbums,
             ProviderArtistSearchResult result) {
-        List<RemoteReleaseGroup> releaseGroups;
+        CandidateDetails details;
         try {
-            releaseGroups = fetchReleaseGroups(result);
+            details = fetchCandidateDetails(result);
         } catch (ProviderException e) {
-            releaseGroups = List.of();
+            details = new CandidateDetails(result.country(), result.active(), List.of());
         }
+        List<RemoteReleaseGroup> releaseGroups = details.releaseGroups();
         Set<String> remoteTitles = releaseGroups.stream()
                 .map(RemoteReleaseGroup::title)
                 .map(Names::normalize)
@@ -126,24 +126,27 @@ public class ArtistProviderMatchService {
                 result.providerArtistId(),
                 result.providerArtistName(),
                 result.providerUrl(),
-                result.type(),
-                result.country(),
+                details.country(),
                 result.disambiguation(),
-                result.active(),
+                details.active(),
                 result.providerScore(),
                 matchScore,
                 matchedAlbums,
                 releaseGroups);
     }
 
-    private List<RemoteReleaseGroup> fetchReleaseGroups(ProviderArtistSearchResult result) throws ProviderException {
+    private CandidateDetails fetchCandidateDetails(ProviderArtistSearchResult result) throws ProviderException {
         if (MusicBrainzClient.PROVIDER_ID.equals(result.providerId())) {
-            return musicBrainz.fetchReleaseGroups(result.providerArtistId());
+            return new CandidateDetails(
+                    result.country(),
+                    result.active(),
+                    musicBrainz.fetchReleaseGroups(result.providerArtistId()));
         }
         DiscographyProvider provider = ProviderUrlNormalizer.SPIRIT_OF_METAL.equals(result.providerId())
                 ? spiritOfMetal
                 : metalArchives;
-        return provider.fetchAlbums(result.providerUrl()).stream()
+        ProviderArtistDetails details = provider.fetchArtistDetails(result.providerUrl());
+        List<RemoteReleaseGroup> releaseGroups = details.albums().stream()
                 .map(album -> new RemoteReleaseGroup(
                         result.providerId(),
                         album.sourceUrl() == null || album.sourceUrl().isBlank() ? album.title() : album.sourceUrl(),
@@ -153,6 +156,13 @@ public class ArtistProviderMatchService {
                         List.of(),
                         album.sourceUrl()))
                 .toList();
+        return new CandidateDetails(
+                details.country() == null ? result.country() : details.country(),
+                details.active() == null ? result.active() : details.active(),
+                releaseGroups);
+    }
+
+    private record CandidateDetails(String country, Boolean active, List<RemoteReleaseGroup> releaseGroups) {
     }
 
     private static int titleAndYearMatches(List<Album> localAlbums, List<RemoteReleaseGroup> releaseGroups) {

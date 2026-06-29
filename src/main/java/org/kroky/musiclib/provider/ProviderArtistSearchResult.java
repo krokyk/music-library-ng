@@ -5,7 +5,6 @@ public record ProviderArtistSearchResult(
         String providerArtistId,
         String providerArtistName,
         String providerUrl,
-        String type,
         String country,
         String disambiguation,
         Boolean active,

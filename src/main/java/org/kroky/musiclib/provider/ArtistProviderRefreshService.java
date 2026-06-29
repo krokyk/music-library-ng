@@ -10,6 +10,7 @@ import org.kroky.musiclib.model.Album;
 import org.kroky.musiclib.model.ArtistProviderLink;
 import org.kroky.musiclib.model.ProviderRefreshResult;
 import org.kroky.musiclib.model.RemoteReleaseGroup;
+import org.kroky.musiclib.provider.musicbrainz.MusicBrainzArtistResult;
 import org.kroky.musiclib.provider.musicbrainz.MusicBrainzClient;
 import org.kroky.musiclib.repository.AlbumProviderLinkRepository;
 import org.kroky.musiclib.repository.AlbumRepository;
@@ -69,6 +70,8 @@ public class ArtistProviderRefreshService {
     public ProviderRefreshResult importMusicBrainz(long runId, ArtistProviderLink link, String collectionId)
             throws ProviderException {
         requireMusicBrainzIdentity(link);
+        MusicBrainzArtistResult artist = musicBrainz.fetchArtist(link.providerArtistId());
+        providerLinks.updateProviderMetadata(link.id(), artist.country(), artist.active());
         List<RemoteReleaseGroup> releaseGroups = musicBrainz.fetchReleaseGroups(link.providerArtistId());
         List<Album> localAlbums = new ArrayList<>(albums.list(link.artistId(), null, null, null, null));
         int alreadyInLibrary = 0;

@@ -71,7 +71,6 @@ public record UiSettings(
     public record ArtistsScreenColumnWidths(
             int name,
             int country,
-            int type,
             int status,
             int albums,
             int unchecked,

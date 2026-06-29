@@ -135,6 +135,7 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 - Column width defaults come from `application.properties`; user-adjusted widths are stored as DB preferences.
   Future screens should follow the same shape, for example `artists-screen.artists-pane.name`.
   Current collection-screen column keys include `collections-screen.artists-pane.name`, `collections-screen.albums-pane.name`, `collections-screen.albums-pane.release-date`, `collections-screen.albums-pane.checked`, `collections-screen.albums-pane.also-in`, `collections-screen.albums-pane.action`, `collections-screen.titles-pane.title`, `collections-screen.titles-pane.artist`, `collections-screen.titles-pane.release-date`, and `collections-screen.titles-pane.action`.
+  Current Artists screen column keys include `artists-screen.artists-pane.name`, `artists-screen.artists-pane.country`, `artists-screen.artists-pane.status`, `artists-screen.artists-pane.albums`, `artists-screen.artists-pane.unchecked`, `artists-screen.artists-pane.local`, `artists-screen.artists-pane.provider`, and `artists-screen.artists-pane.action`.
 - Non-rightmost columns keep fixed pixel widths.
   The rightmost column uses remaining available space.
 - Each column boundary has one resize handle.
@@ -180,6 +181,13 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   Keep the displayed count and submitted artist IDs from the same filtered list.
 - Main Artists screen bulk provider controls use provider chips.
   Collapse provider chip labels before collapsing the bulk-match text to the count-only form, and shrink the search field only after the count and provider icons are preserved.
+- Main Artists screen country cells show flag icons and country names in the table row.
+  Clicking a country cell opens a cell-anchored popover below the cell with a search field and country list.
+  Country edits write artist overrides only and provider rescans must not overwrite those overrides.
+  Manual country and status overrides must be visually distinguishable from provider-derived values without using loud link-like text color.
+- Main Artists screen status cells show only the effective status in the table row.
+  Clicking that status opens a cell-anchored menu with compact Active, Split-up, and clear chips.
+  Status edits write artist overrides only and provider rescans must not overwrite those overrides.
 - Pane-local filters use pane-scoped keys, for example `collections-screen.artists-pane.presence-filter`, `collections-screen.artists-pane.unchecked-filter`, `collections-screen.albums-pane.show-all-filter`, and `collections-screen.titles-pane.presence-filter`.
 - Pane-local scan indicators use pane-scoped keys, for example `collections-screen.collections-pane.scan-spinner-enabled`, `collections-screen.collections-pane.scan-progress-enabled`, and `collections-screen.artists-pane.scan-spinner-enabled`.
 - Use the shared Vuetify tooltip pattern for UI help and hover labels.
@@ -216,7 +224,7 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   - `Remove` removes only the artist association with the selected collection.
   - It does not delete the artist from the library database.
   - The artist should disappear from that collection pane after removal.
-  - Artist details edit metadata only and must not expose manual collection membership editing.
+  - Artist metadata editing belongs to the main Artists screen, not the Collections screen Artists pane.
   - Artist presence in a collection is derived from collection albums, provider-discovered collection albums, and local scan state.
   - `Unchecked` is a pane-local filter modifier that narrows the current Local/Non-local artist set to artists with unchecked albums.
 - Collections screen Albums pane uses `Show All` as a pane-local toggle under the pane title.
@@ -228,6 +236,9 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   - `Delete` is a real library database delete.
   - If the artist belongs to any collection or has local albums, require a second warning confirmation.
   - Deleting from the library DB never deletes folders or files on disk.
+  - The right detail pane is the main edit place for artist name and sort name.
+  - The right detail pane should show effective country and status, clear override actions next to overridden values, and provider evidence beside the override.
+  - The provider artist type must not be shown as an artist type because providers do not agree on the meaning.
 - Album/title local presence styling in the collection workspace is scoped to the selected collection, not just global `album.onDisk`.
 - Present-on-disk albums/titles are always shown checked and their checkbox is disabled with tooltip text `Present on disk; can't uncheck`.
 - Collection scans remove local path rows that are no longer seen while preserving collection membership and checked album state.

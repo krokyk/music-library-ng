@@ -61,6 +61,20 @@ public class MusicBrainzClient {
         return results;
     }
 
+    public MusicBrainzArtistResult fetchArtist(String artistMbid) throws ProviderException {
+        URI uri = uri("/artist/" + artistMbid,
+                "fmt", "json");
+        JsonNode item = getJson(uri);
+        return new MusicBrainzArtistResult(
+                text(item, "id"),
+                text(item, "name"),
+                text(item, "type"),
+                text(item, "country"),
+                text(item, "disambiguation"),
+                active(item),
+                100);
+    }
+
     public List<RemoteReleaseGroup> fetchReleaseGroups(String artistMbid) throws ProviderException {
         int limit = Math.max(1, config.providers().musicbrainz().releaseGroupPageSize());
         int offset = 0;

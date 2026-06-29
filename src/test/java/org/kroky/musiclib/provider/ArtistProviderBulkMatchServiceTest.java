@@ -52,7 +52,6 @@ class ArtistProviderBulkMatchServiceTest {
                 null,
                 null,
                 null,
-                null,
                 providerScore,
                 matchScore,
                 matchedLocalAlbums,

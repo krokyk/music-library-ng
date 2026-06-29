@@ -3,9 +3,11 @@ CREATE TABLE artists (
     name TEXT NOT NULL,
     normalized_name TEXT NOT NULL,
     sort_name TEXT,
-    notes TEXT,
+    country_override TEXT,
+    active_override INTEGER,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (active_override IN (0, 1)),
     UNIQUE (normalized_name)
 );
 
@@ -122,10 +124,9 @@ CREATE TABLE artist_provider_links (
     provider_id TEXT NOT NULL,
     provider_artist_id TEXT,
     provider_artist_name TEXT,
-    provider_artist_type TEXT,
-    provider_artist_country TEXT,
-    provider_artist_disambiguation TEXT,
-    provider_artist_active INTEGER,
+    country TEXT,
+    disambiguation TEXT,
+    active INTEGER,
     provider_url TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     last_success_at TEXT,
@@ -136,7 +137,7 @@ CREATE TABLE artist_provider_links (
     FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
     FOREIGN KEY (provider_id) REFERENCES providers(id),
     CHECK (enabled IN (0, 1)),
-    CHECK (provider_artist_active IN (0, 1)),
+    CHECK (active IN (0, 1)),
     UNIQUE (artist_id),
     UNIQUE (provider_id, provider_artist_id)
 );

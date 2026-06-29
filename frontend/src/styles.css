@@ -982,6 +982,148 @@ body,
   justify-content: flex-start;
 }
 
+.artist-country-cell {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  padding-right: 2px;
+  width: 100%;
+}
+
+.artist-country-cell--disabled {
+  cursor: default;
+  opacity: var(--v-disabled-opacity);
+}
+
+.artist-country-cell--override {
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(var(--v-theme-primary), 0.45);
+  padding-left: 4px;
+}
+
+.artist-country-cell__value {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.artist-country-cell__value span {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.artist-country-cell__clear.v-btn {
+  color: rgba(255, 255, 255, 0.72);
+  flex: 0 0 auto;
+  height: 20px;
+  min-width: 20px;
+  width: 20px;
+}
+
+.artist-country-menu {
+  background: rgb(var(--v-theme-surface));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  width: 260px;
+}
+
+.artist-country-menu__list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.country-select-selection,
+.artist-source-value,
+.artist-provider-source {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+  min-width: 0;
+}
+
+.country-select-selection {
+  overflow: hidden;
+  width: 100%;
+}
+
+.country-select-selection span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.country-flag {
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+  flex: 0 0 auto;
+  height: 12px;
+  object-fit: cover;
+  width: 16px;
+}
+
+.country-flag--menu {
+  height: 14px;
+  width: 19px;
+}
+
+.artist-status-control {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+}
+
+.artist-status-chip.v-chip {
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.artist-status-chip .v-chip__content {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artist-status-chip--override.v-chip {
+  box-shadow:
+    inset 0 0 0 1px rgba(var(--v-theme-primary), 0.55);
+}
+
+.artist-status-menu {
+  align-items: center;
+  background: rgb(var(--v-theme-surface));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+}
+
+.artist-identity-form {
+  align-items: start;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr;
+}
+
+.artist-override-clear.v-btn {
+  color: rgba(255, 255, 255, 0.68);
+  flex: 0 0 auto;
+}
+
+.artist-provider-source {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.78rem;
+}
+
 .artist-details-pane__body {
   display: flex;
   flex: 1 1 auto;

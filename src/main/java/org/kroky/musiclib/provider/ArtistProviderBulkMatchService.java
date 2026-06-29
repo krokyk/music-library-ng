@@ -102,7 +102,6 @@ public class ArtistProviderBulkMatchService {
                         top.providerArtistId(),
                         top.providerArtistName(),
                         top.providerUrl(),
-                        top.type(),
                         top.country(),
                         top.disambiguation(),
                         top.active(),

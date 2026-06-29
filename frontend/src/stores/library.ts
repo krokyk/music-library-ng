@@ -30,7 +30,8 @@ interface ArtistPayload {
   id?: number
   name: string
   sortName?: string | null
-  notes?: string | null
+  countryOverride?: string | null
+  activeOverride?: boolean | null
 }
 
 interface ProviderLinkPayload {
@@ -38,10 +39,9 @@ interface ProviderLinkPayload {
   providerId: string
   providerArtistId?: string | null
   providerArtistName?: string | null
-  providerArtistType?: string | null
-  providerArtistCountry?: string | null
-  providerArtistDisambiguation?: string | null
-  providerArtistActive?: boolean | null
+  providerCountry?: string | null
+  providerDisambiguation?: string | null
+  providerActive?: boolean | null
   providerUrl?: string | null
   enabled: boolean
 }
@@ -119,9 +119,8 @@ const defaultWorkspaceColumnDefaults = {
 
 const defaultArtistsScreenColumnDefaults = {
   name: 250,
-  country: 76,
-  type: 80,
-  status: 84,
+  country: 190,
+  status: 110,
   albums: 68,
   unchecked: 86,
   local: 64,
@@ -612,14 +611,15 @@ export const useLibraryStore = defineStore('library', {
       }
     },
     async addArtist(name: string) {
-      await this.saveArtist({ name, sortName: null, notes: null })
+      await this.saveArtist({ name, sortName: null, countryOverride: null, activeOverride: null })
       await this.loadArtists()
     },
     async saveArtist(payload: ArtistPayload) {
       const body = {
         name: payload.name,
         sortName: payload.sortName ?? null,
-        notes: payload.notes ?? null,
+        countryOverride: payload.countryOverride ?? null,
+        activeOverride: payload.activeOverride ?? null,
       }
       const artist = payload.id
         ? await apiSend<Artist>(`/api/artists/${payload.id}`, 'PUT', body)
@@ -1183,10 +1183,9 @@ export const useLibraryStore = defineStore('library', {
         providerId: payload.providerId,
         providerArtistId: payload.providerArtistId,
         providerArtistName: payload.providerArtistName,
-        providerArtistType: payload.providerArtistType,
-        providerArtistCountry: payload.providerArtistCountry,
-        providerArtistDisambiguation: payload.providerArtistDisambiguation,
-        providerArtistActive: payload.providerArtistActive,
+        providerCountry: payload.providerCountry,
+        providerDisambiguation: payload.providerDisambiguation,
+        providerActive: payload.providerActive,
         providerUrl: payload.providerUrl,
         enabled: payload.enabled,
       })
@@ -1221,10 +1220,9 @@ export const useLibraryStore = defineStore('library', {
         providerId: payload.providerId,
         providerArtistId: payload.providerArtistId,
         providerArtistName: payload.providerArtistName,
-        providerArtistType: payload.providerArtistType,
-        providerArtistCountry: payload.providerArtistCountry,
-        providerArtistDisambiguation: payload.providerArtistDisambiguation,
-        providerArtistActive: payload.providerArtistActive,
+        providerCountry: payload.providerCountry,
+        providerDisambiguation: payload.providerDisambiguation,
+        providerActive: payload.providerActive,
         providerUrl: payload.providerUrl,
         enabled: payload.enabled,
       }

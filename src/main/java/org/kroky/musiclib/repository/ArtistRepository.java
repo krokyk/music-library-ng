@@ -15,6 +15,7 @@ import org.jboss.logging.Logger;
 import org.kroky.musiclib.db.Names;
 import org.kroky.musiclib.model.Artist;
 import org.kroky.musiclib.model.UpsertResult;
+import org.kroky.musiclib.provider.CountryCodes;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -110,14 +111,14 @@ public class ArtistRepository {
         if (existing.isPresent()) {
             return new UpsertResult(existing.get().id(), false);
         }
-        return new UpsertResult(create(name, null, null).id(), true);
+        return new UpsertResult(create(name, null, null, null).id(), true);
     }
 
-    public Artist create(String name, String sortName, String notes) {
+    public Artist create(String name, String sortName, String countryOverride, Boolean activeOverride) {
         LOG.infof("Creating artist '%s'", name);
         String sql = """
-                INSERT INTO artists (name, normalized_name, sort_name, notes)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO artists (name, normalized_name, sort_name, country_override, active_override)
+                VALUES (?, ?, ?, ?, ?)
                 """;
         try (Connection connection = dataSource.getConnection()) {
             boolean autoCommit = connection.getAutoCommit();
@@ -126,7 +127,8 @@ public class ArtistRepository {
                 statement.setString(1, name);
                 statement.setString(2, Names.normalize(name));
                 statement.setString(3, blankToNull(sortName));
-                statement.setString(4, blankToNull(notes));
+                statement.setString(4, countryCode(countryOverride));
+                setNullableBoolean(statement, 5, activeOverride);
                 statement.executeUpdate();
                 try (ResultSet keys = statement.getGeneratedKeys()) {
                     if (keys.next()) {
@@ -147,11 +149,17 @@ public class ArtistRepository {
         }
     }
 
-    public Optional<Artist> update(long id, String name, String sortName, String notes) {
+    public Optional<Artist> update(long id, String name, String sortName, String countryOverride,
+            Boolean activeOverride) {
         LOG.infof("Updating artist id=%d name='%s'", id, name);
         String sql = """
                 UPDATE artists
-                SET name = ?, normalized_name = ?, sort_name = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+                SET name = ?,
+                    normalized_name = ?,
+                    sort_name = ?,
+                    country_override = ?,
+                    active_override = ?,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """;
         try (Connection connection = dataSource.getConnection()) {
@@ -161,8 +169,9 @@ public class ArtistRepository {
                 statement.setString(1, name);
                 statement.setString(2, Names.normalize(name));
                 statement.setString(3, blankToNull(sortName));
-                statement.setString(4, blankToNull(notes));
-                statement.setLong(5, id);
+                statement.setString(4, countryCode(countryOverride));
+                setNullableBoolean(statement, 5, activeOverride);
+                statement.setLong(6, id);
                 int updated = statement.executeUpdate();
                 if (updated == 0) {
                     connection.rollback();
@@ -444,7 +453,8 @@ public class ArtistRepository {
 
     private static String selectArtists(String whereClause) {
         return """
-                SELECT a.id, a.name, a.sort_name, a.notes, a.created_at, a.updated_at,
+                SELECT a.id, a.name, a.sort_name, a.country_override, a.active_override,
+                       a.created_at, a.updated_at,
                        count(al.id) AS album_count,
                        coalesce(sum(CASE WHEN al.checked = 1 THEN 1 ELSE 0 END), 0) AS checked_album_count,
                        coalesce(sum(CASE WHEN al.checked = 0 THEN 1 ELSE 0 END), 0) AS unchecked_album_count,
@@ -458,10 +468,9 @@ public class ArtistRepository {
                        apl.provider_artist_id,
                        apl.provider_artist_name,
                        apl.provider_url,
-                       apl.provider_artist_type,
-                       apl.provider_artist_country,
-                       apl.provider_artist_disambiguation,
-                       apl.provider_artist_active,
+                       apl.country AS provider_country,
+                       apl.disambiguation AS provider_disambiguation,
+                       apl.active AS provider_active,
                        apl.last_error_message AS provider_last_error_message,
                        (SELECT count(DISTINCT ca.album_id)
                         FROM collection_albums ca
@@ -512,7 +521,8 @@ public class ArtistRepository {
                 rs.getLong("id"),
                 rs.getString("name"),
                 rs.getString("sort_name"),
-                rs.getString("notes"),
+                rs.getString("country_override"),
+                nullableBoolean(rs, "active_override"),
                 parseCollectionIds(rs.getString("collection_ids")),
                 parseCollectionIds(rs.getString("local_collection_ids")),
                 rs.getInt("album_count"),
@@ -524,10 +534,9 @@ public class ArtistRepository {
                 rs.getString("provider_artist_id"),
                 rs.getString("provider_artist_name"),
                 rs.getString("provider_url"),
-                rs.getString("provider_artist_type"),
-                rs.getString("provider_artist_country"),
-                rs.getString("provider_artist_disambiguation"),
-                nullableBoolean(rs, "provider_artist_active"),
+                rs.getString("provider_country"),
+                rs.getString("provider_disambiguation"),
+                nullableBoolean(rs, "provider_active"),
                 rs.getString("provider_last_error_message"),
                 rs.getInt("collection_album_count"),
                 rs.getString("local_scan_error_message"),
@@ -552,6 +561,18 @@ public class ArtistRepository {
             }
         }
         return collectionIds;
+    }
+
+    private static void setNullableBoolean(PreparedStatement statement, int index, Boolean value) throws Exception {
+        if (value == null) {
+            statement.setObject(index, null);
+            return;
+        }
+        statement.setInt(index, value ? 1 : 0);
+    }
+
+    private static String countryCode(String value) {
+        return CountryCodes.normalize(value);
     }
 
     private static void rollbackQuietly(Connection connection) {

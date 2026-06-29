@@ -2,7 +2,8 @@ export interface Artist {
   id: number
   name: string
   sortName?: string | null
-  notes?: string | null
+  countryOverride?: string | null
+  activeOverride?: boolean | null
   collectionIds: string[]
   localCollectionIds: string[]
   albumCount: number
@@ -14,10 +15,9 @@ export interface Artist {
   providerArtistId?: string | null
   providerArtistName?: string | null
   providerUrl?: string | null
-  providerArtistType?: string | null
-  providerArtistCountry?: string | null
-  providerArtistDisambiguation?: string | null
-  providerArtistActive?: boolean | null
+  providerCountry?: string | null
+  providerDisambiguation?: string | null
+  providerActive?: boolean | null
   providerLastErrorMessage?: string | null
   collectionAlbumCount: number
   localScanErrorMessage?: string | null
@@ -196,7 +196,6 @@ export interface WorkspaceColumnWidths {
 export interface ArtistsScreenColumnWidths {
   name: number
   country: number
-  type: number
   status: number
   albums: number
   unchecked: number
@@ -245,10 +244,9 @@ export interface ArtistProviderLink {
   providerId: string
   providerArtistId?: string | null
   providerArtistName?: string | null
-  providerArtistType?: string | null
-  providerArtistCountry?: string | null
-  providerArtistDisambiguation?: string | null
-  providerArtistActive?: boolean | null
+  providerCountry?: string | null
+  providerDisambiguation?: string | null
+  providerActive?: boolean | null
   providerUrl?: string | null
   enabled: boolean
   lastSuccessAt?: string | null
@@ -273,7 +271,6 @@ export interface ArtistProviderCandidate {
   providerArtistId: string
   providerArtistName: string
   providerUrl: string
-  type?: string | null
   country?: string | null
   disambiguation?: string | null
   active?: boolean | null

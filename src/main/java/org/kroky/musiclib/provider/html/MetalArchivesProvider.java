@@ -20,9 +20,12 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.kroky.musiclib.model.ReleaseDates;
+import org.kroky.musiclib.provider.CountryCodes;
 import org.kroky.musiclib.provider.DiscographyProvider;
+import org.kroky.musiclib.provider.ProviderArtistDetails;
 import org.kroky.musiclib.provider.ProviderException;
 import org.kroky.musiclib.provider.ProviderArtistSearchResult;
+import org.kroky.musiclib.provider.ProviderStatuses;
 import org.kroky.musiclib.provider.ProviderUrlNormalizer;
 import org.kroky.musiclib.provider.RemoteAlbum;
 
@@ -65,6 +68,21 @@ public class MetalArchivesProvider implements DiscographyProvider {
         }
     }
 
+    @Override
+    public ProviderArtistDetails fetchArtistDetails(String providerUrl) throws ProviderException {
+        try {
+            URI bandUrl = bandPageUrl(providerUrl);
+            URI discographyUrl = discographyUrl(providerUrl);
+            Document bandPage = Jsoup.parse(fetch(bandUrl, BASE_URL + "/search"), bandUrl.toString());
+            return new ProviderArtistDetails(
+                    countryFromBandPage(bandPage),
+                    activeFromBandPage(bandPage),
+                    parseMainDiscography(fetch(discographyUrl, bandUrl.toString())));
+        } catch (Exception e) {
+            throw new ProviderException("Unable to fetch Metal Archives artist details from " + providerUrl, e);
+        }
+    }
+
     public List<ProviderArtistSearchResult> searchArtists(String artistName, int limit) throws ProviderException {
         try {
             URI uri = URI.create(BASE_URL + BAND_SEARCH_PATH.formatted(
@@ -77,6 +95,14 @@ public class MetalArchivesProvider implements DiscographyProvider {
 
     static URI discographyUrl(String providerUrl) {
         return URI.create(ProviderUrlNormalizer.normalizeMetalArchives(providerUrl));
+    }
+
+    static URI bandPageUrl(String providerUrl) {
+        URI uri = URI.create(providerUrl.trim());
+        if (BAND_URL_ID.matcher(uri.getPath()).find()) {
+            return uri;
+        }
+        return URI.create(BASE_URL + "/bands/_/" + bandId(providerUrl));
     }
 
     static String bandId(String providerUrl) {
@@ -113,6 +139,14 @@ public class MetalArchivesProvider implements DiscographyProvider {
         return albums;
     }
 
+    static ProviderArtistDetails parseBandDetails(String html) {
+        Document doc = Jsoup.parse(html, BASE_URL);
+        return new ProviderArtistDetails(
+                countryFromBandPage(doc),
+                activeFromBandPage(doc),
+                parseMainDiscography(html));
+    }
+
     static List<ProviderArtistSearchResult> parseBandSearchResults(String json, int limit) throws Exception {
         JsonNode root = OBJECT_MAPPER.readTree(json);
         List<ProviderArtistSearchResult> results = new ArrayList<>();
@@ -134,8 +168,7 @@ public class MetalArchivesProvider implements DiscographyProvider {
                     bandId(url),
                     link.text().trim(),
                     url,
-                    text(row, 1),
-                    text(row, 2),
+                    CountryCodes.normalize(text(row, 2)),
                     disambiguation(row.get(0).asText()),
                     null,
                     Math.max(1, 100 - index * 8)));
@@ -156,6 +189,25 @@ public class MetalArchivesProvider implements DiscographyProvider {
         String text = Jsoup.parse(html).text().trim();
         int marker = text.indexOf("a.k.a.");
         return marker >= 0 ? text.substring(marker).trim() : null;
+    }
+
+    private static String countryFromBandPage(Document doc) {
+        return CountryCodes.normalize(bandStat(doc, "Country of origin:"));
+    }
+
+    private static Boolean activeFromBandPage(Document doc) {
+        return ProviderStatuses.active(bandStat(doc, "Status:"));
+    }
+
+    private static String bandStat(Document doc, String label) {
+        for (Element term : doc.select("#band_stats dt")) {
+            if (!label.equalsIgnoreCase(term.text().trim())) {
+                continue;
+            }
+            Element value = term.nextElementSibling();
+            return value == null ? null : value.text().trim();
+        }
+        return null;
     }
 
     private String fetch(URI url, String refererUrl) throws ProviderException {

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.kroky.musiclib.provider.ProviderArtistDetails;
 import org.kroky.musiclib.provider.ProviderArtistSearchResult;
 import org.kroky.musiclib.provider.RemoteAlbum;
 
@@ -39,13 +40,32 @@ class SpiritOfMetalProviderTest {
         assertEquals(2, results.size());
         assertEquals("Angara Damana", results.get(0).providerArtistName());
         assertEquals("76599", results.get(0).providerArtistId());
-        assertEquals("Ambiant Black", results.get(0).type());
-        assertEquals("Iran", results.get(0).country());
+        assertEquals("IR", results.get(0).country());
         assertEquals("Other name : Angra Demana", results.get(0).disambiguation());
         assertEquals("Angra", results.get(1).providerArtistName());
         assertEquals("5", results.get(1).providerArtistId());
-        assertEquals("Symphonic power", results.get(1).type());
-        assertEquals("Brazil", results.get(1).country());
+        assertEquals("BR", results.get(1).country());
+    }
+
+    @Test
+    void parsesArtistDetails() {
+        ProviderArtistDetails details = SpiritOfMetalProvider.parseArtistDetails("""
+                <div id="profile" class="col-sm-7">
+                  <div><span>Style</span><span>Symphonic power</span></div>
+                  <div><span>Status</span><span>Active</span></div>
+                  <div><span>Country</span><span><a href="/en/bands/Brazil/1">Brazil</a></span></div>
+                </div>
+                <section id="discography">
+                  <a href="https://www.spirit-of-metal.com/en/album/First/1" class="row release" itemprop="album">
+                    <h4 itemprop="name">First</h4>
+                    Album - <div itemprop="datePublished">2010</div>
+                  </a>
+                </section>
+                """, "https://www.spirit-of-metal.com/en/band/Band");
+
+        assertEquals("BR", details.country());
+        assertEquals(true, details.active());
+        assertEquals(1, details.albums().size());
     }
 
     @Test

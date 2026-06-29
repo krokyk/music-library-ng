@@ -2,17 +2,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
+import { countryName } from '@/countries'
 import { formatDateWithJavaPattern } from '@/dateFormat'
 import { providerDefinition, providerDefinitions, validateProviderUrl, type ProviderId } from '@/providers'
 import type { Album, Artist, ArtistProviderCandidate, CollectionFolderCandidate, MusicCollection } from '@/types'
 import type { CSSProperties } from 'vue'
-
-interface ArtistForm {
-  id: number | null
-  name: string
-  sortName: string
-  notes: string
-}
 
 interface ArtistRowMeasurement {
   contentWidth: number
@@ -65,7 +59,6 @@ const {
   uiSettings,
 } = storeToRefs(store)
 
-const artistDialog = ref(false)
 const providerSetupDialog = ref(false)
 const providerSetupSaving = ref(false)
 const providerSetupMatching = ref(false)
@@ -78,7 +71,6 @@ const addCollectionDropdownOpen = ref(false)
 const deleteCollectionDialog = ref(false)
 const albumToDelete = ref<Album | null>(null)
 const collectionToDelete = ref<MusicCollection | null>(null)
-const savingArtist = ref(false)
 const collectionEditOpenId = ref<string | null>(null)
 const collectionEditTarget = ref<HTMLElement | undefined>(undefined)
 const threePaneElement = ref<HTMLElement | null>(null)
@@ -291,13 +283,6 @@ const tableColumnOrders = {
   album: ['name', 'releaseDate', 'checked', 'collections', 'action'],
   title: ['title', 'artist', 'releaseDate', 'action'],
 } as const
-
-const artistForm = reactive<ArtistForm>({
-  id: null,
-  name: '',
-  sortName: '',
-  notes: '',
-})
 
 const selectedCollection = computed(() =>
   collections.value.find((collection) => collection.id === selectedCollectionId.value) ?? null,
@@ -561,10 +546,9 @@ function providerForArtist(artist: Artist) {
     providerId: artist.providerId,
     providerArtistId: artist.providerArtistId,
     providerArtistName: artist.providerArtistName,
-    providerArtistType: artist.providerArtistType,
-    providerArtistCountry: artist.providerArtistCountry,
-    providerArtistDisambiguation: artist.providerArtistDisambiguation,
-    providerArtistActive: artist.providerArtistActive,
+    providerCountry: artist.providerCountry,
+    providerDisambiguation: artist.providerDisambiguation,
+    providerActive: artist.providerActive,
     providerUrl: artist.providerUrl,
     lastErrorMessage: artist.providerLastErrorMessage ?? null,
   }
@@ -573,6 +557,15 @@ function providerForArtist(artist: Artist) {
 function providerChipText(artist: Artist) {
   const provider = providerForArtist(artist)
   return provider ? providerDefinition(provider.providerId).label : 'Add provider'
+}
+
+function providerCandidateSubtitle(candidate: ArtistProviderCandidate) {
+  const status = candidate.active === null || candidate.active === undefined
+    ? null
+    : candidate.active ? 'Active' : 'Split-up'
+  return [candidate.country ? countryName(candidate.country) : null, status, candidate.disambiguation]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function providerChipClasses(artist: Artist) {
@@ -2372,44 +2365,6 @@ function handleDocumentKeyDown(event: KeyboardEvent) {
   }
 }
 
-async function openArtistDialog(artist: Artist) {
-  selectArtistRow(artist)
-  if (writeActionsDisabled.value) {
-    return
-  }
-  artistForm.id = artist.id
-  artistForm.name = artist.name
-  artistForm.sortName = artist.sortName ?? ''
-  artistForm.notes = artist.notes ?? ''
-  artistDialog.value = true
-}
-
-async function saveArtistDetails() {
-  if (writeActionsDisabled.value) {
-    return
-  }
-  if (!artistForm.name.trim()) {
-    return
-  }
-  if (artistForm.id === null) {
-    return
-  }
-  savingArtist.value = true
-  try {
-    const artist = await store.saveArtist({
-      id: artistForm.id ?? undefined,
-      name: artistForm.name.trim(),
-      sortName: artistForm.sortName.trim() || null,
-      notes: artistForm.notes.trim() || null,
-    })
-    artistForm.id = artist.id
-  } catch (error) {
-    store.showErrorStatus(error, 'Unable to save artist')
-  } finally {
-    savingArtist.value = false
-  }
-}
-
 async function removeArtistFromCollection(artist: Artist) {
   selectArtistRow(artist)
   if (writeActionsDisabled.value) {
@@ -2480,10 +2435,9 @@ async function useProviderCandidate(candidate: ArtistProviderCandidate) {
       providerId: candidate.providerId,
       providerArtistId: candidate.providerArtistId,
       providerArtistName: candidate.providerArtistName,
-      providerArtistType: candidate.type,
-      providerArtistCountry: candidate.country,
-      providerArtistDisambiguation: candidate.disambiguation,
-      providerArtistActive: candidate.active,
+      providerCountry: candidate.country,
+      providerDisambiguation: candidate.disambiguation,
+      providerActive: candidate.active,
       providerUrl: candidate.providerUrl,
       enabled: true,
     })
@@ -3596,22 +3550,6 @@ watch(sortedCollectionTitleItems, (items) => {
                         </v-btn>
                       </template>
                     </v-tooltip>
-                    <v-tooltip text="Edit artist" location="top">
-                      <template #activator="{ props }">
-                        <v-btn
-                          v-bind="props"
-                          prepend-icon="mdi-pencil"
-                          size="x-small"
-                          variant="text"
-                          color="primary"
-                          :class="artistRowActionClass(artist)"
-                          :disabled="writeActionsDisabled"
-                          @click.stop="openArtistDialog(artist)"
-                        >
-                          <span v-if="showArtistRowActionLabels(artist)">Edit</span>
-                        </v-btn>
-                      </template>
-                    </v-tooltip>
                     <v-tooltip
                       v-if="artistCanBeRemovedFromSelectedCollection(artist)"
                       text="Remove from collection"
@@ -3997,7 +3935,7 @@ watch(sortedCollectionTitleItems, (items) => {
                   <v-chip size="x-small" color="primary" variant="tonal" class="ml-2">{{ candidate.matchScore }}</v-chip>
                 </v-list-item-title>
                 <v-list-item-subtitle>
-                  {{ [candidate.type, candidate.country, candidate.disambiguation].filter(Boolean).join(' · ') }}
+                  {{ providerCandidateSubtitle(candidate) }}
                 </v-list-item-subtitle>
                 <div class="mono-path">{{ candidate.providerArtistId }}</div>
                 <template #append>
@@ -4034,39 +3972,6 @@ watch(sortedCollectionTitleItems, (items) => {
           >
             Save
           </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <v-dialog v-model="artistDialog" max-width="860">
-      <v-card class="dialog-card">
-        <v-card-title>Artist Details</v-card-title>
-        <v-card-text class="edit-form">
-          <v-row dense class="edit-form__grid">
-            <v-col cols="12" md="6">
-              <v-text-field v-model="artistForm.name" label="Name" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
-            </v-col>
-            <v-col cols="12" md="6">
-              <v-text-field v-model="artistForm.sortName" label="Sort name" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
-            </v-col>
-            <v-col cols="12">
-              <v-textarea
-                v-model="artistForm.notes"
-                label="Notes"
-                rows="3"
-                auto-grow
-                :disabled="writeActionsDisabled"
-                hide-details="auto"
-                variant="outlined"
-              ></v-textarea>
-            </v-col>
-          </v-row>
-
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer></v-spacer>
-          <v-btn variant="text" @click="artistDialog = false">Close</v-btn>
-          <v-btn color="primary" :loading="savingArtist" :disabled="writeActionsDisabled" @click="saveArtistDetails">Save</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

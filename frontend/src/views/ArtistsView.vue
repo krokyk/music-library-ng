@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
+import { countryFlagSrc, countryName, countryOptions, normalizeCountryCode } from '@/countries'
 import { providerDefinition, providerDefinitions, type ProviderId } from '@/providers'
 import type {
   Artist,
@@ -13,8 +14,8 @@ import type {
 import type { CSSProperties } from 'vue'
 
 type SortDirection = 'asc' | 'desc'
-type ArtistSortKey = 'name' | 'country' | 'type' | 'status' | 'albumCount' | 'uncheckedAlbumCount' | 'localAlbumCount' | 'provider'
-type ArtistScreenColumnKey = 'name' | 'country' | 'type' | 'status' | 'albums' | 'unchecked' | 'local' | 'provider' | 'action'
+type ArtistSortKey = 'name' | 'country' | 'status' | 'albumCount' | 'uncheckedAlbumCount' | 'localAlbumCount' | 'provider'
+type ArtistScreenColumnKey = 'name' | 'country' | 'status' | 'albums' | 'unchecked' | 'local' | 'provider' | 'action'
 type ArtistsPaneKey = 'artists' | 'details'
 
 const store = useLibraryStore()
@@ -28,6 +29,9 @@ const deleteArtistDialog = ref(false)
 const deleteArtistWarningDialog = ref(false)
 const deletingArtist = ref(false)
 const deletingArtistId = ref<number | null>(null)
+const savingArtistDetails = ref(false)
+const countryEditorArtistId = ref<number | null>(null)
+const countryEditorSearch = ref('')
 const matchDialog = ref(false)
 const matchLoading = ref(false)
 const matchProviderId = ref<ProviderId>('musicbrainz')
@@ -58,6 +62,11 @@ const artistsPaneWidths = reactive<Record<ArtistsPaneKey, number>>({
   artists: 0,
   details: 0,
 })
+const artistDetailsForm = reactive({
+  id: null as number | null,
+  name: '',
+  sortName: '',
+})
 const artistSort = reactive<{ key: ArtistSortKey; direction: SortDirection }>({
   key: 'name',
   direction: 'asc',
@@ -76,9 +85,8 @@ const artistsBulkExpandedMinimumWidth = 950
 const artistsBulkFullLabelMinimumWidth = 820
 const artistsScreenColumnWidths = reactive<Record<ArtistScreenColumnKey, number>>({
   name: 250,
-  country: 76,
-  type: 80,
-  status: 84,
+  country: 190,
+  status: 110,
   albums: 68,
   unchecked: 86,
   local: 64,
@@ -88,7 +96,6 @@ const artistsScreenColumnWidths = reactive<Record<ArtistScreenColumnKey, number>
 const artistsScreenColumnOrder = [
   'name',
   'country',
-  'type',
   'status',
   'albums',
   'unchecked',
@@ -99,7 +106,6 @@ const artistsScreenColumnOrder = [
 const artistsScreenHeaders: Array<{ key: ArtistSortKey; column: Exclude<ArtistScreenColumnKey, 'action'>; label: string }> = [
   { key: 'name', column: 'name', label: 'Artist' },
   { key: 'country', column: 'country', label: 'Country' },
-  { key: 'type', column: 'type', label: 'Type' },
   { key: 'status', column: 'status', label: 'Status' },
   { key: 'albumCount', column: 'albums', label: 'Albums' },
   { key: 'uncheckedAlbumCount', column: 'unchecked', label: 'Unchecked' },
@@ -109,7 +115,6 @@ const artistsScreenHeaders: Array<{ key: ArtistSortKey; column: Exclude<ArtistSc
 const artistsScreenColumnWidthPreferenceKeys: Record<ArtistScreenColumnKey, string> = {
   name: 'artists-screen.artists-pane.name',
   country: 'artists-screen.artists-pane.country',
-  type: 'artists-screen.artists-pane.type',
   status: 'artists-screen.artists-pane.status',
   albums: 'artists-screen.artists-pane.albums',
   unchecked: 'artists-screen.artists-pane.unchecked',
@@ -207,6 +212,14 @@ const allCollectionsFilterSelected = computed(() => artistCollectionFilterIds.va
 
 const selectedArtist = computed(() => artists.value.find((artist) => artist.id === selectedArtistId.value) ?? null)
 const selectedProvider = computed(() => selectedArtist.value ? providerForArtist(selectedArtist.value) : null)
+const artistDetailsDirty = computed(() => {
+  const artist = selectedArtist.value
+  if (!artist) {
+    return false
+  }
+  return artistDetailsForm.name.trim() !== artist.name
+    || (artistDetailsForm.sortName.trim() || '') !== (artist.sortName ?? '')
+})
 const selectedAlbums = computed(() => {
   if (!selectedArtist.value) {
     return []
@@ -230,8 +243,7 @@ function compareArtistRows(left: Artist, right: Artist) {
 }
 
 function artistSortValue(artist: Artist, key: ArtistSortKey) {
-  if (key === 'country') return artistCountry(artist) ?? ''
-  if (key === 'type') return artistType(artist) ?? ''
+  if (key === 'country') return artistCountryName(artist)
   if (key === 'status') return artistStatus(artist)
   if (key === 'albumCount') return artist.albumCount
   if (key === 'uncheckedAlbumCount') return artist.uncheckedAlbumCount
@@ -752,6 +764,36 @@ function markArtistSelected(artist: Artist) {
   selectedArtistId.value = artist.id
 }
 
+function syncArtistDetailsForm(artist: Artist | null) {
+  artistDetailsForm.id = artist?.id ?? null
+  artistDetailsForm.name = artist?.name ?? ''
+  artistDetailsForm.sortName = artist?.sortName ?? ''
+}
+
+async function saveSelectedArtistDetails() {
+  if (writeActionsDisabled.value || savingArtistDetails.value || !selectedArtist.value) {
+    return
+  }
+  const name = artistDetailsForm.name.trim()
+  if (!name) {
+    return
+  }
+  savingArtistDetails.value = true
+  try {
+    await store.saveArtist({
+      id: selectedArtist.value.id,
+      name,
+      sortName: artistDetailsForm.sortName.trim() || null,
+      countryOverride: selectedArtist.value.countryOverride ?? null,
+      activeOverride: selectedArtist.value.activeOverride ?? null,
+    })
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to save artist')
+  } finally {
+    savingArtistDetails.value = false
+  }
+}
+
 async function openProviderMatch(artist: Artist, providerId: ProviderId) {
   if (writeActionsDisabled.value) {
     return
@@ -796,10 +838,9 @@ async function useCandidate(candidate: ArtistProviderCandidate) {
       providerId: candidate.providerId,
       providerArtistId: candidate.providerArtistId,
       providerArtistName: candidate.providerArtistName,
-      providerArtistType: candidate.type,
-      providerArtistCountry: candidate.country,
-      providerArtistDisambiguation: candidate.disambiguation,
-      providerArtistActive: candidate.active,
+      providerCountry: candidate.country,
+      providerDisambiguation: candidate.disambiguation,
+      providerActive: candidate.active,
       providerUrl: candidate.providerUrl,
       enabled: true,
     })
@@ -852,10 +893,9 @@ async function useBulkCandidate(item: ArtistProviderBulkMatchItem) {
       providerId: candidate.providerId,
       providerArtistId: candidate.providerArtistId,
       providerArtistName: candidate.providerArtistName,
-      providerArtistType: candidate.type,
-      providerArtistCountry: candidate.country,
-      providerArtistDisambiguation: candidate.disambiguation,
-      providerArtistActive: candidate.active,
+      providerCountry: candidate.country,
+      providerDisambiguation: candidate.disambiguation,
+      providerActive: candidate.active,
       providerUrl: candidate.providerUrl,
       enabled: true,
     })
@@ -964,6 +1004,84 @@ async function scanArtistProviderById(artistId: number) {
   }
 }
 
+async function saveArtistCountryOverride(artist: Artist, value: string | null) {
+  if (writeActionsDisabled.value) {
+    return
+  }
+  const code = normalizeCountryCode(value)
+  try {
+    await store.saveArtist({
+      id: artist.id,
+      name: artist.name,
+      sortName: artist.sortName ?? null,
+      countryOverride: code,
+      activeOverride: artist.activeOverride ?? null,
+    })
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to save artist country')
+  }
+}
+
+function setCountryEditorOpen(artist: Artist, open: boolean) {
+  if (open) {
+    openCountryEditor(artist)
+    return
+  }
+  closeCountryEditor()
+}
+
+function openCountryEditor(artist: Artist) {
+  if (writeActionsDisabled.value) {
+    return
+  }
+  selectedArtistId.value = artist.id
+  countryEditorArtistId.value = artist.id
+  countryEditorSearch.value = ''
+}
+
+function closeCountryEditor() {
+  countryEditorArtistId.value = null
+  countryEditorSearch.value = ''
+}
+
+function filteredCountryOptions() {
+  const needle = countryEditorSearch.value.trim().toLowerCase()
+  if (!needle) {
+    return countryOptions
+  }
+  return countryOptions.filter((country) =>
+    country.name.toLowerCase().includes(needle)
+    || country.code.toLowerCase().includes(needle),
+  )
+}
+
+async function selectArtistCountryOverride(artist: Artist, value: string | null) {
+  await saveArtistCountryOverride(artist, value)
+  closeCountryEditor()
+}
+
+async function clearArtistCountryOverride(artist: Artist) {
+  selectedArtistId.value = artist.id
+  await saveArtistCountryOverride(artist, null)
+}
+
+async function saveArtistActiveOverride(artist: Artist, active: boolean | null) {
+  if (writeActionsDisabled.value) {
+    return
+  }
+  try {
+    await store.saveArtist({
+      id: artist.id,
+      name: artist.name,
+      sortName: artist.sortName ?? null,
+      countryOverride: artist.countryOverride ?? null,
+      activeOverride: active,
+    })
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to save artist status')
+  }
+}
+
 function providerForArtist(artist: Artist) {
   const cached = providerLinks.value[artist.id]?.[0]
   if (cached) {
@@ -976,10 +1094,9 @@ function providerForArtist(artist: Artist) {
     providerId: artist.providerId,
     providerArtistId: artist.providerArtistId,
     providerArtistName: artist.providerArtistName,
-    providerArtistType: artist.providerArtistType,
-    providerArtistCountry: artist.providerArtistCountry,
-    providerArtistDisambiguation: artist.providerArtistDisambiguation,
-    providerArtistActive: artist.providerArtistActive,
+    providerCountry: artist.providerCountry,
+    providerDisambiguation: artist.providerDisambiguation,
+    providerActive: artist.providerActive,
     providerUrl: artist.providerUrl,
     lastErrorMessage: artist.providerLastErrorMessage ?? null,
   }
@@ -1043,46 +1160,72 @@ function providerIdentityLabel() {
 }
 
 function artistCountry(artist: Artist) {
-  return providerForArtist(artist)?.providerArtistCountry ?? artist.providerArtistCountry ?? null
+  return artist.countryOverride ?? providerCountry(artist)
 }
 
-function artistCountryLabel(artist: Artist) {
-  const country = artistCountry(artist)
-  if (!country) {
-    return 'Unknown'
-  }
-  const normalized = country.trim().toUpperCase()
-  const flag = countryFlag(normalized)
-  return flag ? `${flag} ${normalized}` : normalized
+function providerCountry(artist: Artist) {
+  return providerForArtist(artist)?.providerCountry ?? artist.providerCountry ?? null
 }
 
-function countryFlag(country: string) {
-  if (!/^[A-Z]{2}$/.test(country)) {
-    return ''
-  }
-  return String.fromCodePoint(
-    ...[...country].map((character) => 0x1f1e6 + character.charCodeAt(0) - 65),
-  )
+function artistCountryName(artist: Artist) {
+  return countryName(artistCountry(artist))
 }
 
-function artistType(artist: Artist) {
-  return providerForArtist(artist)?.providerArtistType ?? artist.providerArtistType ?? null
+function artistCountryFlagSrc(artist: Artist) {
+  return countryFlagSrc(artistCountry(artist))
+}
+
+function providerCountryName(artist: Artist) {
+  return countryName(providerCountry(artist))
+}
+
+function providerCountryFlagSrcForArtist(artist: Artist) {
+  return countryFlagSrc(providerCountry(artist))
+}
+
+function artistCountryHasOverride(artist: Artist) {
+  return Boolean(normalizeCountryCode(artist.countryOverride))
 }
 
 function artistStatus(artist: Artist) {
-  const active = providerForArtist(artist)?.providerArtistActive ?? artist.providerArtistActive
+  return activeStatusLabel(artistActive(artist))
+}
+
+function activeStatusLabel(active: boolean | null | undefined) {
   if (active === true) {
     return 'Active'
   }
   if (active === false) {
-    return 'Inactive'
+    return 'Split-up'
   }
   return 'Unknown'
 }
 
+function artistActive(artist: Artist) {
+  return artist.activeOverride ?? providerActive(artist)
+}
+
+function providerActive(artist: Artist) {
+  return providerForArtist(artist)?.providerActive ?? artist.providerActive ?? null
+}
+
+function artistActiveHasOverride(artist: Artist) {
+  return artist.activeOverride !== null && artist.activeOverride !== undefined
+}
+
+function statusChipColor(active: boolean | null | undefined) {
+  if (active === true) {
+    return 'success'
+  }
+  if (active === false) {
+    return 'error'
+  }
+  return 'default'
+}
+
 function candidateInfo(candidate: ArtistProviderCandidate) {
-  const status = candidate.active === true ? 'Active' : candidate.active === false ? 'Inactive' : null
-  return [candidate.type, candidate.country, status, candidate.disambiguation].filter(Boolean).join(' · ')
+  const status = candidate.active === true ? 'Active' : candidate.active === false ? 'Split-up' : null
+  return [candidate.country ? countryName(candidate.country) : null, status, candidate.disambiguation].filter(Boolean).join(' · ')
 }
 
 function openExternal(url?: string | null) {
@@ -1220,6 +1363,10 @@ watch(sortedArtists, (currentArtists) => {
     selectedArtistId.value = null
   }
 })
+
+watch(selectedArtist, (artist) => {
+  syncArtistDetailsForm(artist)
+}, { immediate: true })
 </script>
 
 <template>
@@ -1433,22 +1580,130 @@ watch(sortedArtists, (currentArtists) => {
                 </v-tooltip>
               </div>
             </div>
-            <div data-column="artists.country" class="workspace-grid__cell truncate-cell">
-              <span :class="{ 'cell-muted': !artistCountry(artist) }">{{ artistCountryLabel(artist) }}</span>
-            </div>
-            <div data-column="artists.type" class="workspace-grid__cell truncate-cell">
-              <span :class="{ 'cell-muted': !artistType(artist) }">{{ artistType(artist) || 'Unknown' }}</span>
+            <div data-column="artists.country" class="workspace-grid__cell">
+              <v-menu
+                :model-value="countryEditorArtistId === artist.id"
+                location="bottom start"
+                origin="top start"
+                :disabled="writeActionsDisabled"
+                :close-on-content-click="false"
+                @update:model-value="(open) => setCountryEditorOpen(artist, open)"
+              >
+                <template #activator="{ props }">
+                  <div
+                    v-bind="props"
+                    class="artist-country-cell"
+                    :class="{
+                      'artist-country-cell--disabled': writeActionsDisabled,
+                      'artist-country-cell--override': artistCountryHasOverride(artist),
+                    }"
+                    @click.stop="openCountryEditor(artist)"
+                    @mousedown.stop
+                  >
+                    <span v-if="artistCountry(artist)" class="country-select-selection artist-country-cell__value">
+                      <img
+                        v-if="artistCountryFlagSrc(artist)"
+                        class="country-flag"
+                        :src="artistCountryFlagSrc(artist)"
+                        alt=""
+                        aria-hidden="true"
+                      >
+                      <span>{{ artistCountryName(artist) }}</span>
+                    </span>
+                    <span v-else class="cell-muted artist-country-cell__value">Unknown</span>
+                    <v-btn
+                      v-if="artistCountryHasOverride(artist)"
+                      icon="mdi-close"
+                      size="x-small"
+                      density="compact"
+                      variant="text"
+                      class="artist-country-cell__clear"
+                      :disabled="writeActionsDisabled"
+                      @click.stop="clearArtistCountryOverride(artist)"
+                      @mousedown.stop
+                    ></v-btn>
+                  </div>
+                </template>
+                <div class="artist-country-menu" @click.stop @mousedown.stop>
+                  <v-text-field
+                    v-model="countryEditorSearch"
+                    autofocus
+                    density="compact"
+                    hide-details
+                    label="Search country"
+                    prepend-inner-icon="mdi-magnify"
+                    variant="outlined"
+                  ></v-text-field>
+                  <v-list class="artist-country-menu__list" density="compact">
+                    <v-list-item
+                      v-for="country in filteredCountryOptions()"
+                      :key="country.code"
+                      :active="normalizeCountryCode(artistCountry(artist)) === country.code"
+                      :subtitle="country.code"
+                      :title="country.name"
+                      @click="selectArtistCountryOverride(artist, country.code)"
+                    >
+                      <template #prepend>
+                        <img class="country-flag country-flag--menu" :src="country.flagSrc" alt="" aria-hidden="true">
+                      </template>
+                    </v-list-item>
+                    <v-list-item v-if="filteredCountryOptions().length === 0" title="No countries found"></v-list-item>
+                  </v-list>
+                </div>
+              </v-menu>
             </div>
             <div data-column="artists.status" class="workspace-grid__cell">
-              <v-chip
-                v-if="artistStatus(artist) !== 'Unknown'"
-                :color="artistStatus(artist) === 'Active' ? 'success' : 'default'"
-                size="x-small"
-                variant="tonal"
+              <v-menu
+                location="bottom start"
+                origin="top start"
+                :disabled="writeActionsDisabled"
+                :close-on-content-click="true"
               >
-                {{ artistStatus(artist) }}
-              </v-chip>
-              <span v-else class="cell-muted">Unknown</span>
+                <template #activator="{ props }">
+                  <div class="artist-status-control" @click.stop @mousedown.stop>
+                    <v-chip
+                      v-bind="props"
+                      size="x-small"
+                      :color="statusChipColor(artistActive(artist))"
+                      variant="tonal"
+                      class="artist-status-chip"
+                      :class="{ 'artist-status-chip--override': artistActiveHasOverride(artist) }"
+                      :disabled="writeActionsDisabled"
+                    >
+                      {{ artistStatus(artist) }}
+                    </v-chip>
+                  </div>
+                </template>
+                <div class="artist-status-menu">
+                  <v-chip
+                    size="small"
+                    color="success"
+                    :variant="artistActive(artist) === true ? 'flat' : 'tonal'"
+                    :disabled="writeActionsDisabled"
+                    @click="saveArtistActiveOverride(artist, true)"
+                  >
+                    Active
+                  </v-chip>
+                  <v-chip
+                    size="small"
+                    color="error"
+                    :variant="artistActive(artist) === false ? 'flat' : 'tonal'"
+                    :disabled="writeActionsDisabled"
+                    @click="saveArtistActiveOverride(artist, false)"
+                  >
+                    Split-up
+                  </v-chip>
+                  <v-chip
+                    size="small"
+                    variant="tonal"
+                    :disabled="writeActionsDisabled || !artistActiveHasOverride(artist)"
+                    @click="saveArtistActiveOverride(artist, null)"
+                  >
+                    <v-icon icon="mdi-close" size="14" start></v-icon>
+                    Clear
+                  </v-chip>
+                </div>
+              </v-menu>
             </div>
             <div data-column="artists.albums" class="workspace-grid__cell artists-count-cell">
               <span>{{ artist.albumCount }}</span>
@@ -1550,16 +1805,104 @@ watch(sortedArtists, (currentArtists) => {
         <div v-if="!selectedArtist" class="pane-empty">Select an artist.</div>
         <div v-else class="artist-details-pane__body">
           <section class="artist-details-section">
+            <div class="artist-details-heading">Identity</div>
+            <div class="artist-identity-form">
+              <v-text-field
+                v-model="artistDetailsForm.name"
+                label="Name"
+                density="compact"
+                variant="outlined"
+                hide-details="auto"
+                :disabled="writeActionsDisabled"
+                @keyup.enter="saveSelectedArtistDetails"
+              ></v-text-field>
+              <v-text-field
+                v-model="artistDetailsForm.sortName"
+                label="Sort name"
+                density="compact"
+                variant="outlined"
+                hide-details="auto"
+                :disabled="writeActionsDisabled"
+                @keyup.enter="saveSelectedArtistDetails"
+              ></v-text-field>
+              <v-btn
+                size="small"
+                color="primary"
+                variant="tonal"
+                :loading="savingArtistDetails"
+                :disabled="writeActionsDisabled || !artistDetailsDirty || !artistDetailsForm.name.trim()"
+                @click="saveSelectedArtistDetails"
+              >
+                Save
+              </v-btn>
+            </div>
+          </section>
+
+          <section class="artist-details-section">
             <div class="artist-details-heading">{{ selectedArtist.name }}</div>
             <div class="artist-info-grid">
-              <div class="cell-muted">Sort name</div>
-              <div>{{ selectedArtist.sortName || 'None' }}</div>
               <div class="cell-muted">Country</div>
-              <div :class="{ 'cell-muted': !artistCountry(selectedArtist) }">{{ artistCountryLabel(selectedArtist) }}</div>
-              <div class="cell-muted">Type</div>
-              <div :class="{ 'cell-muted': !artistType(selectedArtist) }">{{ artistType(selectedArtist) || 'Unknown' }}</div>
+              <div class="artist-source-value" :class="{ 'cell-muted': !artistCountry(selectedArtist) }">
+                <img
+                  v-if="artistCountryFlagSrc(selectedArtist)"
+                  class="country-flag"
+                  :src="artistCountryFlagSrc(selectedArtist)"
+                  alt=""
+                  aria-hidden="true"
+                >
+                <span>{{ artistCountryName(selectedArtist) }}</span>
+                <v-tooltip v-if="artistCountryHasOverride(selectedArtist)" text="Clear country override" location="top">
+                  <template #activator="{ props }">
+                    <v-btn
+                      v-bind="props"
+                      icon="mdi-close"
+                      size="x-small"
+                      density="compact"
+                      variant="text"
+                      class="artist-override-clear"
+                      :disabled="writeActionsDisabled"
+                      @click="saveArtistCountryOverride(selectedArtist, null)"
+                    ></v-btn>
+                  </template>
+                </v-tooltip>
+                <span v-if="artistCountryHasOverride(selectedArtist) && providerCountry(selectedArtist)" class="artist-provider-source">
+                  (provider:
+                  <img
+                    v-if="providerCountryFlagSrcForArtist(selectedArtist)"
+                    class="country-flag"
+                    :src="providerCountryFlagSrcForArtist(selectedArtist)"
+                    alt=""
+                    aria-hidden="true"
+                  >
+                  {{ providerCountryName(selectedArtist) }})
+                </span>
+              </div>
               <div class="cell-muted">Status</div>
-              <div :class="{ 'cell-muted': artistStatus(selectedArtist) === 'Unknown' }">{{ artistStatus(selectedArtist) }}</div>
+              <div class="artist-source-value" :class="{ 'cell-muted': artistStatus(selectedArtist) === 'Unknown' }">
+                <v-chip size="x-small" :color="statusChipColor(artistActive(selectedArtist))" variant="tonal">
+                  {{ artistStatus(selectedArtist) }}
+                </v-chip>
+                <v-tooltip v-if="artistActiveHasOverride(selectedArtist)" text="Clear status override" location="top">
+                  <template #activator="{ props }">
+                    <v-btn
+                      v-bind="props"
+                      icon="mdi-close"
+                      size="x-small"
+                      density="compact"
+                      variant="text"
+                      class="artist-override-clear"
+                      :disabled="writeActionsDisabled"
+                      @click="saveArtistActiveOverride(selectedArtist, null)"
+                    ></v-btn>
+                  </template>
+                </v-tooltip>
+                <span v-if="artistActiveHasOverride(selectedArtist) && providerActive(selectedArtist) !== null && providerActive(selectedArtist) !== undefined" class="artist-provider-source">
+                  (provider:
+                  <v-chip size="x-small" :color="statusChipColor(providerActive(selectedArtist))" variant="tonal">
+                    {{ activeStatusLabel(providerActive(selectedArtist)) }}
+                  </v-chip>)
+                </span>
+              </div>
               <div class="cell-muted">Collections</div>
               <div class="dialog-chip-row">
                 <v-chip

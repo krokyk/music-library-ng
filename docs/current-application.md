@@ -32,7 +32,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 
 ## Data Model
 
-- `artists` stores artist identity, display name, optional sort name, and notes.
+- `artists` stores artist identity, display name, optional sort name, optional country override, and optional active-status override.
 - `albums` stores durable album or title identity, release date, sort name, checked state, and notes.
 - `album_artists` links albums to one or more artists and preserves contributor order.
 - `collections` stores user-visible collections with a collection `type` and parser layout.
@@ -40,7 +40,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - `album_local_paths` stores local folder evidence for an album within a collection.
 - `artist_collections` stores collection-scoped artist scan state and local scan failures.
 - `providers` stores supported provider kinds.
-- `artist_provider_links` stores one provider identity per artist.
+- `artist_provider_links` stores one provider identity per artist plus provider country, active-status, and disambiguation evidence.
 - `album_provider_links` stores provider release-group mappings to local albums.
 - `scan_runs` and `scan_events` store local scan history.
 - `provider_check_runs` and `provider_check_events` store provider check history.
@@ -104,6 +104,10 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Each artist can have at most one provider identity.
 - MusicBrainz identities use MBIDs and derive site URLs from those MBIDs.
 - Spirit of Metal and Metal Archives identities use provider URLs validated and normalized by provider-specific code.
+- Provider metadata stores country as an ISO alpha-2 code, active status as nullable boolean evidence, and disambiguation as provider evidence when available.
+- The app supports `XW` as an `International` pseudo-country for manual artist country overrides.
+- Artist country and active-status overrides live on the artist row and are never overwritten by provider rescans.
+- Effective artist country and status prefer the artist override, then the current provider evidence, then unknown.
 - Provider candidate search is shared across supported providers through `GET /api/artists/{artistId}/provider-candidates/{providerId}`.
 - Bulk provider matching is shared across supported providers through `POST /api/provider-matches/{providerId}/artists`.
 - Bulk provider matching receives exact artist IDs from the frontend visible scope.
@@ -121,6 +125,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - MusicBrainz ignores EPs, singles, splits, compilations, live releases, demos, soundtrack secondary types, and malformed provider records as diagnostics.
 - MusicBrainz exact normalized title matches count as already in library and may fill a missing local release date.
 - HTML providers import supported album rows from their discography pages and are covered by parser tests for the response shapes the app depends on.
+- HTML provider artist details refresh provider country and active-status evidence from the artist page when the provider exposes those values.
 
 ## Frontend Screens
 
@@ -147,6 +152,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - With `Show All` on, albums with no collection membership show a warning `No collection` chip.
 - Removing an artist from a collection removes that artist's collection album links and scan-state row for the selected collection.
 - Removing an artist from a collection does not delete the artist from the library database.
+- The Collections screen does not expose artist metadata editing.
 - Deleting an artist from the global Artists screen is a real library database delete and never deletes files on disk.
 
 ## Artists Screen
@@ -159,6 +165,16 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - The displayed bulk count and submitted artist IDs must come from the same filtered list.
 - Provider setup and provider matching controls use provider chips.
 - Saving or clearing provider identities updates affected rows in place where practical so pane scroll position is preserved.
+- The Artists table shows artist name, country, status, album counts, local counts, provider identity, and row actions.
+- The Artists table does not show provider artist type because providers use incompatible meanings for that field.
+- Country cells use bundled SVG flag assets and country names.
+- Clicking a country cell opens a cell-anchored popover with a search field and country list.
+- Country popover selections write only the artist country override.
+- Manual country and status overrides are visually distinguished from provider-derived values so rescan-stable values are visible in the table.
+- Status cells show only the effective status, and clicking the status opens a cell-anchored menu with Active, Split-up, and clear controls.
+- Status menu edits write only the artist active-status override.
+- The Artists detail pane is the main artist metadata edit surface for name and sort name.
+- The Artists detail pane shows effective country and status plus provider evidence when an override differs from the provider value.
 
 ## UI Rules
 

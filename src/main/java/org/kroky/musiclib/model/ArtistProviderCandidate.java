@@ -7,7 +7,6 @@ public record ArtistProviderCandidate(
         String providerArtistId,
         String providerArtistName,
         String providerUrl,
-        String type,
         String country,
         String disambiguation,
         Boolean active,

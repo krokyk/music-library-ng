@@ -243,7 +243,6 @@ public class SettingsResource {
         return new UiSettings.ArtistsScreenColumnWidths(
                 defaults.name(),
                 defaults.country(),
-                defaults.type(),
                 defaults.status(),
                 defaults.albums(),
                 defaults.unchecked(),

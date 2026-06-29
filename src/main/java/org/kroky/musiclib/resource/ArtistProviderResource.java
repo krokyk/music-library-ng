@@ -83,10 +83,9 @@ public class ArtistProviderResource {
                 providerArtistId,
                 request.providerArtistName(),
                 providerUrl,
-                request.providerArtistType(),
-                request.providerArtistCountry(),
-                request.providerArtistDisambiguation(),
-                request.providerArtistActive(),
+                request.providerCountry(),
+                request.providerDisambiguation(),
+                request.providerActive(),
                 request.enabledOrDefault());
     }
 
@@ -135,10 +134,9 @@ public class ArtistProviderResource {
             String providerArtistId,
             String providerArtistName,
             String providerUrl,
-            String providerArtistType,
-            String providerArtistCountry,
-            String providerArtistDisambiguation,
-            Boolean providerArtistActive,
+            String providerCountry,
+            String providerDisambiguation,
+            Boolean providerActive,
             Boolean enabled) {
         boolean enabledOrDefault() {
             return enabled == null || enabled;

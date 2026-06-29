@@ -173,13 +173,10 @@ public interface MusicLibraryConfig {
         @WithDefault("250")
         int name();
 
-        @WithDefault("76")
+        @WithDefault("190")
         int country();
 
-        @WithDefault("80")
-        int type();
-
-        @WithDefault("84")
+        @WithDefault("110")
         int status();
 
         @WithDefault("68")

@@ -55,7 +55,7 @@ Current behavior belongs in `docs/current-application.md`.
 ## Artists Screen Search Scope
 
 - Expand main Artists screen search beyond artist name when it produces useful results.
-- Candidate searchable columns include provider name, provider artist name, provider country, provider type, active status, local scan failure text, and provider error text.
+- Candidate searchable columns include provider name, provider artist name, provider country, active status, local scan failure text, and provider error text.
 - Evaluate whether searching numeric count columns is useful or whether it creates surprising matches.
 - Keep the search behavior predictable enough that the visible bulk-match scope remains easy to understand.
 

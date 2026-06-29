@@ -34,8 +34,8 @@ public class ArtistProviderLinkResource {
         String providerUrl = normalizeUrlProvider(request);
         ArtistProviderLink link = links.upsertForArtist(artistId, request.providerId(), request.providerArtistIdOrUrl(providerUrl),
                 request.providerArtistName(), providerUrl,
-                request.providerArtistType(), request.providerArtistCountry(), request.providerArtistDisambiguation(),
-                request.providerArtistActive(),
+                request.providerCountry(), request.providerDisambiguation(),
+                request.providerActive(),
                 request.enabledOrDefault());
         return Response.created(URI.create("/api/artists/" + artistId + "/provider-links/" + link.id()))
                 .entity(link)
@@ -48,8 +48,8 @@ public class ArtistProviderLinkResource {
         String providerUrl = normalizeUrlProvider(request);
         return links.update(linkId, request.providerId(), request.providerArtistIdOrUrl(providerUrl),
                 request.providerArtistName(), providerUrl,
-                request.providerArtistType(), request.providerArtistCountry(), request.providerArtistDisambiguation(),
-                request.providerArtistActive(), request.enabledOrDefault())
+                request.providerCountry(), request.providerDisambiguation(),
+                request.providerActive(), request.enabledOrDefault())
                 .orElseThrow(NotFoundException::new);
     }
 
@@ -75,8 +75,8 @@ public class ArtistProviderLinkResource {
     }
 
     public record ProviderLinkRequest(String providerId, String providerArtistId, String providerArtistName,
-            String providerUrl, String providerArtistType, String providerArtistCountry,
-            String providerArtistDisambiguation, Boolean providerArtistActive, Boolean enabled) {
+            String providerUrl, String providerCountry,
+            String providerDisambiguation, Boolean providerActive, Boolean enabled) {
         boolean enabledOrDefault() {
             return enabled == null || enabled;
         }
