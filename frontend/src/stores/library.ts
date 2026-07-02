@@ -4,6 +4,8 @@ import { formatDateWithJavaPattern } from '@/dateFormat'
 import { providerDefinition, type ProviderId } from '@/providers'
 import type {
   Album,
+  AlbumReleaseDateConflictPlan,
+  AlbumReleaseDateConflictResult,
   Artist,
   ArtistProviderBulkMatchResult,
   ArtistProviderCandidate,
@@ -17,6 +19,7 @@ import type {
   ProviderCheckRun,
   ProviderCheckJobStatus,
   ProviderCheckSummary,
+  ProviderReleaseDateConflict,
   ProviderRefreshResult,
   ScanEvent,
   ScanRun,
@@ -75,6 +78,12 @@ interface State {
   providerCheckEventsLoading: Record<number, boolean>
   providerCheckRuns: ProviderCheckRun[]
   providerJob: ProviderCheckJobStatus | null
+  providerReleaseDateConflicts: ProviderReleaseDateConflict[]
+  providerReleaseDateConflictDialogRequest: {
+    id: number
+    albumId?: number | null
+    providerLinkId?: number | null
+  } | null
   uiSettings: UiSettings
   statusHistory: StatusHistoryEntry[]
   manualStatus: { id: number; message: string; state: Exclude<StatusHistoryEntry['state'], 'running'> } | null
@@ -130,6 +139,7 @@ const defaultArtistsScreenColumnDefaults = {
 
 let scanJobPoller: number | null = null
 let providerJobPoller: number | null = null
+let providerReleaseDateConflictDialogRequestId = 0
 
 export const useLibraryStore = defineStore('library', {
   state: (): State => ({
@@ -161,6 +171,8 @@ export const useLibraryStore = defineStore('library', {
     providerCheckEventsLoading: {},
     providerCheckRuns: [],
     providerJob: null,
+    providerReleaseDateConflicts: [],
+    providerReleaseDateConflictDialogRequest: null,
     uiSettings: {
       statusCompleteVisibleMs: 10000,
       scanPollIntervalMs: 200,
@@ -213,13 +225,14 @@ export const useLibraryStore = defineStore('library', {
     async loadAll() {
       this.loading = true
       try {
-        const [artists, albums, collections, musicRoot, scanRuns, providerCheckRuns] = await Promise.all([
+        const [artists, albums, collections, musicRoot, scanRuns, providerCheckRuns, providerReleaseDateConflicts] = await Promise.all([
           apiGet<Artist[]>('/api/artists'),
           apiGet<Album[]>('/api/albums'),
           apiGet<MusicCollection[]>('/api/collections'),
           apiGet<MusicRootInfo>('/api/settings/music-root'),
           apiGet<ScanRun[]>('/api/scan/runs?limit=25'),
           apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25'),
+          apiGet<ProviderReleaseDateConflict[]>('/api/provider-conflicts/release-dates'),
         ])
         this.artists = artists
         this.albums = albums
@@ -227,6 +240,7 @@ export const useLibraryStore = defineStore('library', {
         this.musicRoot = musicRoot
         this.scanRuns = scanRuns
         this.providerCheckRuns = providerCheckRuns
+        this.providerReleaseDateConflicts = providerReleaseDateConflicts
       } catch (error) {
         this.showErrorStatus(error, 'Unable to load library data')
       } finally {
@@ -652,6 +666,7 @@ export const useLibraryStore = defineStore('library', {
       this.replaceAlbum(updated)
       this.updateArtistAlbumCheckCounts(previous, updated)
       this.invalidateCollectionMetadata()
+      await this.loadProviderReleaseDateConflicts()
     },
     async addAlbumsToCollection(collectionId: string, albumIds: number[]) {
       if (albumIds.length === 0) {
@@ -1025,6 +1040,7 @@ export const useLibraryStore = defineStore('library', {
             const collectionId = status?.requestedCollectionId ?? undefined
             const artistIds = uniqueArtistIds([status?.requestedArtistId, ...(status?.artistIds ?? [])])
             this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
+            await this.loadProviderReleaseDateConflicts()
             this.invalidateCollectionMetadata(collectionId)
             if (artistIds.length > 0) {
               await this.refreshArtistsAfterScopedJob(artistIds, collectionId)
@@ -1070,6 +1086,54 @@ export const useLibraryStore = defineStore('library', {
         this.showErrorStatus(error, 'Unable to load provider status')
       }
       return this.providerJob
+    },
+    async loadProviderReleaseDateConflicts() {
+      this.providerReleaseDateConflicts = await apiGet<ProviderReleaseDateConflict[]>('/api/provider-conflicts/release-dates')
+      return this.providerReleaseDateConflicts
+    },
+    requestProviderReleaseDateConflictDialog(albumId?: number | null, providerLinkId?: number | null) {
+      providerReleaseDateConflictDialogRequestId += 1
+      this.providerReleaseDateConflictDialogRequest = {
+        id: providerReleaseDateConflictDialogRequestId,
+        albumId: albumId ?? null,
+        providerLinkId: providerLinkId ?? null,
+      }
+    },
+    async planUseProviderReleaseDate(conflict: ProviderReleaseDateConflict) {
+      return apiGet<AlbumReleaseDateConflictPlan>(providerConflictPath(conflict, 'provider-year-plan'))
+    },
+    async keepLocalReleaseDate(conflict: ProviderReleaseDateConflict) {
+      const result = await apiSend<AlbumReleaseDateConflictResult>(providerConflictPath(conflict, 'keep-local'), 'POST')
+      await this.refreshAfterProviderReleaseDateResolution(conflict, result)
+      return result
+    },
+    async useProviderReleaseDate(conflict: ProviderReleaseDateConflict) {
+      const result = await apiSend<AlbumReleaseDateConflictResult>(providerConflictPath(conflict, 'use-provider-year'), 'POST')
+      await this.refreshAfterProviderReleaseDateResolution(conflict, result)
+      return result
+    },
+    async resetKeepLocalReleaseDate(albumId: number, providerLinkId: number, artistId?: number | null) {
+      const result = await apiSend<AlbumReleaseDateConflictResult>(
+        providerConflictIdPath(albumId, providerLinkId, 'reset-keep-local'),
+        'POST',
+      )
+      this.replaceAlbum(result.album)
+      this.invalidateCollectionMetadata()
+      await this.loadProviderReleaseDateConflicts()
+      const refreshArtistId = artistId ?? result.album.artistIds[0] ?? null
+      if (refreshArtistId) {
+        await this.refreshArtistAfterScopedJob(refreshArtistId, this.currentCollectionScopeForArtist(refreshArtistId))
+      }
+      return result
+    },
+    async refreshAfterProviderReleaseDateResolution(
+      conflict: ProviderReleaseDateConflict,
+      result: AlbumReleaseDateConflictResult,
+    ) {
+      this.replaceAlbum(result.album)
+      this.invalidateCollectionMetadata()
+      await this.loadProviderReleaseDateConflicts()
+      await this.refreshArtistAfterScopedJob(conflict.artistId, this.currentCollectionScopeForArtist(conflict.artistId))
     },
     async cancelProviderJob() {
       this.providerJob = await apiSend<ProviderCheckJobStatus>('/api/provider-checks/jobs/current/cancel', 'POST')
@@ -1254,6 +1318,7 @@ export const useLibraryStore = defineStore('library', {
       try {
         const result = await apiSend<ProviderRefreshResult>(`/api/artists/${artistId}/provider/refresh`, 'POST')
         this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
+        await this.loadProviderReleaseDateConflicts()
         this.invalidateCollectionContent(this.selectedCollectionId ?? undefined)
         await this.loadArtists()
         await this.refreshCollectionContext()
@@ -1284,6 +1349,7 @@ export const useLibraryStore = defineStore('library', {
           'POST',
         )
         this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
+        await this.loadProviderReleaseDateConflicts()
         this.invalidateCollectionContent(this.selectedCollectionId ?? undefined)
         await this.loadArtists()
         await this.refreshCollectionContext()
@@ -1313,6 +1379,7 @@ export const useLibraryStore = defineStore('library', {
           'POST',
         )
         this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
+        await this.loadProviderReleaseDateConflicts()
         this.invalidateCollectionContent(collectionId)
         await this.loadArtists()
         await this.refreshCollectionContext()
@@ -1386,8 +1453,19 @@ function providerSummaryState(summary: ProviderCheckSummary): StatusHistoryEntry
   if (summary.errorCount > 0) {
     return 'failed'
   }
+  if (summary.releaseDateConflictCount > 0) {
+    return 'warning'
+  }
   if (summary.messages.some((message) => message.includes('No enabled provider links found'))) {
     return 'warning'
   }
   return 'done'
+}
+
+function providerConflictPath(conflict: ProviderReleaseDateConflict, action: string) {
+  return providerConflictIdPath(conflict.albumId, conflict.providerLinkId, action)
+}
+
+function providerConflictIdPath(albumId: number, providerLinkId: number, action: string) {
+  return `/api/albums/${albumId}/provider-links/${providerLinkId}/release-date-conflict/${action}`
 }

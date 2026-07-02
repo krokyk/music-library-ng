@@ -158,6 +158,11 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 
 ## Row Actions And Controls
 
+- Do not add custom keyboard navigation, selection, save, or apply shortcuts unless the user explicitly requests them for that feature.
+- Allowed custom keyboard behavior is limited to Escape closing dialogs or popovers and Escape clearing the Artists search box.
+- Use visible mouse or pointer controls for row selection and apply actions.
+- Do not add `tabindex`, `role="button"`, Enter handlers, or Space handlers to non-native rows, chips, or labels to make them keyboard-selectable.
+- Native browser text editing and native button behavior are acceptable baseline behavior.
 - Any click inside a row's visual area selects that row first, including row action controls, info controls, chips, checkboxes, and disabled action space.
   The clicked control then runs its normal action when it is enabled.
 - Row actions are hover/focus visible, and selected rows keep their available actions visible.

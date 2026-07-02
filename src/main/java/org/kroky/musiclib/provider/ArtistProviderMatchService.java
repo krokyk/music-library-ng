@@ -12,6 +12,7 @@ import org.kroky.musiclib.config.MusicLibraryConfig;
 import org.kroky.musiclib.db.Names;
 import org.kroky.musiclib.model.Album;
 import org.kroky.musiclib.model.Artist;
+import org.kroky.musiclib.model.ArtistProviderCandidateAlbum;
 import org.kroky.musiclib.model.ArtistProviderCandidate;
 import org.kroky.musiclib.model.RemoteReleaseGroup;
 import org.kroky.musiclib.provider.html.MetalArchivesProvider;
@@ -56,6 +57,7 @@ public class ArtistProviderMatchService {
                 .orElseThrow(() -> new IllegalArgumentException("Unknown artist: " + artistId));
         List<Album> localAlbums = albums.list(artist.id(), null, null, null, null).stream()
                 .filter(ArtistProviderMatchService::isScoringAlbum)
+                .filter(Album::onDisk)
                 .toList();
         return searchProviderResults(artist.name(), providerId).stream()
                 .map(result -> candidate(artist, localAlbums, result))
@@ -114,6 +116,7 @@ public class ArtistProviderMatchService {
                 .map(Album::title)
                 .distinct()
                 .toList();
+        List<ArtistProviderCandidateAlbum> candidateAlbums = candidateAlbums(localAlbums, releaseGroups);
         int titleAndYearMatches = titleAndYearMatches(localAlbums, releaseGroups);
         int matchScore = matchScore(
                 artist.name(),
@@ -132,7 +135,8 @@ public class ArtistProviderMatchService {
                 result.providerScore(),
                 matchScore,
                 matchedAlbums,
-                releaseGroups);
+                releaseGroups,
+                candidateAlbums);
     }
 
     private CandidateDetails fetchCandidateDetails(ProviderArtistSearchResult result) throws ProviderException {
@@ -163,6 +167,38 @@ public class ArtistProviderMatchService {
     }
 
     private record CandidateDetails(String country, Boolean active, List<RemoteReleaseGroup> releaseGroups) {
+    }
+
+    private static List<ArtistProviderCandidateAlbum> candidateAlbums(List<Album> localAlbums,
+            List<RemoteReleaseGroup> releaseGroups) {
+        return releaseGroups.stream()
+                .map(releaseGroup -> {
+                    Album localAlbum = bestLocalAlbum(localAlbums, releaseGroup);
+                    return new ArtistProviderCandidateAlbum(
+                            releaseGroup.title(),
+                            releaseGroup.releaseDate(),
+                            releaseGroup.providerUrl(),
+                            localAlbum == null ? null : localAlbum.id(),
+                            localAlbum == null ? null : localAlbum.releaseDate(),
+                            localAlbum != null && localAlbum.onDisk(),
+                            localAlbum != null && releaseDateConflict(localAlbum.releaseDate(), releaseGroup.releaseDate()));
+                })
+                .toList();
+    }
+
+    private static Album bestLocalAlbum(List<Album> localAlbums, RemoteReleaseGroup releaseGroup) {
+        String providerTitle = Names.normalize(releaseGroup.title());
+        List<Album> titleMatches = localAlbums.stream()
+                .filter(album -> providerTitle.equals(Names.normalize(album.title())))
+                .toList();
+        if (titleMatches.isEmpty()) {
+            return null;
+        }
+        String providerYear = releaseYear(releaseGroup.releaseDate());
+        return titleMatches.stream()
+                .filter(album -> providerYear != null && providerYear.equals(releaseYear(album.releaseDate())))
+                .findFirst()
+                .orElse(titleMatches.get(0));
     }
 
     private static int titleAndYearMatches(List<Album> localAlbums, List<RemoteReleaseGroup> releaseGroups) {
@@ -222,5 +258,11 @@ public class ArtistProviderMatchService {
             return null;
         }
         return releaseDate.substring(0, 4);
+    }
+
+    private static boolean releaseDateConflict(String localReleaseDate, String providerReleaseDate) {
+        String localYear = releaseYear(localReleaseDate);
+        String providerYear = releaseYear(providerReleaseDate);
+        return localYear != null && providerYear != null && !localYear.equals(providerYear);
     }
 }

@@ -9,6 +9,7 @@ public record ProviderCheckSummary(
         int foundAlbumCount,
         int newAlbumCount,
         int existingAlbumCount,
+        int releaseDateConflictCount,
         int errorCount,
         List<String> messages) {
 }

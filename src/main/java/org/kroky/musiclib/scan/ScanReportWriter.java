@@ -10,6 +10,7 @@ import java.util.List;
 
 import org.kroky.musiclib.config.MusicLibraryConfig;
 import org.kroky.musiclib.db.Names;
+import org.kroky.musiclib.model.CollectionType;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -70,12 +71,9 @@ public class ScanReportWriter {
         line(text, "Summary");
         line(text, "-------");
         line(text, "Dirs scanned: " + report.scannedDirs() + "/" + report.totalDirs());
-        line(text, "Parsed: " + report.parsedCount());
-        line(text, "Created: " + report.createdCount());
-        line(text, "Existing: " + report.existingCount());
-        line(text, "Removed local paths: " + report.missingCount());
-        line(text, "Skipped: " + report.skippedCount());
-        line(text, "Message: " + value(report.summaryMessage()));
+        summaryCounts(text, report);
+        line(text, "Local paths removed: " + report.missingCount());
+        line(text, "Folders skipped: " + report.skippedCount());
         line(text, "");
 
         section(text, "Created", report.created());
@@ -96,6 +94,20 @@ public class ScanReportWriter {
 
     private static String value(String value) {
         return value == null ? "" : value;
+    }
+
+    private static void summaryCounts(StringBuilder text, ScanReport report) {
+        if (report.collection().type() == CollectionType.TITLE) {
+            line(text, "Titles parsed: " + report.parsedCount());
+            line(text, "Titles created: " + report.createdCount());
+            line(text, "Titles existing: " + report.existingCount());
+            line(text, "Contributor artists found: " + report.artistCount());
+            return;
+        }
+        line(text, "Artists found: " + report.artistCount());
+        line(text, "Albums parsed: " + report.parsedCount());
+        line(text, "Albums created: " + report.createdCount());
+        line(text, "Albums existing: " + report.existingCount());
     }
 
     private static void section(StringBuilder text, String title, List<String> rows) {

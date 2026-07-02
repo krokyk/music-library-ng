@@ -21,6 +21,7 @@ import org.kroky.musiclib.db.TitleSortNames;
 import org.kroky.musiclib.model.Album;
 import org.kroky.musiclib.model.AlbumCollection;
 import org.kroky.musiclib.model.AlbumLocalPath;
+import org.kroky.musiclib.model.AlbumProviderLink;
 import org.kroky.musiclib.model.MetadataSource;
 import org.kroky.musiclib.model.UpsertResult;
 import org.kroky.musiclib.scan.MusicRootService;
@@ -126,6 +127,15 @@ public class AlbumRepository {
             return id.flatMap(this::find);
         } catch (Exception e) {
             throw new IllegalStateException("Unable to find album duplicate", e);
+        }
+    }
+
+    public Optional<Album> findByArtistAndTitle(long artistId, String title) {
+        try (Connection connection = dataSource.getConnection()) {
+            Optional<Long> id = findByArtistAndTitleId(connection, artistId, title);
+            return id.flatMap(this::find);
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to find album by artist and title", e);
         }
     }
 
@@ -375,11 +385,54 @@ public class AlbumRepository {
         }
     }
 
+    public void updateLocalPath(long albumId, long localPathId, String relativePath) {
+        String sql = """
+                UPDATE album_local_paths
+                SET relative_path = ?, last_seen_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND album_id = ?
+                """;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, relativePath);
+            statement.setLong(2, localPathId);
+            statement.setLong(3, albumId);
+            if (statement.executeUpdate() == 0) {
+                throw new IllegalArgumentException("Unknown local path " + localPathId + " for album " + albumId);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to update album local path " + localPathId, e);
+        }
+    }
+
     public void assignToCollection(long albumId, String collectionId) {
         try (Connection connection = dataSource.getConnection()) {
             assignToCollection(connection, albumId, collectionId);
         } catch (Exception e) {
             throw new IllegalStateException("Unable to assign album " + albumId + " to collection " + collectionId, e);
+        }
+    }
+
+    public int mergeProviderOnlyDuplicates(long keepAlbumId, long artistId, String title, String releaseDate) {
+        try (Connection connection = dataSource.getConnection()) {
+            boolean autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try {
+                List<Long> duplicates = providerOnlyDuplicateIds(connection, keepAlbumId, artistId, title, releaseDate);
+                for (long duplicateId : duplicates) {
+                    transferCollectionMemberships(connection, keepAlbumId, duplicateId);
+                    transferProviderLinks(connection, keepAlbumId, duplicateId);
+                    deleteAlbum(connection, duplicateId);
+                }
+                connection.commit();
+                return duplicates.size();
+            } catch (Exception e) {
+                rollbackQuietly(connection);
+                throw e;
+            } finally {
+                connection.setAutoCommit(autoCommit);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to merge provider-only duplicate albums", e);
         }
     }
 
@@ -636,6 +689,33 @@ public class AlbumRepository {
         }
     }
 
+    private Optional<Long> findByArtistAndTitleId(Connection connection, long artistId, String title)
+            throws Exception {
+        String sql = """
+                SELECT a.id
+                FROM albums a
+                JOIN album_artists aa ON aa.album_id = a.id
+                WHERE aa.artist_id = ? AND a.normalized_title = ?
+                ORDER BY
+                    CASE
+                        WHEN EXISTS (
+                            SELECT 1 FROM album_local_paths lp
+                            WHERE lp.album_id = a.id
+                        ) THEN 0
+                        ELSE 1
+                    END,
+                    a.id
+                LIMIT 1
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, artistId);
+            statement.setString(2, Names.normalize(title));
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next() ? Optional.of(rs.getLong("id")) : Optional.empty();
+            }
+        }
+    }
+
     private Optional<Long> findScannedDuplicateId(Connection connection, long artistId, String title, String releaseDate)
             throws Exception {
         String sql = """
@@ -750,6 +830,86 @@ public class AlbumRepository {
         }
     }
 
+    private List<Long> providerOnlyDuplicateIds(Connection connection, long keepAlbumId, long artistId, String title,
+            String releaseDate) throws Exception {
+        String sql = """
+                SELECT a.id
+                FROM albums a
+                JOIN album_artists aa ON aa.album_id = a.id
+                WHERE a.id <> ?
+                  AND aa.artist_id = ?
+                  AND a.normalized_title = ?
+                  AND coalesce(a.release_date, '') = coalesce(?, '')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM album_local_paths lp
+                      WHERE lp.album_id = a.id
+                  )
+                ORDER BY a.id
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, keepAlbumId);
+            statement.setLong(2, artistId);
+            statement.setString(3, Names.normalize(title));
+            statement.setString(4, blankToNull(releaseDate));
+            try (ResultSet rs = statement.executeQuery()) {
+                List<Long> ids = new ArrayList<>();
+                while (rs.next()) {
+                    ids.add(rs.getLong("id"));
+                }
+                return ids;
+            }
+        }
+    }
+
+    private void transferCollectionMemberships(Connection connection, long keepAlbumId, long duplicateAlbumId)
+            throws Exception {
+        String sql = """
+                INSERT OR IGNORE INTO collection_albums (collection_id, album_id, created_at, updated_at)
+                SELECT collection_id, ?, created_at, CURRENT_TIMESTAMP
+                FROM collection_albums
+                WHERE album_id = ?
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, keepAlbumId);
+            statement.setLong(2, duplicateAlbumId);
+            statement.executeUpdate();
+        }
+    }
+
+    private void transferProviderLinks(Connection connection, long keepAlbumId, long duplicateAlbumId)
+            throws Exception {
+        try (PreparedStatement update = connection.prepareStatement("""
+                UPDATE OR IGNORE album_provider_links
+                SET album_id = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE album_id = ?
+                """);
+                PreparedStatement deleteIgnored = connection.prepareStatement("""
+                        DELETE FROM album_provider_links
+                        WHERE album_id = ?
+                        """)) {
+            update.setLong(1, keepAlbumId);
+            update.setLong(2, duplicateAlbumId);
+            update.executeUpdate();
+            deleteIgnored.setLong(1, duplicateAlbumId);
+            deleteIgnored.executeUpdate();
+        }
+    }
+
+    private void deleteAlbum(Connection connection, long albumId) throws Exception {
+        deleteAlbumRows(connection, "album_provider_links", "album_id", albumId);
+        deleteAlbumRows(connection, "album_local_paths", "album_id", albumId);
+        deleteAlbumRows(connection, "collection_albums", "album_id", albumId);
+        deleteAlbumRows(connection, "album_artists", "album_id", albumId);
+        deleteAlbumRows(connection, "albums", "id", albumId);
+    }
+
+    private void deleteAlbumRows(Connection connection, String table, String column, long albumId) throws Exception {
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + table + " WHERE " + column + " = ?")) {
+            statement.setLong(1, albumId);
+            statement.executeUpdate();
+        }
+    }
+
     private void assignToCollection(Connection connection, long albumId, String collectionId) throws Exception {
         String normalizedCollectionId = blankToNull(collectionId);
         if (normalizedCollectionId == null) {
@@ -803,6 +963,7 @@ public class AlbumRepository {
                 hasLocalPath,
                 onDisk,
                 localPaths,
+                listProviderLinks(connection, albumId, rs.getString("release_date")),
                 rs.getString("notes"),
                 rs.getString("created_at"),
                 rs.getString("updated_at"));
@@ -867,6 +1028,42 @@ public class AlbumRepository {
         }
     }
 
+    private List<AlbumProviderLink> listProviderLinks(Connection connection, long albumId, String localReleaseDate) {
+        String sql = """
+                SELECT id, album_id, provider_id, provider_release_group_id,
+                       provider_title, provider_release_date, provider_url,
+                       release_date_resolution, created_at, updated_at
+                FROM album_provider_links
+                WHERE album_id = ?
+                ORDER BY provider_id, provider_title
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, albumId);
+            try (ResultSet rs = statement.executeQuery()) {
+                List<AlbumProviderLink> links = new ArrayList<>();
+                while (rs.next()) {
+                    String providerReleaseDate = rs.getString("provider_release_date");
+                    String resolution = rs.getString("release_date_resolution");
+                    links.add(new AlbumProviderLink(
+                            rs.getLong("id"),
+                            rs.getLong("album_id"),
+                            rs.getString("provider_id"),
+                            rs.getString("provider_release_group_id"),
+                            rs.getString("provider_title"),
+                            providerReleaseDate,
+                            rs.getString("provider_url"),
+                            resolution,
+                            resolution == null && releaseDateConflict(localReleaseDate, providerReleaseDate),
+                            rs.getString("created_at"),
+                            rs.getString("updated_at")));
+                }
+                return links;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to list album provider links", e);
+        }
+    }
+
     private String resolvedPath(String collectionRelativePath, String albumRelativePath) {
         if (collectionRelativePath == null || albumRelativePath == null) {
             return null;
@@ -925,6 +1122,20 @@ public class AlbumRepository {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static boolean releaseDateConflict(String localReleaseDate, String providerReleaseDate) {
+        String localYear = releaseYear(localReleaseDate);
+        String providerYear = releaseYear(providerReleaseDate);
+        return localYear != null && providerYear != null && !localYear.equals(providerYear);
+    }
+
+    private static String releaseYear(String releaseDate) {
+        String normalized = blankToNull(releaseDate);
+        if (normalized == null || normalized.length() < 4) {
+            return null;
+        }
+        return normalized.substring(0, 4);
     }
 
     private static void rollbackQuietly(Connection connection) {

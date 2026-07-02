@@ -41,9 +41,9 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - `artist_collections` stores collection-scoped artist scan state and local scan failures.
 - `providers` stores supported provider kinds.
 - `artist_provider_links` stores one provider identity per artist plus provider country, active-status, and disambiguation evidence.
-- `album_provider_links` stores provider release-group mappings to local albums.
+- `album_provider_links` stores provider release-group mappings to local albums and optional release-date conflict resolution.
 - `scan_runs` and `scan_events` store local scan history.
-- `provider_check_runs` and `provider_check_events` store provider check history.
+- `provider_check_runs` and `provider_check_events` store provider check history, including release-date conflict counts.
 - `user_preferences` stores runtime preference overrides.
 
 ## Album State
@@ -97,6 +97,8 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Local scans preserve album rows, checked state, and collection membership when a local path disappears.
 - Local scans do not scan tracks.
 - Scan reports are generated as plain text and stored under the configured report directory.
+- Scan reports render structured summary counts and do not duplicate the completion status message.
+- Artist collection scan summaries distinguish artists found from albums parsed.
 
 ## Providers
 
@@ -109,6 +111,11 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Artist country and active-status overrides live on the artist row and are never overwritten by provider rescans.
 - Effective artist country and status prefer the artist override, then the current provider evidence, then unknown.
 - Provider candidate search is shared across supported providers through `GET /api/artists/{artistId}/provider-candidates/{providerId}`.
+- Provider candidate dialogs are shared between Collections and Artists and show candidate albums as chips with overflow counts.
+- Clicking a provider candidate row applies that candidate, while the row's `Open` button opens the provider artist page as a separate action with a tooltip.
+- Provider candidate rows show one coherent clickable hover highlight, and the `Open` button has its own hover treatment.
+- Provider candidate album chips are dimmed for provider-only albums, outlined with a green check badge for albums found on disk, and outlined with an amber question badge when a found-on-disk album has a provider year mismatch.
+- Provider candidate album chips have bounded widths and expose full album names through tooltips.
 - Bulk provider matching is shared across supported providers through `POST /api/provider-matches/{providerId}/artists`.
 - Bulk provider matching receives exact artist IDs from the frontend visible scope.
 - Bulk provider matching skips artists that already have a provider identity.
@@ -119,6 +126,12 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Individual artist provider checks always run even when the artist was checked recently.
 - Provider checks do not infer local disk presence.
 - Provider checks do not delete local albums or local path evidence because a provider omits a release.
+- HTML provider checks link same-title local albums with mismatched years to the provider release and record unresolved release-date conflicts instead of creating duplicate unchecked albums.
+- Unresolved provider release-date conflicts remain visible after a provider check through the global conflict list.
+- The global conflict list groups multiple provider sources for the same local album and provider year into one conflict row.
+- Keeping the local year marks all grouped provider releases as resolved against the local album so future provider checks do not add the provider album again.
+- Kept-local year decisions remain visible in the Artists detail known-album list and can be reset from the year chip to make the mismatch unresolved again.
+- Using the provider year renames every on-disk local album folder for the album, updates the matching album local paths and release date, resolves all grouped provider releases, merges provider-only duplicates, and writes the provider year to supported audio file tags.
 - Collection-scoped provider checks assign newly created or otherwise unassigned provider albums to the selected collection.
 - Provider checks from the global Artists screen refresh artist-level provider data without assigning collection membership.
 - MusicBrainz imports supported full albums only.
@@ -175,6 +188,10 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Status menu edits write only the artist active-status override.
 - The Artists detail pane is the main artist metadata edit surface for name and sort name.
 - The Artists detail pane shows effective country and status plus provider evidence when an override differs from the provider value.
+- The Artists top tab, artist rows, and known-album year chips show warning indicators while provider release-date conflicts remain unresolved.
+- Clicking an unresolved known-album year chip opens the provider release-date conflict resolution dialog.
+- Known-album year chips show an outlined kept-local state with an undo action when a provider year mismatch was resolved by keeping the local year.
+- The Artists detail pane shows known albums with the same local, checked non-local, and unchecked non-local color treatment used by collection album rows.
 
 ## UI Rules
 
@@ -206,6 +223,9 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Provider bulk matching uses `POST /api/provider-matches/{providerId}/artists`.
 - Scan jobs and scan history use `/api/scan`.
 - Provider check jobs and provider history use `/api/provider-checks`.
+- Unresolved provider release-date conflicts use `GET /api/provider-conflicts/release-dates`.
+- Provider release-date conflict actions use `/api/albums/{albumId}/provider-links/{providerLinkId}/release-date-conflict`.
+- Resetting a kept-local release-date decision uses `POST /api/albums/{albumId}/provider-links/{providerLinkId}/release-date-conflict/reset-keep-local`.
 - Settings use `/api/settings/music-root` and `/api/settings/ui`.
 - Raw preference access uses `/api/preferences/{key}`.
 - SPA fallback must stay separate from `/api`, `/q`, and asset-like routes.

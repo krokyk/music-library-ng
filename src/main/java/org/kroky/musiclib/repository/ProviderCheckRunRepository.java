@@ -40,12 +40,12 @@ public class ProviderCheckRunRepository {
     }
 
     public void finish(long runId, String status, int processedArtists, int foundAlbums, int newAlbums,
-            int existingAlbums, int errors, String message) {
+            int existingAlbums, int releaseDateConflicts, int errors, String message) {
         String sql = """
                 UPDATE provider_check_runs
                 SET status = ?, finished_at = CURRENT_TIMESTAMP, processed_artist_count = ?,
                     found_album_count = ?, new_album_count = ?, existing_album_count = ?,
-                    error_count = ?, message = ?
+                    release_date_conflict_count = ?, error_count = ?, message = ?
                 WHERE id = ?
                 """;
         try (Connection connection = dataSource.getConnection();
@@ -55,9 +55,10 @@ public class ProviderCheckRunRepository {
             statement.setInt(3, foundAlbums);
             statement.setInt(4, newAlbums);
             statement.setInt(5, existingAlbums);
-            statement.setInt(6, errors);
-            statement.setString(7, message);
-            statement.setLong(8, runId);
+            statement.setInt(6, releaseDateConflicts);
+            statement.setInt(7, errors);
+            statement.setString(8, message);
+            statement.setLong(9, runId);
             statement.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to finish provider check run " + runId, e);
@@ -86,7 +87,7 @@ public class ProviderCheckRunRepository {
         String sql = """
                 SELECT id, artist_id, provider_link_id, started_at, finished_at, status,
                        processed_artist_count, found_album_count, new_album_count,
-                       existing_album_count, error_count, message
+                       existing_album_count, release_date_conflict_count, error_count, message
                 FROM provider_check_runs
                 ORDER BY started_at DESC, id DESC
                 LIMIT ?
@@ -147,6 +148,7 @@ public class ProviderCheckRunRepository {
                 rs.getInt("found_album_count"),
                 rs.getInt("new_album_count"),
                 rs.getInt("existing_album_count"),
+                rs.getInt("release_date_conflict_count"),
                 rs.getInt("error_count"),
                 rs.getString("message"));
     }

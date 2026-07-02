@@ -16,6 +16,7 @@ public record ScanJobStatus(
         String activeArtistName,
         int itemTotal,
         int itemProcessed,
+        int artistCount,
         int parsedCount,
         int createdCount,
         int skippedCount,

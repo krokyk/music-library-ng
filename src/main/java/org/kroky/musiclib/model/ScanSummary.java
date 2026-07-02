@@ -6,6 +6,7 @@ public record ScanSummary(
         long runId,
         String collectionId,
         String status,
+        int artistCount,
         int parsedCount,
         int createdCount,
         int updatedCount,

@@ -91,6 +91,7 @@ public class ScanService {
         int skipped = 0;
         int skippedExamples = 0;
         int existing = 0;
+        Set<Long> seenArtistIds = new HashSet<>();
         ScanReport report = null;
 
         try {
@@ -106,7 +107,8 @@ public class ScanService {
                 scanRunRepository.event(runId, "WARN", message);
                 finishRun(runId, "SKIPPED", parsed, created, updated, missing, skipped + 1, message, report);
                 collectionRepository.markScanned(collection.id(), "SKIPPED", message);
-                return new ScanSummary(runId, collection.id(), "SKIPPED", parsed, created, updated, missing,
+                return new ScanSummary(runId, collection.id(), "SKIPPED", seenArtistIds.size(), parsed, created,
+                        updated, missing,
                         skipped + 1, messages);
             }
 
@@ -125,11 +127,13 @@ public class ScanService {
                     if (progress.isCancelled()) {
                         String message = "Scan cancelled for " + collection.name() + ".";
                         messages.add(message);
+                        report.artistCount(seenArtistIds.size());
                         report.finish("SKIPPED", parsed, created, existing, missing, skipped, message);
                         scanRunRepository.event(runId, "INFO", message);
                         finishRun(runId, "SKIPPED", parsed, created, updated, missing, skipped, message, report);
                         collectionRepository.markScanned(collection.id(), "SKIPPED", message);
-                        return new ScanSummary(runId, collection.id(), "SKIPPED", parsed, created, updated, missing,
+                        return new ScanSummary(runId, collection.id(), "SKIPPED", seenArtistIds.size(), parsed,
+                                created, updated, missing,
                                 skipped, messages);
                     }
 
@@ -137,6 +141,7 @@ public class ScanService {
                     seenPaths.add(folder.getFileName().toString());
                     parsed++;
                     List<Long> artistIds = upsertContributorArtists(parsedTitle.artistName());
+                    seenArtistIds.addAll(artistIds);
                     UpsertResult result = albumRepository.upsertTitleScanned(
                             artistIds,
                             parsedTitle.title(),
@@ -159,29 +164,33 @@ public class ScanService {
                 }
 
                 missing = albumRepository.removeUnseenLocalPaths(collection.id(), seenPaths);
-                String message = "Scanned " + collection.name() + ": " + parsed + " titles, " + created
+                String message = "Scanned " + collection.name() + ": " + countWithLabel(parsed, "title", "titles")
+                        + ", " + created
                         + " created, " + existing + " existing, " + missing + " local paths removed.";
                 messages.add(message);
+                report.artistCount(seenArtistIds.size());
                 report.finish("DONE", parsed, created, existing, missing, skipped, message);
                 scanRunRepository.event(runId, "INFO", message);
                 finishRun(runId, "DONE", parsed, created, updated, missing, skipped, message, report);
                 collectionRepository.markScanned(collection.id(), "DONE", message);
                 LOG.info(message);
-                return new ScanSummary(runId, collection.id(), "DONE", parsed, created, updated, missing, skipped,
+                return new ScanSummary(runId, collection.id(), "DONE", seenArtistIds.size(), parsed, created,
+                        updated, missing, skipped,
                         messages);
             }
 
             Set<String> seenPaths = new HashSet<>();
-            Set<Long> seenLocalArtistIds = new HashSet<>();
             for (Path folder : folders) {
                 if (progress.isCancelled()) {
                     String message = "Scan cancelled for " + collection.name() + ".";
                     messages.add(message);
+                    report.artistCount(seenArtistIds.size());
                     report.finish("SKIPPED", parsed, created, existing, missing, skipped, message);
                     scanRunRepository.event(runId, "INFO", message);
                     finishRun(runId, "SKIPPED", parsed, created, updated, missing, skipped, message, report);
                     collectionRepository.markScanned(collection.id(), "SKIPPED", message);
-                    return new ScanSummary(runId, collection.id(), "SKIPPED", parsed, created, updated, missing,
+                    return new ScanSummary(runId, collection.id(), "SKIPPED", seenArtistIds.size(), parsed, created,
+                            updated, missing,
                             skipped, messages);
                 }
                 Optional<ParsedAlbum> parsedAlbum = parser.parse(folder, collection.parser(), collection.id());
@@ -190,7 +199,7 @@ public class ScanService {
                     UpsertResult artistResult = artistRepository.upsertByName(parsedArtistName);
                     progress.artistStarted(collection.id(), artistResult.id(), parsedArtistName);
                     artistRepository.assignToCollection(artistResult.id(), collection.id(), true);
-                    seenLocalArtistIds.add(artistResult.id());
+                    seenArtistIds.add(artistResult.id());
                     String relativePath = folder.getFileName().toString();
                     seenPaths.add(relativePath);
                     UpsertResult albumResult = albumRepository.upsertScanned(
@@ -224,7 +233,7 @@ public class ScanService {
                         UpsertResult artistResult = artistRepository.upsertByName(parsedArtistName);
                         progress.artistStarted(collection.id(), artistResult.id(), parsedArtistName);
                         artistRepository.assignToCollection(artistResult.id(), collection.id(), true);
-                        seenLocalArtistIds.add(artistResult.id());
+                        seenArtistIds.add(artistResult.id());
                         for (Path unmatchedAlbumFolder : nestedArtist.get().unmatchedAlbumFolders()) {
                             skipped++;
                             String relativePath = nestedRelativePath(folder, unmatchedAlbumFolder);
@@ -236,14 +245,9 @@ public class ScanService {
                             }
                         }
                         if (nestedArtist.get().albums().isEmpty()) {
-                            parsed++;
-                            if (artistResult.created()) {
-                                created++;
-                                report.created("Artist: " + parsedArtistName + " | folder: " + folder.getFileName());
-                            } else {
-                                existing++;
-                                report.existing("Artist: " + parsedArtistName + " | folder: " + folder.getFileName());
-                            }
+                            report.note((artistResult.created() ? "Created" : "Existing")
+                                    + " artist without parsed albums: " + parsedArtistName
+                                    + " | folder: " + folder.getFileName());
                         }
                         for (LocalAlbumCandidate candidate : nestedArtist.get().albums()) {
                             seenPaths.add(candidate.relativePath());
@@ -273,22 +277,27 @@ public class ScanService {
             if (progress.isCancelled()) {
                 String message = "Scan cancelled for " + collection.name() + ".";
                 messages.add(message);
+                report.artistCount(seenArtistIds.size());
                 report.finish("SKIPPED", parsed, created, existing, missing, skipped, message);
                 scanRunRepository.event(runId, "INFO", message);
                 finishRun(runId, "SKIPPED", parsed, created, updated, missing, skipped, message, report);
                 collectionRepository.markScanned(collection.id(), "SKIPPED", message);
-                return new ScanSummary(runId, collection.id(), "SKIPPED", parsed, created, updated, missing,
+                return new ScanSummary(runId, collection.id(), "SKIPPED", seenArtistIds.size(), parsed, created,
+                        updated, missing,
                         skipped, messages);
             }
 
             missing = albumRepository.removeUnseenLocalPaths(collection.id(), seenPaths);
-            artistRepository.replaceLocalArtistsForCollection(collection.id(), seenLocalArtistIds);
+            artistRepository.replaceLocalArtistsForCollection(collection.id(), seenArtistIds);
             artistRepository.clearLocalScanErrorsForCollection(collection.id());
 
-            String message = "Scanned " + collection.name() + ": " + parsed + " local items, " + created
+            String message = "Scanned " + collection.name() + ": "
+                    + countWithLabel(seenArtistIds.size(), "artist", "artists")
+                    + ", " + countWithLabel(parsed, "album", "albums") + " parsed, " + created
                     + " created, " + existing + " existing, " + missing + " local paths removed, " + skipped
                     + " skipped.";
             messages.add(message);
+            report.artistCount(seenArtistIds.size());
             report.finish("DONE", parsed, created, existing, missing, skipped, message);
             scanRunRepository.event(runId, "INFO", message);
             if (skipped > skippedExamples) {
@@ -298,12 +307,14 @@ public class ScanService {
             finishRun(runId, "DONE", parsed, created, updated, missing, skipped, message, report);
             collectionRepository.markScanned(collection.id(), "DONE", message);
             LOG.info(message);
-            return new ScanSummary(runId, collection.id(), "DONE", parsed, created, updated, missing, skipped, messages);
+            return new ScanSummary(runId, collection.id(), "DONE", seenArtistIds.size(), parsed, created, updated,
+                    missing, skipped, messages);
         } catch (Exception e) {
             String message = "Scan failed for " + collection.name() + ": " + e.getMessage();
             messages.add(message);
             if (report != null) {
                 report.warning(message);
+                report.artistCount(seenArtistIds.size());
                 report.finish("FAILED", parsed, created, existing, missing, skipped, message);
             }
             scanRunRepository.event(runId, "ERROR", message);
@@ -333,6 +344,7 @@ public class ScanService {
         int missing = 0;
         int skipped = 0;
         int skippedExamples = 0;
+        Set<Long> seenLocalArtistIds = new HashSet<>();
         ScanReport report = null;
 
         try {
@@ -349,7 +361,8 @@ public class ScanService {
                 report.finish("SKIPPED", parsed, created, existing, missing, skipped + 1, message);
                 scanRunRepository.event(runId, "WARN", message);
                 finishRun(runId, "SKIPPED", parsed, created, existing, missing, skipped + 1, message, report);
-                return new ScanSummary(runId, collection.id(), "SKIPPED", parsed, created, existing, missing,
+                return new ScanSummary(runId, collection.id(), "SKIPPED", seenLocalArtistIds.size(), parsed, created,
+                        existing, missing,
                         skipped + 1, messages);
             }
 
@@ -370,16 +383,17 @@ public class ScanService {
             progress.collectionStarted(collection.id(), folders.size());
 
             Set<String> seenPaths = new HashSet<>();
-            Set<Long> seenLocalArtistIds = new HashSet<>();
             int processedFolders = 0;
             for (Path folder : folders) {
                 if (progress.isCancelled()) {
                     String message = "Local album scan cancelled for " + collection.name() + ".";
                     messages.add(message);
+                    report.artistCount(seenLocalArtistIds.size());
                     report.finish("SKIPPED", parsed, created, existing, missing, skipped, message);
                     scanRunRepository.event(runId, "INFO", message);
                     finishRun(runId, "SKIPPED", parsed, created, existing, missing, skipped, message, report);
-                    return new ScanSummary(runId, collection.id(), "SKIPPED", parsed, created, existing, missing,
+                    return new ScanSummary(runId, collection.id(), "SKIPPED", seenLocalArtistIds.size(), parsed,
+                            created, existing, missing,
                             skipped, messages);
                 }
 
@@ -451,14 +465,9 @@ public class ScanService {
                                 }
                             }
                             if (nestedArtist.get().albums().isEmpty()) {
-                                parsed++;
-                                if (artistResult.created()) {
-                                    created++;
-                                    report.created("Artist: " + parsedArtistName + " | folder: " + folder.getFileName());
-                                } else {
-                                    existing++;
-                                    report.existing("Artist: " + parsedArtistName + " | folder: " + folder.getFileName());
-                                }
+                                report.note((artistResult.created() ? "Created" : "Existing")
+                                        + " artist without parsed albums: " + parsedArtistName
+                                        + " | folder: " + folder.getFileName());
                             }
                             for (LocalAlbumCandidate candidate : nestedArtist.get().albums()) {
                                 seenPaths.add(candidate.relativePath());
@@ -498,10 +507,13 @@ public class ScanService {
                 artistRepository.clearLocalScanError(artistId, collection.id());
             }
             String scope = selectedArtistName == null ? collection.name() : selectedArtistName;
-            String message = "Local album scan complete for " + scope + ": " + parsed + " albums, " + created
+            String message = "Local album scan complete for " + scope + ": "
+                    + countWithLabel(seenLocalArtistIds.size(), "artist", "artists")
+                    + ", " + countWithLabel(parsed, "album", "albums") + ", " + created
                     + " new, " + existing + " existing, " + missing + " local paths removed, " + skipped
                     + " skipped.";
             messages.add(message);
+            report.artistCount(seenLocalArtistIds.size());
             report.finish("DONE", parsed, created, existing, missing, skipped, message);
             scanRunRepository.event(runId, "INFO", message);
             if (skipped > skippedExamples) {
@@ -510,7 +522,8 @@ public class ScanService {
             }
             finishRun(runId, "DONE", parsed, created, existing, missing, skipped, message, report);
             LOG.info(message);
-            return new ScanSummary(runId, collection.id(), "DONE", parsed, created, existing, missing, skipped, messages);
+            return new ScanSummary(runId, collection.id(), "DONE", seenLocalArtistIds.size(), parsed, created,
+                    existing, missing, skipped, messages);
         } catch (Exception e) {
             String message = "Local album scan failed for " + collection.name() + ": " + e.getMessage();
             if (artistId != null) {
@@ -519,6 +532,7 @@ public class ScanService {
             messages.add(message);
             if (report != null) {
                 report.warning(message);
+                report.artistCount(seenLocalArtistIds.size());
                 report.finish("FAILED", parsed, created, existing, missing, skipped, message);
             }
             scanRunRepository.event(runId, "ERROR", message);
@@ -621,6 +635,10 @@ public class ScanService {
 
     private static String blankValue(String value) {
         return value == null || value.isBlank() ? "<blank>" : value;
+    }
+
+    private static String countWithLabel(int count, String singular, String plural) {
+        return count + " " + (count == 1 ? singular : plural);
     }
 
     private record LocalAlbumCandidate(

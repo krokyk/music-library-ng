@@ -46,14 +46,14 @@ public class ArtistProviderRefreshService {
         try {
             ProviderRefreshResult result = importMusicBrainz(runId, link);
             runs.finish(runId, "DONE", 1, result.foundReleaseGroupCount(), result.createdAlbumCount(),
-                    result.existingAlbumCount(), 0, result.messages().get(result.messages().size() - 1));
+                    result.existingAlbumCount(), 0, 0, result.messages().get(result.messages().size() - 1));
             providerLinks.markSuccess(link.id());
             return result;
         } catch (Exception e) {
             String errorDetail = ProviderException.describe(e);
             String message = "MusicBrainz refresh failed for " + link.artistName() + ": " + errorDetail;
             runs.event(runId, link.artistId(), link.id(), "ERROR", message);
-            runs.finish(runId, "FAILED", 1, 0, 0, 0, 1, message);
+            runs.finish(runId, "FAILED", 1, 0, 0, 0, 0, 1, message);
             providerLinks.markError(link.id(), errorDetail);
             LOG.error(message, e);
             if (e instanceof ProviderException providerException) {

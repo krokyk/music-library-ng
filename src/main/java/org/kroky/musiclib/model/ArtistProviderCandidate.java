@@ -13,5 +13,6 @@ public record ArtistProviderCandidate(
         int providerScore,
         int matchScore,
         List<String> matchedLocalAlbums,
-        List<RemoteReleaseGroup> releaseGroups) {
+        List<RemoteReleaseGroup> releaseGroups,
+        List<ArtistProviderCandidateAlbum> albums) {
 }

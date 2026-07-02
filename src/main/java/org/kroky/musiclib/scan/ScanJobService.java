@@ -7,6 +7,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.kroky.musiclib.model.CollectionType;
 import org.kroky.musiclib.model.ScanJobStatus;
 import org.kroky.musiclib.model.ScanSummary;
 import org.kroky.musiclib.repository.ArtistRepository;
@@ -120,19 +121,51 @@ public class ScanJobService {
                 : List.of(scanService.scan(job.requestedCollectionId, progress));
     }
 
-    private static String summarize(ScanJob job, List<ScanSummary> summaries) {
+    private String summarize(ScanJob job, List<ScanSummary> summaries) {
+        int artists = summaries.stream().mapToInt(ScanSummary::artistCount).sum();
         int parsed = summaries.stream().mapToInt(ScanSummary::parsedCount).sum();
         int created = summaries.stream().mapToInt(ScanSummary::createdCount).sum();
         int updated = summaries.stream().mapToInt(ScanSummary::updatedCount).sum();
         int skipped = summaries.stream().mapToInt(ScanSummary::skippedCount).sum();
         int missing = summaries.stream().mapToInt(ScanSummary::missingCount).sum();
         String collectionName = job.collectionLabel();
+        String artistText = countWithLabel(artists, "artist", "artists");
+        String parsedText = countWithLabel(parsed, parsedItemSingular(job), parsedItemPlural(job));
         if ("LOCAL_ALBUMS".equals(job.kind)) {
-            return collectionName + " local album scan complete: " + parsed + " albums, " + created + " new, "
+            return collectionName + " local album scan complete: " + artistText + ", " + parsedText + ", "
+                    + created + " new, "
                     + updated + " existing, " + missing + " local paths removed, " + skipped + " skipped.";
         }
-        return collectionName + " scan complete: " + parsed + " parsed, " + created + " created, "
-                + updated + " updated, " + skipped + " skipped.";
+        return collectionName + " scan complete: " + artistText + ", " + parsedText + " parsed, " + created
+                + " created, " + updated + " updated, " + skipped + " skipped.";
+    }
+
+    private String parsedItemSingular(ScanJob job) {
+        if ("LOCAL_ALBUMS".equals(job.kind)) {
+            return "album";
+        }
+        if (job.requestedCollectionId == null) {
+            return "item";
+        }
+        return collectionRepository.find(job.requestedCollectionId)
+                .map(collection -> collection.type() == CollectionType.TITLE ? "title" : "album")
+                .orElse("item");
+    }
+
+    private String parsedItemPlural(ScanJob job) {
+        if ("LOCAL_ALBUMS".equals(job.kind)) {
+            return "albums";
+        }
+        if (job.requestedCollectionId == null) {
+            return "items";
+        }
+        return collectionRepository.find(job.requestedCollectionId)
+                .map(collection -> collection.type() == CollectionType.TITLE ? "titles" : "albums")
+                .orElse("items");
+    }
+
+    private static String countWithLabel(int count, String singular, String plural) {
+        return count + " " + (count == 1 ? singular : plural);
     }
 
     private String collectionName(String collectionId) {
@@ -159,7 +192,7 @@ public class ScanJobService {
 
     private static ScanJobStatus idleStatus() {
         return new ScanJobStatus("", "IDLE", "COLLECTION", null, null, null, null, null, null, null, null, 0, 0, 0,
-                0, 0, false,
+                0, 0, 0, false,
                 null,
                 List.of());
     }
@@ -179,6 +212,7 @@ public class ScanJobService {
         private String activeArtistName;
         private int itemTotal;
         private int itemProcessed;
+        private int artistCount;
         private int parsedCount;
         private int createdCount;
         private int skippedCount;
@@ -234,6 +268,7 @@ public class ScanJobService {
         }
 
         synchronized void finish(String status, String message, List<ScanSummary> summaries) {
+            this.artistCount = summaries.stream().mapToInt(ScanSummary::artistCount).sum();
             this.parsedCount = summaries.stream().mapToInt(ScanSummary::parsedCount).sum();
             this.createdCount = summaries.stream().mapToInt(ScanSummary::createdCount).sum();
             this.skippedCount = summaries.stream().mapToInt(ScanSummary::skippedCount).sum();
@@ -256,6 +291,7 @@ public class ScanJobService {
                     activeArtistName,
                     itemTotal,
                     itemProcessed,
+                    artistCount,
                     parsedCount,
                     createdCount,
                     skippedCount,

@@ -109,9 +109,9 @@ public class ProviderCheckJobService {
 
                 @Override
                 public void itemFinished(ArtistProviderLink link, int itemProcessed, int skippedArtists,
-                        int foundAlbums, int newAlbums, int existingAlbums, int errors) {
+                        int foundAlbums, int newAlbums, int existingAlbums, int releaseDateConflicts, int errors) {
                     job.itemFinished(link.artistId(), itemProcessed, skippedArtists, foundAlbums, newAlbums,
-                            existingAlbums, errors);
+                            existingAlbums, releaseDateConflicts, errors);
                 }
 
                 @Override
@@ -155,6 +155,9 @@ public class ProviderCheckJobService {
         return subject + " complete: " + summary.processedArtistCount() + " checked"
                 + (summary.skippedArtistCount() > 0 ? ", " + summary.skippedArtistCount() + " skipped" : "")
                 + ", " + summary.newAlbumCount() + " new albums"
+                + (summary.releaseDateConflictCount() > 0
+                        ? ", " + summary.releaseDateConflictCount() + " release date conflicts"
+                        : "")
                 + (summary.errorCount() > 0 ? ", " + summary.errorCount() + " errors" : "")
                 + ".";
     }
@@ -183,7 +186,7 @@ public class ProviderCheckJobService {
 
     private static ProviderCheckJobStatus idleStatus() {
         return new ProviderCheckJobStatus("", "IDLE", PROVIDER_COLLECTION, null, null, null, null, null, null, 0, 0,
-                0, 0, 0, 0, 0, false, null, List.of(), List.of());
+                0, 0, 0, 0, 0, 0, false, null, List.of(), List.of());
     }
 
     private class ProviderCheckJob {
@@ -203,6 +206,7 @@ public class ProviderCheckJobService {
         private int foundAlbumCount;
         private int newAlbumCount;
         private int existingAlbumCount;
+        private int releaseDateConflictCount;
         private int errorCount;
         private String message;
         private final LinkedHashSet<Long> artistIds = new LinkedHashSet<>();
@@ -251,13 +255,14 @@ public class ProviderCheckJobService {
         }
 
         synchronized void itemFinished(Long artistId, int itemProcessed, int skippedArtists, int foundAlbums,
-                int newAlbums, int existingAlbums, int errors) {
+                int newAlbums, int existingAlbums, int releaseDateConflicts, int errors) {
             addArtistId(artistId);
             this.itemProcessed = itemProcessed;
             this.skippedArtistCount = skippedArtists;
             this.foundAlbumCount = foundAlbums;
             this.newAlbumCount = newAlbums;
             this.existingAlbumCount = existingAlbums;
+            this.releaseDateConflictCount = releaseDateConflicts;
             this.errorCount = errors;
             this.message = runningMessage();
         }
@@ -280,6 +285,7 @@ public class ProviderCheckJobService {
             this.foundAlbumCount = summary.foundAlbumCount();
             this.newAlbumCount = summary.newAlbumCount();
             this.existingAlbumCount = summary.existingAlbumCount();
+            this.releaseDateConflictCount = summary.releaseDateConflictCount();
             this.errorCount = summary.errorCount();
             this.runIds = List.of(summary.runId());
             finish(status, message);
@@ -302,6 +308,7 @@ public class ProviderCheckJobService {
                     foundAlbumCount,
                     newAlbumCount,
                     existingAlbumCount,
+                    releaseDateConflictCount,
                     errorCount,
                     cancelRequested.get(),
                     message,

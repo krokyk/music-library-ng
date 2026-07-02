@@ -37,6 +37,20 @@ export interface AlbumLocalPath {
   lastSeenAt: string
 }
 
+export interface AlbumProviderLink {
+  id: number
+  albumId: number
+  providerId: string
+  providerReleaseGroupId: string
+  providerTitle: string
+  providerReleaseDate?: string | null
+  providerUrl?: string | null
+  releaseDateResolution?: string | null
+  releaseDateConflict: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export interface AlbumCollection {
   id: string
   name: string
@@ -55,6 +69,7 @@ export interface Album {
   hasLocalPath: boolean
   onDisk: boolean
   localPaths: AlbumLocalPath[]
+  providerLinks: AlbumProviderLink[]
   notes?: string | null
   createdAt: string
   updatedAt: string
@@ -134,6 +149,7 @@ export interface ScanJobStatus {
   activeArtistName?: string | null
   itemTotal: number
   itemProcessed: number
+  artistCount: number
   parsedCount: number
   createdCount: number
   skippedCount: number
@@ -266,6 +282,16 @@ export interface RemoteReleaseGroup {
   providerUrl?: string | null
 }
 
+export interface ArtistProviderCandidateAlbum {
+  title: string
+  providerReleaseDate?: string | null
+  providerUrl?: string | null
+  localAlbumId?: number | null
+  localReleaseDate?: string | null
+  localOnDisk: boolean
+  releaseDateConflict: boolean
+}
+
 export interface ArtistProviderCandidate {
   providerId: string
   providerArtistId: string
@@ -278,6 +304,7 @@ export interface ArtistProviderCandidate {
   matchScore: number
   matchedLocalAlbums: string[]
   releaseGroups: RemoteReleaseGroup[]
+  albums: ArtistProviderCandidateAlbum[]
 }
 
 export type ArtistProviderBulkMatchStatus =
@@ -328,6 +355,7 @@ export interface ProviderCheckSummary {
   foundAlbumCount: number
   newAlbumCount: number
   existingAlbumCount: number
+  releaseDateConflictCount: number
   errorCount: number
   messages: string[]
 }
@@ -348,6 +376,7 @@ export interface ProviderCheckJobStatus {
   foundAlbumCount: number
   newAlbumCount: number
   existingAlbumCount: number
+  releaseDateConflictCount: number
   errorCount: number
   cancelRequested: boolean
   message?: string | null
@@ -366,6 +395,79 @@ export interface ProviderCheckRun {
   foundAlbumCount: number
   newAlbumCount: number
   existingAlbumCount: number
+  releaseDateConflictCount: number
   errorCount: number
   message?: string | null
+}
+
+export interface ProviderReleaseDateConflictSource {
+  providerLinkId: number
+  providerId: string
+  providerTitle: string
+  providerReleaseDate?: string | null
+  providerUrl?: string | null
+}
+
+export interface ProviderReleaseDateConflict {
+  albumId: number
+  providerLinkId: number
+  artistId: number
+  artistName: string
+  albumTitle: string
+  localReleaseDate?: string | null
+  providerTitle: string
+  providerReleaseDate?: string | null
+  providerId: string
+  providerUrl?: string | null
+  localRelativePath?: string | null
+  sources: ProviderReleaseDateConflictSource[]
+}
+
+export interface AudioTagFilePlan {
+  relativePath: string
+  status: string
+  message: string
+}
+
+export interface AlbumReleaseDateConflictFolderPlan {
+  localPathId: number
+  collectionId: string
+  collectionName: string
+  sourcePath: string
+  targetPath: string
+  sourceRelativePath: string
+  targetRelativePath: string
+  audioFileCount: number
+  unsupportedFileCount: number
+  files: AudioTagFilePlan[]
+}
+
+export interface AlbumReleaseDateConflictPlan {
+  albumId: number
+  providerLinkId: number
+  albumTitle: string
+  localReleaseDate?: string | null
+  providerTitle: string
+  providerReleaseDate?: string | null
+  sourcePath: string
+  targetPath: string
+  sourceRelativePath: string
+  targetRelativePath: string
+  folderCount: number
+  audioFileCount: number
+  unsupportedFileCount: number
+  folders: AlbumReleaseDateConflictFolderPlan[]
+  files: AudioTagFilePlan[]
+  warnings: string[]
+}
+
+export interface AlbumReleaseDateConflictResult {
+  album: Album
+  sourcePath: string
+  targetPath: string
+  folderCount: number
+  duplicateAlbumsMerged: number
+  tagFilesUpdated: number
+  files: AudioTagFilePlan[]
+  warnings: string[]
 }

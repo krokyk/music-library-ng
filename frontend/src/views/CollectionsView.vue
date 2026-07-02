@@ -2,9 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
+import ProviderMatchDialog from '@/components/ProviderMatchDialog.vue'
 import { countryName } from '@/countries'
 import { formatDateWithJavaPattern } from '@/dateFormat'
-import { providerDefinition, providerDefinitions, validateProviderUrl, type ProviderId } from '@/providers'
+import { providerDefinition, validateProviderUrl, type ProviderId } from '@/providers'
 import type { Album, Artist, ArtistProviderCandidate, CollectionFolderCandidate, MusicCollection } from '@/types'
 import type { CSSProperties } from 'vue'
 
@@ -559,15 +560,6 @@ function providerChipText(artist: Artist) {
   return provider ? providerDefinition(provider.providerId).label : 'Add provider'
 }
 
-function providerCandidateSubtitle(candidate: ArtistProviderCandidate) {
-  const status = candidate.active === null || candidate.active === undefined
-    ? null
-    : candidate.active ? 'Active' : 'Split-up'
-  return [candidate.country ? countryName(candidate.country) : null, status, candidate.disambiguation]
-    .filter(Boolean)
-    .join(' · ')
-}
-
 function providerChipClasses(artist: Artist) {
   const provider = providerForArtist(artist)
   if (!provider) {
@@ -587,15 +579,6 @@ function providerChipClasses(artist: Artist) {
 function providerChipIconSrc(artist: Artist) {
   const provider = providerForArtist(artist)
   return provider ? providerDefinition(provider.providerId).iconSrc : ''
-}
-
-function providerSetupChipClasses(providerId: ProviderId) {
-  return [
-    'artists-provider-chip',
-    'provider-action-chip',
-    providerDefinition(providerId).chipClass,
-    { 'provider-action-chip--selected': providerSetupProviderId.value === providerId },
-  ]
 }
 
 function showArtistProviderLabel(artist: Artist) {
@@ -2476,6 +2459,12 @@ async function saveUrlProvider() {
   }
 }
 
+function openExternal(url?: string | null) {
+  if (url) {
+    window.open(url, '_blank', 'noopener')
+  }
+}
+
 async function clearArtistProvider(artist: Artist) {
   selectArtistRow(artist)
   if (writeActionsDisabled.value) {
@@ -2943,10 +2932,7 @@ watch(sortedCollectionTitleItems, (items) => {
               'is-scanning': collectionIsScanning(collection),
             }"
             :style="{ '--scan-progress': `${scanProgress(collection)}%` }"
-            role="button"
-            tabindex="0"
             @click.capture="selectCollection(collection)"
-            @keydown.enter="selectCollection(collection)"
             @focusin="focusedCollectionId = collection.id"
             @focusout="handleCollectionRowFocusOut(collection, $event)"
             @mouseenter="hoveredCollectionId = collection.id"
@@ -3075,7 +3061,6 @@ watch(sortedCollectionTitleItems, (items) => {
                   label="Name"
                   :disabled="writeActionsDisabled"
                   hide-details="auto"
-                  @keydown.enter.stop="saveOpenCollectionEdit"
                 ></v-text-field>
               </v-col>
             </v-row>
@@ -3890,91 +3875,23 @@ watch(sortedCollectionTitleItems, (items) => {
       </template>
     </div>
 
-    <v-dialog v-model="providerSetupDialog" max-width="760">
-      <v-card class="dialog-card">
-        <v-card-title>Add Provider</v-card-title>
-        <v-card-text class="edit-form">
-          <div class="cell-muted">{{ providerSetupArtist?.name }}</div>
-          <div class="provider-chip-selector">
-            <v-chip
-              v-for="provider in providerDefinitions"
-              :key="provider.id"
-              size="small"
-              variant="flat"
-              :class="providerSetupChipClasses(provider.id)"
-              :disabled="writeActionsDisabled || providerSetupSaving || providerSetupMatching"
-              @click="selectProviderSetupProvider(provider.id)"
-            >
-              <v-progress-circular
-                v-if="providerSetupMatching && provider.id === providerSetupProviderId"
-                indeterminate
-                size="14"
-                width="2"
-                class="provider-action-chip__spinner"
-              ></v-progress-circular>
-              <img
-                v-else-if="provider.iconSrc"
-                class="artists-provider-chip__icon"
-                :src="provider.iconSrc"
-                alt=""
-                aria-hidden="true"
-              >
-              <span class="artists-provider-chip__text">{{ provider.label }}</span>
-            </v-chip>
-          </div>
-
-          <div class="provider-setup-section">
-            <v-progress-linear v-if="providerSetupMatching" indeterminate color="primary"></v-progress-linear>
-            <div v-if="!providerSetupMatching && providerCandidates.length === 0" class="cell-muted">
-              No candidates loaded.
-            </div>
-            <v-list v-if="!providerSetupMatching && providerCandidates.length > 0" density="compact" class="provider-list">
-              <v-list-item v-for="candidate in providerCandidates" :key="candidate.providerArtistId">
-                <v-list-item-title>
-                  <span class="cell-strong">{{ candidate.providerArtistName }}</span>
-                  <v-chip size="x-small" color="primary" variant="tonal" class="ml-2">{{ candidate.matchScore }}</v-chip>
-                </v-list-item-title>
-                <v-list-item-subtitle>
-                  {{ providerCandidateSubtitle(candidate) }}
-                </v-list-item-subtitle>
-                <div class="mono-path">{{ candidate.providerArtistId }}</div>
-                <template #append>
-                  <v-btn size="small" color="primary" :loading="providerSetupSaving" :disabled="writeActionsDisabled" @click="useProviderCandidate(candidate)">
-                    Use
-                  </v-btn>
-                </template>
-              </v-list-item>
-            </v-list>
-          </div>
-
-          <div v-if="providerSetupProviderId !== 'musicbrainz'" class="provider-setup-section">
-            <v-text-field
-              v-model="providerSetupUrl"
-              :label="`${providerSetupDefinition.label} URL`"
-              prepend-inner-icon="mdi-link-variant"
-              autofocus
-              :disabled="writeActionsDisabled || providerSetupSaving"
-              :error-messages="providerSetupUrlValidation ? [providerSetupUrlValidation] : []"
-              hide-details="auto"
-              @keyup.enter="saveUrlProvider"
-            ></v-text-field>
-          </div>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer></v-spacer>
-          <v-btn variant="text" @click="closeProviderSetup">Cancel</v-btn>
-          <v-btn
-            v-if="providerSetupProviderId !== 'musicbrainz'"
-            color="primary"
-            :loading="providerSetupSaving"
-            :disabled="writeActionsDisabled || !providerSetupUrl.trim() || Boolean(providerSetupUrlValidation)"
-            @click="saveUrlProvider"
-          >
-            Save
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <ProviderMatchDialog
+      v-model="providerSetupDialog"
+      v-model:provider-id="providerSetupProviderId"
+      v-model:url="providerSetupUrl"
+      :candidates="providerCandidates"
+      :loading="providerSetupMatching"
+      :saving="providerSetupSaving"
+      :disabled="writeActionsDisabled"
+      :show-url="providerSetupProviderId !== 'musicbrainz'"
+      :url-validation="providerSetupUrlValidation"
+      empty-text="No candidates loaded."
+      @select-provider="selectProviderSetupProvider"
+      @use-candidate="useProviderCandidate"
+      @save-url="saveUrlProvider"
+      @open-external="openExternal"
+      @close="closeProviderSetup"
+    />
 
     <v-dialog v-model="titleItemDialog" max-width="640">
       <v-card class="dialog-card">
@@ -4034,7 +3951,6 @@ watch(sortedCollectionTitleItems, (items) => {
             density="compact"
             autofocus
             :disabled="writeActionsDisabled"
-            @keydown.enter.prevent="saveAlbumTitle"
           ></v-text-field>
         </v-card-text>
         <v-card-actions>

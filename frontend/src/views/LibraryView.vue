@@ -161,7 +161,6 @@ onMounted(() => store.loadAll())
             label="Artist"
             :disabled="writeActionsDisabled"
             hide-details
-            @keyup.enter="addArtist"
           ></v-text-field>
           <v-btn
             block

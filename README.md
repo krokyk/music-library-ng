@@ -182,11 +182,17 @@ Artist-centric collection scans discover local artists and local albums in the s
 Title-centric collection scans discover title rows, contributor artists, shared albums, and local paths in the same pass.
 Local album scans remain explicit rescan actions for one artist or a whole artist-centric collection.
 Provider scans from Collections add new or otherwise unassigned provider albums to the active collection and leave existing album memberships unchanged.
+Provider scans link same-title local albums with mismatched years to provider releases as unresolved release-date conflicts instead of adding duplicate unchecked albums.
+Unresolved release-date conflicts are shown after provider scans and remain indicated in the Artists view until resolved.
+Release-date conflicts from multiple providers are grouped by local album and provider year.
+Keeping the local year preserves the local folder metadata while preventing future provider scans from adding the grouped provider albums again.
+Kept-local year decisions can be reset from the Artists detail year chip so the mismatch becomes unresolved again.
+Using the provider year renames every on-disk local folder for the album, updates the database local paths and release date, resolves grouped provider links, merges provider-only duplicates, and updates supported audio file year tags.
 Local album scans and provider scans run in background jobs so the workspace remains navigable while status updates continue.
 Scan buttons and write actions such as add, edit, delete, and provider-link changes are disabled while a local or provider scan is running.
 Batch provider scans skip provider links checked within the configured batch rescan delay, while individual artist provider scans always run.
 The Artists view can bulk-match visible unlinked artists against MusicBrainz, Spirit of Metal, or Metal Archives after search and collection filters are applied.
-Provider candidate dialogs use provider chips, and ambiguous provider search results remain manual choices.
+Provider candidate dialogs are shared between Collections and Artists, use provider chips, show local album evidence on album chips, and keep ambiguous provider search results as manual choices.
 
 Artist-centric album folder shapes:
 

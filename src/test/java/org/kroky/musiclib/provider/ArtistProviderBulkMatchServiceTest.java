@@ -55,6 +55,7 @@ class ArtistProviderBulkMatchServiceTest {
                 providerScore,
                 matchScore,
                 matchedLocalAlbums,
+                List.of(),
                 List.of());
     }
 }

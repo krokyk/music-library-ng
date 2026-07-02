@@ -25,6 +25,7 @@ class ScanReport {
     private String status;
     private int totalDirs;
     private int scannedDirs;
+    private int artistCount;
     private int parsedCount;
     private int createdCount;
     private int existingCount;
@@ -45,6 +46,10 @@ class ScanReport {
 
     void scannedDirs(int scannedDirs) {
         this.scannedDirs = scannedDirs;
+    }
+
+    void artistCount(int artistCount) {
+        this.artistCount = artistCount;
     }
 
     void created(String item) {
@@ -117,6 +122,10 @@ class ScanReport {
 
     int scannedDirs() {
         return scannedDirs;
+    }
+
+    int artistCount() {
+        return artistCount;
     }
 
     int parsedCount() {

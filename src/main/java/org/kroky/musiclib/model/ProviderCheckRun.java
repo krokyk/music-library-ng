@@ -11,6 +11,7 @@ public record ProviderCheckRun(
         int foundAlbumCount,
         int newAlbumCount,
         int existingAlbumCount,
+        int releaseDateConflictCount,
         int errorCount,
         String message) {
 }

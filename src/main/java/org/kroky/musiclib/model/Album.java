@@ -15,6 +15,7 @@ public record Album(
         boolean hasLocalPath,
         boolean onDisk,
         List<AlbumLocalPath> localPaths,
+        List<AlbumProviderLink> providerLinks,
         String notes,
         String createdAt,
         String updatedAt) {

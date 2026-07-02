@@ -2,9 +2,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
+import ProviderMatchDialog from '@/components/ProviderMatchDialog.vue'
 import { countryFlagSrc, countryName, countryOptions, normalizeCountryCode } from '@/countries'
 import { providerDefinition, providerDefinitions, type ProviderId } from '@/providers'
 import type {
+  Album,
   Artist,
   ArtistProviderBulkMatchItem,
   ArtistProviderBulkMatchResult,
@@ -19,7 +21,18 @@ type ArtistScreenColumnKey = 'name' | 'country' | 'status' | 'albums' | 'uncheck
 type ArtistsPaneKey = 'artists' | 'details'
 
 const store = useLibraryStore()
-const { artists, albums, collections, providerJob, providerLinks, providerStatus, scanJob, uiSettings, loading } = storeToRefs(store)
+const {
+  artists,
+  albums,
+  collections,
+  providerJob,
+  providerLinks,
+  providerReleaseDateConflicts,
+  providerStatus,
+  scanJob,
+  uiSettings,
+  loading,
+} = storeToRefs(store)
 
 const artistSearchText = ref('')
 const appliedArtistSearch = ref('')
@@ -40,6 +53,7 @@ const matchingArtistId = ref<number | null>(null)
 const bulkMatchLoadingProviderId = ref<ProviderId | null>(null)
 const bulkMatchDialog = ref(false)
 const bulkMatchResult = ref<ArtistProviderBulkMatchResult | null>(null)
+const resettingKeepLocalReleaseDateKey = ref('')
 const collectionFilterMenu = ref(false)
 const artistCollectionFilterIds = ref<string[]>([])
 const artistsScreenElement = ref<HTMLElement | null>(null)
@@ -233,6 +247,9 @@ const selectedAlbums = computed(() => {
       || left.title.localeCompare(right.title),
     )
 })
+const providerReleaseDateConflictArtistIds = computed(() =>
+  new Set(providerReleaseDateConflicts.value.map((conflict) => conflict.artistId)),
+)
 function compareArtistRows(left: Artist, right: Artist) {
   const leftValue = artistSortValue(left, artistSort.key)
   const rightValue = artistSortValue(right, artistSort.key)
@@ -432,6 +449,142 @@ function releaseDateYearLabel(releaseDate: string | null | undefined) {
     return releaseDate.slice(0, 4)
   }
   return ''
+}
+
+function releaseDateYearsDiffer(localReleaseDate: string | null | undefined, providerReleaseDate: string | null | undefined) {
+  const localYear = releaseDateYearLabel(localReleaseDate)
+  const providerYear = releaseDateYearLabel(providerReleaseDate)
+  return localYear !== '' && providerYear !== '' && localYear !== providerYear
+}
+
+function artistHasReleaseDateConflict(artist: Artist) {
+  return providerReleaseDateConflictArtistIds.value.has(artist.id)
+}
+
+function albumReleaseDateConflictLinks(album: Album) {
+  return album.providerLinks.filter((link) => link.releaseDateConflict)
+}
+
+function albumHasReleaseDateConflict(album: Album) {
+  return albumReleaseDateConflictLinks(album).length > 0
+}
+
+function albumKeptLocalReleaseDateLink(album: Album) {
+  return album.providerLinks.find((link) => (
+    link.releaseDateResolution === 'KEEP_LOCAL'
+    && releaseDateYearsDiffer(album.releaseDate, link.providerReleaseDate)
+  )) ?? null
+}
+
+function albumKeptLocalReleaseDateLinks(album: Album) {
+  return album.providerLinks.filter((link) => (
+    link.releaseDateResolution === 'KEEP_LOCAL'
+    && releaseDateYearsDiffer(album.releaseDate, link.providerReleaseDate)
+  ))
+}
+
+function albumReleaseDateChipClasses(album: Album) {
+  const hasConflict = albumHasReleaseDateConflict(album)
+  return {
+    'release-date-chip--warning': hasConflict,
+    'release-date-chip--action': hasConflict,
+    'release-date-chip--kept-local': !hasConflict && albumKeptLocalReleaseDateLinks(album).length > 0,
+  }
+}
+
+function albumReleaseDateConflictTooltip(album: Album) {
+  const links = albumReleaseDateConflictLinks(album)
+  if (links.length === 0) {
+    return ''
+  }
+  const localYear = releaseDateYearLabel(album.releaseDate) || 'unknown'
+  return `Local year ${localYear} conflicts with provider ${providerYearSourceSummary(links)}.`
+}
+
+function albumHasKeptLocalReleaseDate(album: Album) {
+  return albumKeptLocalReleaseDateLinks(album).length > 0
+}
+
+function keptLocalReleaseDateTooltip(album: Album) {
+  const links = albumKeptLocalReleaseDateLinks(album)
+  if (links.length === 0) {
+    return ''
+  }
+  const localYear = releaseDateYearLabel(album.releaseDate) || 'unknown'
+  return `Local year ${localYear} was kept instead of provider ${providerYearSourceSummary(links)}. Click to reset this decision and show the conflict again.`
+}
+
+function providerYearSourceSummary(links: Album['providerLinks']) {
+  const groups = new Map<string, string[]>()
+  links.forEach((link) => {
+    const providerYear = releaseDateYearLabel(link.providerReleaseDate) || 'unknown year'
+    const label = providerDefinition(link.providerId).label
+    const labels = groups.get(providerYear) ?? []
+    if (!labels.includes(label)) {
+      labels.push(label)
+    }
+    groups.set(providerYear, labels)
+  })
+  const summaries = [...groups.entries()].map(([year, labels]) => (
+    `${year} from ${providerListSummary(labels)}`
+  ))
+  return summaries.length === 1 ? `year ${summaries[0]}` : `years ${summaries.join('; ')}`
+}
+
+function providerListSummary(labels: string[]) {
+  const visible = labels.slice(0, 2).join(', ')
+  const hidden = labels.length - 2
+  return hidden > 0 ? `${visible} (+${hidden} more)` : visible
+}
+
+function openAlbumReleaseDateConflict(album: Album, event?: MouseEvent | KeyboardEvent) {
+  if (!albumHasReleaseDateConflict(album)) {
+    return
+  }
+  event?.preventDefault()
+  event?.stopPropagation()
+  const providerLinkId = albumReleaseDateConflictLinks(album)[0]?.id ?? null
+  store.requestProviderReleaseDateConflictDialog(album.id, providerLinkId)
+}
+
+function keptLocalReleaseDateKey(album: Album) {
+  const link = albumKeptLocalReleaseDateLink(album)
+  return link ? `${album.id}:${link.id}` : `${album.id}:none`
+}
+
+function isResettingKeptLocalReleaseDate(album: Album) {
+  return resettingKeepLocalReleaseDateKey.value === keptLocalReleaseDateKey(album)
+}
+
+async function resetKeptLocalReleaseDate(album: Album, event?: MouseEvent) {
+  event?.preventDefault()
+  event?.stopPropagation()
+  if (event?.currentTarget instanceof HTMLElement) {
+    event.currentTarget.blur()
+  }
+  const link = albumKeptLocalReleaseDateLink(album)
+  if (!link) {
+    return
+  }
+  const artistId = selectedArtist.value?.id ?? album.artistIds[0] ?? null
+  resettingKeepLocalReleaseDateKey.value = keptLocalReleaseDateKey(album)
+  try {
+    await store.resetKeepLocalReleaseDate(album.id, link.id, artistId)
+    store.showStatus(`Reset kept local year for ${album.title}.`, 'warning')
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to reset kept local release year')
+  } finally {
+    resettingKeepLocalReleaseDateKey.value = ''
+  }
+}
+
+function artistKnownAlbumPresenceClass(album: Album) {
+  const local = album.onDisk || album.hasLocalPath
+  return {
+    'album-presence-text--local': local,
+    'album-presence-text--nonlocal-checked': !local && album.checked,
+    'album-presence-text--nonlocal-unchecked': !local && !album.checked,
+  }
 }
 
 function artistsScreenColumnGridStyle() {
@@ -1223,11 +1376,6 @@ function statusChipColor(active: boolean | null | undefined) {
   return 'default'
 }
 
-function candidateInfo(candidate: ArtistProviderCandidate) {
-  const status = candidate.active === true ? 'Active' : candidate.active === false ? 'Split-up' : null
-  return [candidate.country ? countryName(candidate.country) : null, status, candidate.disambiguation].filter(Boolean).join(' · ')
-}
-
 function openExternal(url?: string | null) {
   if (url) {
     window.open(url, '_blank', 'noopener')
@@ -1573,6 +1721,21 @@ watch(selectedArtist, (artist) => {
                   width="2"
                   class="artist-cell__spinner"
                 ></v-progress-circular>
+                <v-tooltip
+                  v-if="artistHasReleaseDateConflict(artist)"
+                  text="Unresolved provider release date conflict"
+                  location="top"
+                >
+                  <template #activator="{ props }">
+                    <v-icon
+                      v-bind="props"
+                      icon="mdi-alert"
+                      size="16"
+                      color="warning"
+                      class="provider-conflict-triangle artist-release-conflict-icon"
+                    ></v-icon>
+                  </template>
+                </v-tooltip>
                 <v-tooltip :text="artist.name" location="top">
                   <template #activator="{ props }">
                     <span v-bind="props" class="cell-strong">{{ artist.name }}</span>
@@ -1798,7 +1961,24 @@ watch(selectedArtist, (artist) => {
         <div class="pane-header">
           <div class="pane-header__primary">
             <span class="pane-header__title">Artist Info</span>
-            <span v-if="selectedArtist" class="pane-header__meta">{{ selectedArtist.name }}</span>
+            <span v-if="selectedArtist" class="pane-header__meta artist-details-conflict-name">
+              <span>{{ selectedArtist.name }}</span>
+              <v-tooltip
+                v-if="artistHasReleaseDateConflict(selectedArtist)"
+                text="Unresolved provider release date conflict"
+                location="top"
+              >
+                <template #activator="{ props }">
+                  <v-icon
+                    v-bind="props"
+                    icon="mdi-alert"
+                    size="15"
+                    color="warning"
+                    class="provider-conflict-triangle artist-details-conflict-name__icon"
+                  ></v-icon>
+                </template>
+              </v-tooltip>
+            </span>
           </div>
         </div>
 
@@ -1814,7 +1994,6 @@ watch(selectedArtist, (artist) => {
                 variant="outlined"
                 hide-details="auto"
                 :disabled="writeActionsDisabled"
-                @keyup.enter="saveSelectedArtistDetails"
               ></v-text-field>
               <v-text-field
                 v-model="artistDetailsForm.sortName"
@@ -1823,7 +2002,6 @@ watch(selectedArtist, (artist) => {
                 variant="outlined"
                 hide-details="auto"
                 :disabled="writeActionsDisabled"
-                @keyup.enter="saveSelectedArtistDetails"
               ></v-text-field>
               <v-btn
                 size="small"
@@ -1976,12 +2154,65 @@ watch(selectedArtist, (artist) => {
             <div v-if="selectedAlbums.length === 0" class="cell-muted">No known albums.</div>
             <div v-else class="artist-known-albums">
               <div v-for="album in selectedAlbums" :key="album.id" class="artist-known-album">
-                <span class="artist-known-album__year" :class="{ 'cell-muted': !releaseDateYearLabel(album.releaseDate) }">
-                  {{ releaseDateYearLabel(album.releaseDate) || 'No date' }}
+                <span class="artist-known-album__year">
+                  <span v-if="releaseDateYearLabel(album.releaseDate)" class="release-date-chip-badge">
+                    <v-chip
+                      class="release-date-chip artist-known-album__year-chip"
+                      :class="albumReleaseDateChipClasses(album)"
+                      variant="tonal"
+                      @click="openAlbumReleaseDateConflict(album, $event)"
+                    >
+                      {{ releaseDateYearLabel(album.releaseDate) }}
+                    </v-chip>
+                    <v-tooltip
+                      v-if="albumHasReleaseDateConflict(album)"
+                      :text="albumReleaseDateConflictTooltip(album)"
+                      location="top"
+                      :open-on-click="false"
+                    >
+                      <template #activator="{ props }">
+                        <v-icon
+                          v-bind="props"
+                          icon="mdi-alert"
+                          size="13"
+                          color="warning"
+                          class="provider-conflict-triangle release-date-chip-badge__icon"
+                          @click.stop="openAlbumReleaseDateConflict(album, $event)"
+                        ></v-icon>
+                      </template>
+                    </v-tooltip>
+                    <v-tooltip
+                      v-if="albumHasKeptLocalReleaseDate(album) && !isResettingKeptLocalReleaseDate(album)"
+                      :text="keptLocalReleaseDateTooltip(album)"
+                      location="top"
+                      :open-on-click="false"
+                    >
+                      <template #activator="{ props }">
+                        <v-btn
+                          v-bind="props"
+                          icon="mdi-undo-variant"
+                          size="x-small"
+                          variant="text"
+                          color="warning"
+                          class="release-date-chip-badge__reset"
+                          :disabled="resettingKeepLocalReleaseDateKey !== ''"
+                          @mousedown.stop.prevent
+                          @click.stop.prevent="resetKeptLocalReleaseDate(album, $event)"
+                        ></v-btn>
+                      </template>
+                    </v-tooltip>
+                  </span>
+                  <span v-else class="cell-muted">No date</span>
                 </span>
                 <v-tooltip :text="album.title" location="top">
                   <template #activator="{ props }">
-                    <span v-bind="props" class="artist-known-album__title">{{ album.title }}</span>
+                    <span
+                      v-bind="props"
+                      class="artist-known-album__title"
+                      :class="artistKnownAlbumPresenceClass(album)"
+                    >
+                      {{ album.title }}
+                    </span>
                   </template>
                 </v-tooltip>
               </div>
@@ -1991,77 +2222,20 @@ watch(selectedArtist, (artist) => {
       </v-sheet>
     </div>
 
-    <v-dialog v-model="matchDialog" max-width="900">
-      <v-card class="dialog-card">
-        <v-card-title>Match Provider</v-card-title>
-        <v-card-text class="edit-form">
-          <div class="provider-chip-selector">
-            <v-chip
-              v-for="provider in providerDefinitions"
-              :key="provider.id"
-              :class="providerActionChipClasses(provider.id, provider.id === matchProviderId)"
-              size="small"
-              variant="flat"
-              :disabled="writeActionsDisabled || matchLoading"
-              @click="loadProviderCandidatesForMatch(provider.id)"
-            >
-              <v-progress-circular
-                v-if="matchLoading && provider.id === matchProviderId"
-                indeterminate
-                size="14"
-                width="2"
-                class="provider-action-chip__spinner"
-              ></v-progress-circular>
-              <img
-                v-else-if="providerActionChipIconSrc(provider.id)"
-                class="artists-provider-chip__icon"
-                :src="providerActionChipIconSrc(provider.id)"
-                alt=""
-                aria-hidden="true"
-              >
-              <span class="artists-provider-chip__text">{{ provider.label }}</span>
-            </v-chip>
-          </div>
-          <v-progress-linear v-if="matchLoading" indeterminate color="primary"></v-progress-linear>
-          <div v-if="!matchLoading && providerCandidates.length === 0" class="cell-muted">No candidates found.</div>
-          <v-list v-if="!matchLoading && providerCandidates.length > 0" density="compact" class="provider-list">
-            <v-list-item v-for="candidate in providerCandidates" :key="candidate.providerArtistId">
-              <v-list-item-title>
-                <span class="cell-strong">{{ candidate.providerArtistName }}</span>
-                <v-chip size="x-small" color="primary" variant="tonal" class="ml-2">{{ candidate.matchScore }}</v-chip>
-              </v-list-item-title>
-              <v-list-item-subtitle>
-                {{ candidateInfo(candidate) }}
-              </v-list-item-subtitle>
-              <div class="mono-path">{{ candidate.providerArtistId }}</div>
-              <div v-if="candidate.matchedLocalAlbums.length" class="dialog-chip-row mt-2">
-                <v-chip
-                  v-for="album in candidate.matchedLocalAlbums.slice(0, 6)"
-                  :key="album"
-                  size="small"
-                  variant="tonal"
-                >
-                  {{ album }}
-                </v-chip>
-              </div>
-              <div v-if="candidate.releaseGroups.length" class="cell-muted mt-2">
-                {{ candidate.releaseGroups.slice(0, 5).map((group) => group.title).join(' · ') }}
-              </div>
-              <template #append>
-                <v-btn size="small" variant="text" prepend-icon="mdi-open-in-new" @click="openExternal(candidate.providerUrl)">
-                  Open
-                </v-btn>
-                <v-btn size="small" color="primary" :disabled="writeActionsDisabled" @click="useCandidate(candidate)">Use</v-btn>
-              </template>
-            </v-list-item>
-          </v-list>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer></v-spacer>
-          <v-btn variant="text" @click="matchDialog = false">Close</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <ProviderMatchDialog
+      v-model="matchDialog"
+      v-model:provider-id="matchProviderId"
+      :candidates="providerCandidates"
+      :loading="matchLoading"
+      :saving="false"
+      :disabled="writeActionsDisabled"
+      :show-url="false"
+      url=""
+      url-validation=""
+      @select-provider="loadProviderCandidatesForMatch"
+      @use-candidate="useCandidate"
+      @open-external="openExternal"
+    />
 
     <v-dialog v-model="bulkMatchDialog" max-width="1100">
       <v-card class="dialog-card">

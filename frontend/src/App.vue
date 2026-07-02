@@ -2,7 +2,13 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
-import type { ProviderCheckEvent, StatusHistoryEntry } from '@/types'
+import { providerDefinition } from '@/providers'
+import type {
+  AlbumReleaseDateConflictPlan,
+  ProviderCheckEvent,
+  ProviderReleaseDateConflict,
+  StatusHistoryEntry,
+} from '@/types'
 
 interface ProviderArtistOutcome {
   artistName: string
@@ -10,6 +16,7 @@ interface ProviderArtistOutcome {
   recordsRead: number
   newAlbums: number
   alreadyInLibrary: number
+  releaseDateConflicts: number
   ignoredRecords: number
   errors: string[]
 }
@@ -23,6 +30,8 @@ const {
   providerCheckEventsLoading,
   providerCheckRuns,
   providerJob,
+  providerReleaseDateConflicts,
+  providerReleaseDateConflictDialogRequest,
   providerStatus,
   scanJob,
   scanReports,
@@ -34,6 +43,12 @@ const {
 const historyDialog = ref(false)
 const reportDialog = ref(false)
 const providerDetailDialog = ref(false)
+const providerConflictDialog = ref(false)
+const providerConflictPlanDialog = ref(false)
+const providerConflictPlan = ref<AlbumReleaseDateConflictPlan | null>(null)
+const providerConflictPlanLoading = ref(false)
+const providerConflictActionConflict = ref<ProviderReleaseDateConflict | null>(null)
+const providerConflictActionKey = ref('')
 const activeReportRunId = ref<number | null>(null)
 const activeProviderRunId = ref<number | null>(null)
 const historyScrollElement = ref<HTMLElement | null>(null)
@@ -58,7 +73,6 @@ const scanCollectionType = computed(() => {
   return collections.value.find((collection) => collection.id === collectionId)?.type ?? 'ARTIST'
 })
 
-const scanEntityName = computed(() => (scanCollectionType.value === 'TITLE' ? 'titles' : 'artists'))
 const scanIsLocalAlbums = computed(() => scanJob.value?.kind === 'LOCAL_ALBUMS')
 const scanArtistName = computed(() => {
   const artistId = scanJob.value?.requestedArtistId
@@ -116,6 +130,12 @@ const statusHistoryOverlayClasses = computed(() => [
   'status-history-overlay',
   `status-history-overlay--${statusBarLocation.value}`,
 ])
+const hasProviderReleaseDateConflicts = computed(() => providerReleaseDateConflicts.value.length > 0)
+const providerConflictPlanBlocked = computed(() =>
+  (providerConflictPlan.value?.warnings ?? []).some((warning) =>
+    warning.startsWith('Source folder') || warning.startsWith('Target folder'),
+  ),
+)
 
 const reportEntries = computed(() => statusHistory.value.flatMap((entry) =>
   (entry.scanRunIds ?? []).map((runId) => ({
@@ -209,6 +229,7 @@ const activeProviderReportText = computed(() => {
     .filter((outcome) =>
       outcome.recordsRead > 0
       && outcome.newAlbums === 0
+      && outcome.releaseDateConflicts === 0
       && outcome.ignoredRecords === 0
       && outcome.errors.length === 0,
     )
@@ -216,6 +237,8 @@ const activeProviderReportText = computed(() => {
   const providerBreakdown = providerBreakdownText(outcomes)
   const recordsRead = run?.foundAlbumCount ?? sumBy(outcomes, (outcome) => outcome.recordsRead)
   const alreadyInLibrary = sumBy(outcomes, (outcome) => outcome.alreadyInLibrary)
+  const releaseDateConflicts = run?.releaseDateConflictCount
+    ?? sumBy(outcomes, (outcome) => outcome.releaseDateConflicts)
   const createdAlbums = sumBy(outcomes, (outcome) => outcome.newAlbums) || run?.newAlbumCount || 0
   const ignoredCount = sumBy(outcomes, (outcome) => outcome.ignoredRecords)
   const errorCount = run?.errorCount ?? errors.length
@@ -238,6 +261,7 @@ const activeProviderReportText = computed(() => {
     }
     lines.push(`Provider albums found: ${recordsRead}`)
     lines.push(`Already in library: ${alreadyInLibrary}`)
+    lines.push(`Release date conflicts: ${releaseDateConflicts}`)
     lines.push(`Added as unchecked: ${createdAlbums}`)
     lines.push(`Errors: ${errorCount}`)
   }
@@ -325,15 +349,22 @@ function providerArtistOutcomes(events: ProviderCheckEvent[]) {
 
     match = event.message.match(/^MusicBrainz refresh for (.+) read (\d+) albums, already in library (\d+), added (\d+) unchecked albums, ignored (\d+)\.$/)
     if (match) {
-      applyProviderCounts(providerOutcome(outcomes, match[1], 'MusicBrainz'), match[2], match[3], match[4], match[5])
+      applyProviderCounts(providerOutcome(outcomes, match[1], 'MusicBrainz'), match[2], match[3], '0', match[4], match[5])
       currentArtistName = match[1]
+      return
+    }
+
+    match = event.message.match(/^Provider check for (.+) read (\d+) (.+) albums, already in library (\d+), release date conflicts (\d+), added (\d+) unchecked albums\.$/)
+    if (match) {
+      const outcome = providerOutcome(outcomes, match[1], match[3])
+      applyProviderCounts(outcome, match[2], match[4], match[5], match[6], '0')
       return
     }
 
     match = event.message.match(/^Provider check for (.+) read (\d+) (.+) albums, already in library (\d+), added (\d+) unchecked albums\.$/)
     if (match) {
       const outcome = providerOutcome(outcomes, match[1], match[3])
-      applyProviderCounts(outcome, match[2], match[4], match[5], '0')
+      applyProviderCounts(outcome, match[2], match[4], '0', match[5], '0')
     }
   })
   return [...outcomes.values()]
@@ -354,6 +385,7 @@ function providerOutcome(outcomes: Map<string, ProviderArtistOutcome>, artistNam
     recordsRead: 0,
     newAlbums: 0,
     alreadyInLibrary: 0,
+    releaseDateConflicts: 0,
     ignoredRecords: 0,
     errors: [],
   }
@@ -365,11 +397,13 @@ function applyProviderCounts(
   outcome: ProviderArtistOutcome,
   recordsRead: string,
   alreadyInLibrary: string,
+  releaseDateConflicts: string,
   newAlbums: string,
   ignored: string,
 ) {
   outcome.recordsRead = Number(recordsRead)
   outcome.alreadyInLibrary = Number(alreadyInLibrary)
+  outcome.releaseDateConflicts = Number(releaseDateConflicts)
   outcome.newAlbums = Number(newAlbums)
   outcome.ignoredRecords = Number(ignored)
 }
@@ -569,6 +603,114 @@ function historyIncludesProviderRun(runIds: number[]) {
   )
 }
 
+function providerConflictKey(conflict: ProviderReleaseDateConflict) {
+  return `${conflict.albumId}:${conflict.providerLinkId}`
+}
+
+function providerConflictProviderLabel(conflict: ProviderReleaseDateConflict) {
+  const sources = conflict.sources?.length
+    ? conflict.sources
+    : [{ providerId: conflict.providerId }]
+  return [...new Set(sources.map((source) => providerDefinition(source.providerId).label))]
+    .sort((left, right) => left.localeCompare(right))
+    .join(', ')
+}
+
+function releaseYearLabel(releaseDate: string | null | undefined) {
+  return releaseDate && /^\d{4}/.test(releaseDate) ? releaseDate.slice(0, 4) : 'No year'
+}
+
+async function refreshProviderConflicts(openDialog: boolean) {
+  try {
+    await store.loadProviderReleaseDateConflicts()
+    if (openDialog && providerReleaseDateConflicts.value.length > 0) {
+      providerConflictDialog.value = true
+    }
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to load provider conflicts')
+  }
+}
+
+async function keepLocalConflict(conflict: ProviderReleaseDateConflict) {
+  providerConflictActionKey.value = `keep:${providerConflictKey(conflict)}`
+  try {
+    await store.keepLocalReleaseDate(conflict)
+    store.showStatus(`Kept local release year for ${conflict.artistName} - ${conflict.albumTitle}.`, 'done')
+    if (providerReleaseDateConflicts.value.length === 0) {
+      providerConflictDialog.value = false
+    }
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to keep local release year')
+  } finally {
+    providerConflictActionKey.value = ''
+  }
+}
+
+async function openUseProviderConflictPlan(conflict: ProviderReleaseDateConflict) {
+  providerConflictActionConflict.value = conflict
+  providerConflictPlan.value = null
+  providerConflictPlanDialog.value = true
+  providerConflictPlanLoading.value = true
+  providerConflictActionKey.value = `plan:${providerConflictKey(conflict)}`
+  try {
+    providerConflictPlan.value = await store.planUseProviderReleaseDate(conflict)
+  } catch (error) {
+    providerConflictPlanDialog.value = false
+    store.showErrorStatus(error, 'Unable to preview provider release year')
+  } finally {
+    providerConflictPlanLoading.value = false
+    providerConflictActionKey.value = ''
+  }
+}
+
+async function confirmUseProviderConflictPlan() {
+  const conflict = providerConflictActionConflict.value
+  if (!conflict || providerConflictPlanBlocked.value) {
+    return
+  }
+  providerConflictActionKey.value = `use:${providerConflictKey(conflict)}`
+  try {
+    const result = await store.useProviderReleaseDate(conflict)
+    providerConflictPlanDialog.value = false
+    providerConflictActionConflict.value = null
+    providerConflictPlan.value = null
+    store.showStatus(
+      `Renamed ${result.folderCount || 1} album folder${(result.folderCount || 1) === 1 ? '' : 's'} and updated ${result.tagFilesUpdated} audio tag${result.tagFilesUpdated === 1 ? '' : 's'}.`,
+      result.warnings.length > 0 ? 'warning' : 'done',
+    )
+    if (providerReleaseDateConflicts.value.length === 0) {
+      providerConflictDialog.value = false
+    }
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to use provider release year')
+  } finally {
+    providerConflictActionKey.value = ''
+  }
+}
+
+function scanCompletionMessage() {
+  const job = scanJob.value
+  if (!job) {
+    return `${scanCollectionName.value} scan complete`
+  }
+  if (scanIsLocalAlbums.value) {
+    const artistPrefix = job.requestedArtistId ? '' : `${countWithLabel(job.artistCount, 'artist')}, `
+    return `${scanCollectionName.value} local album scan complete: ${artistPrefix}`
+      + `${countWithLabel(job.parsedCount, 'album')}, ${job.createdCount} new, ${job.skippedCount} skipped`
+  }
+  if (scanCollectionType.value === 'TITLE') {
+    return `${scanCollectionName.value} scan complete: ${job.itemProcessed}/${job.itemTotal} folders scanned, `
+      + `${countWithLabel(job.parsedCount, 'title')} parsed, ${job.createdCount} new`
+  }
+  return `${scanCollectionName.value} scan complete: ${job.itemProcessed}/${job.itemTotal} folders scanned, `
+    + `${countWithLabel(job.artistCount, 'artist')}, ${countWithLabel(job.parsedCount, 'album')} parsed, `
+    + `${job.createdCount} new`
+}
+
+function countWithLabel(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`
+}
+
 async function copyActiveReport() {
   const text = activeReportText.value
   if (!text) {
@@ -607,9 +749,7 @@ watch(
       const elapsed = formatElapsed(scanStartedAt.value)
       scanStartedAt.value = null
       if (status === 'DONE') {
-        const message = scanIsLocalAlbums.value
-          ? `${scanCollectionName.value} local album scan complete: ${scanJob.value.parsedCount} albums, ${scanJob.value.createdCount} new, ${scanJob.value.skippedCount} skipped`
-          : `${scanCollectionName.value} scan complete: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} folders scanned, ${scanJob.value.parsedCount} ${scanEntityName.value}, ${scanJob.value.createdCount} new`
+        const message = scanCompletionMessage()
         completeStatus(
           message,
           'done',
@@ -651,6 +791,7 @@ watch(
         : providerStatus.value.state === 'failed' || message.toLowerCase().includes('failed') ? 'failed'
           : 'done'
       completeStatus(message, state, withElapsed(message, elapsed), [], providerStatus.value.runIds ?? [])
+      void refreshProviderConflicts(state !== 'failed')
     }
   },
 )
@@ -670,8 +811,10 @@ watch(
       const message = providerJob.value.message ?? `Provider check ${status.toLowerCase()}`
       const state = status === 'FAILED' || providerJob.value.errorCount > 0 ? 'failed'
         : status === 'CANCELLED' ? 'warning'
+          : providerJob.value.releaseDateConflictCount > 0 ? 'warning'
           : 'done'
       completeStatus(message, state, withElapsed(message, elapsed), [], providerJob.value.runIds)
+      void refreshProviderConflicts(status === 'DONE')
     }
   },
 )
@@ -692,8 +835,30 @@ watch(
   },
 )
 
+watch(providerReleaseDateConflictDialogRequest, async (request) => {
+  if (!request) {
+    return
+  }
+  try {
+    await store.loadProviderReleaseDateConflicts()
+    if (providerReleaseDateConflicts.value.length > 0) {
+      providerConflictDialog.value = true
+    } else {
+      store.showStatus('No unresolved provider release date conflicts.', 'done')
+    }
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to load provider conflicts')
+  }
+})
+
 onMounted(async () => {
-  await Promise.all([store.loadUiSettings(), store.loadCollections(), store.loadScanJob(), store.loadProviderJob()])
+  await Promise.all([
+    store.loadUiSettings(),
+    store.loadCollections(),
+    store.loadScanJob(),
+    store.loadProviderJob(),
+    store.loadProviderReleaseDateConflicts(),
+  ])
   if (scanJob.value?.status === 'RUNNING') {
     store.startScanJobPolling()
   }
@@ -724,7 +889,25 @@ onMounted(async () => {
 
       <v-tabs class="app-tabs" color="primary" density="comfortable">
         <v-tab prepend-icon="mdi-folder-music" to="/">Collections</v-tab>
-        <v-tab prepend-icon="mdi-account-music" to="/artists">Artists</v-tab>
+        <v-tab to="/artists">
+          <v-icon icon="mdi-account-music" start></v-icon>
+          <span>Artists</span>
+          <v-tooltip
+            v-if="hasProviderReleaseDateConflicts"
+            :text="`${providerReleaseDateConflicts.length} unresolved provider release date conflict${providerReleaseDateConflicts.length === 1 ? '' : 's'}`"
+            location="bottom"
+          >
+            <template #activator="{ props }">
+              <v-icon
+                v-bind="props"
+                icon="mdi-alert"
+                size="17"
+                color="warning"
+                class="provider-conflict-triangle app-tab-warning"
+              ></v-icon>
+            </template>
+          </v-tooltip>
+        </v-tab>
         <v-tab prepend-icon="mdi-music-box-multiple" to="/library">Library</v-tab>
         <v-tab prepend-icon="mdi-cog" to="/settings">Settings</v-tab>
       </v-tabs>
@@ -888,6 +1071,136 @@ onMounted(async () => {
             <pre v-else class="scan-report-dialog__content">{{ activeReportText || 'Report is not available.' }}</pre>
           </div>
         </v-card-text>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="providerConflictDialog" max-width="820">
+      <v-card class="dialog-card provider-conflict-dialog">
+        <v-card-title class="provider-conflict-dialog__title">
+          <span>Release Date Conflicts</span>
+          <v-chip size="x-small" color="warning" variant="tonal">{{ providerReleaseDateConflicts.length }}</v-chip>
+        </v-card-title>
+        <v-card-text>
+          <div v-if="providerReleaseDateConflicts.length === 0" class="pane-empty pane-empty--compact">
+            No unresolved provider release date conflicts.
+          </div>
+          <div v-else class="provider-conflict-dialog__body">
+            <div
+              v-for="conflict in providerReleaseDateConflicts"
+              :key="providerConflictKey(conflict)"
+              class="provider-conflict-row"
+            >
+              <div class="provider-conflict-row__main">
+                <div class="provider-conflict-row__meta">
+                  <v-icon icon="mdi-alert-outline" size="16" color="warning"></v-icon>
+                  <span class="cell-strong">{{ conflict.artistName }}</span>
+                  <span class="cell-muted">{{ providerConflictProviderLabel(conflict) }}</span>
+                </div>
+                <div class="provider-conflict-row__title">
+                  {{ conflict.albumTitle }}
+                </div>
+                <div class="provider-conflict-row__years">
+                  <v-chip size="x-small" class="release-date-chip" variant="tonal">
+                    {{ releaseYearLabel(conflict.localReleaseDate) }}
+                  </v-chip>
+                  <v-icon icon="mdi-arrow-right-thin" size="16"></v-icon>
+                  <v-chip size="x-small" class="release-date-chip release-date-chip--warning" variant="tonal">
+                    {{ releaseYearLabel(conflict.providerReleaseDate) }}
+                  </v-chip>
+                  <span class="cell-muted">{{ conflict.providerTitle }}</span>
+                </div>
+                <div v-if="conflict.localRelativePath" class="mono-path provider-conflict-row__path">
+                  {{ conflict.localRelativePath }}
+                </div>
+              </div>
+              <div class="provider-conflict-row__actions">
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  :loading="providerConflictActionKey === `keep:${providerConflictKey(conflict)}`"
+                  :disabled="providerConflictActionKey !== ''"
+                  @click="keepLocalConflict(conflict)"
+                >
+                  Keep Local
+                </v-btn>
+                <v-btn
+                  size="small"
+                  color="warning"
+                  variant="tonal"
+                  :loading="providerConflictActionKey === `plan:${providerConflictKey(conflict)}`"
+                  :disabled="providerConflictActionKey !== ''"
+                  @click="openUseProviderConflictPlan(conflict)"
+                >
+                  Use Provider Year
+                </v-btn>
+              </div>
+            </div>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="providerConflictDialog = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="providerConflictPlanDialog" max-width="760">
+      <v-card class="dialog-card provider-conflict-plan-dialog">
+        <v-card-title>Use Provider Year</v-card-title>
+        <v-card-text>
+          <div v-if="providerConflictPlanLoading" class="scan-report-dialog__loading">
+            <v-progress-circular indeterminate size="18" width="2"></v-progress-circular>
+            <span>Preparing rename plan</span>
+          </div>
+          <div v-else-if="providerConflictPlan" class="provider-conflict-plan">
+            <div class="provider-conflict-plan__warning">
+              This will rename {{ providerConflictPlan.folderCount }} album folder{{ providerConflictPlan.folderCount === 1 ? '' : 's' }} on disk, update local paths in the database, keep one album record, and write the provider year to supported audio tags.
+            </div>
+            <div class="provider-conflict-plan__grid">
+              <span class="cell-muted">Current folder</span>
+              <span class="mono-path">{{ providerConflictPlan.sourceRelativePath }}</span>
+              <span class="cell-muted">New folder</span>
+              <span class="mono-path">{{ providerConflictPlan.targetRelativePath }}</span>
+              <span class="cell-muted">Track tags</span>
+              <span>{{ providerConflictPlan.audioFileCount }} supported, {{ providerConflictPlan.unsupportedFileCount }} unsupported</span>
+            </div>
+            <div v-if="providerConflictPlan.folders.length > 1" class="provider-conflict-plan__folders">
+              <div
+                v-for="folder in providerConflictPlan.folders"
+                :key="folder.localPathId"
+                class="provider-conflict-plan__folder"
+              >
+                <div class="cell-muted">{{ folder.collectionName }}</div>
+                <div class="mono-path">{{ folder.sourceRelativePath }}</div>
+                <v-icon icon="mdi-arrow-right-thin" size="16"></v-icon>
+                <div class="mono-path">{{ folder.targetRelativePath }}</div>
+              </div>
+            </div>
+            <div v-if="providerConflictPlan.warnings.length" class="provider-conflict-plan__warnings">
+              <div
+                v-for="warning in providerConflictPlan.warnings"
+                :key="warning"
+                class="provider-conflict-plan__warning-line"
+              >
+                <v-icon icon="mdi-alert-outline" size="16" color="warning"></v-icon>
+                <span>{{ warning }}</span>
+              </div>
+            </div>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="providerConflictPlanDialog = false">Cancel</v-btn>
+          <v-btn
+            color="warning"
+            variant="flat"
+            :loading="providerConflictActionKey.startsWith('use:')"
+            :disabled="providerConflictPlanLoading || !providerConflictPlan || providerConflictPlanBlocked"
+            @click="confirmUseProviderConflictPlan"
+          >
+            Rename Folder And Update Tags
+          </v-btn>
+        </v-card-actions>
       </v-card>
     </v-dialog>
 
