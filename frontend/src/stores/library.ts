@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { apiGet, apiSend, apiText } from '@/api'
+import { apiGet, apiSend } from '@/api'
 import { formatDateWithJavaPattern } from '@/dateFormat'
 import { providerDefinition, type ProviderId } from '@/providers'
 import type {
@@ -14,15 +14,12 @@ import type {
   CollectionMetadata,
   MusicRootInfo,
   MusicCollection,
-  ScanJobStatus,
-  ProviderCheckEvent,
-  ProviderCheckRun,
   ProviderCheckJobStatus,
   ProviderCheckSummary,
   ProviderReleaseDateConflict,
   ProviderRefreshResult,
-  ScanEvent,
-  ScanRun,
+  ReportArtifact,
+  ScanJobStatus,
   StatusHistoryEntry,
   UiSettings,
   UiSettingsValues,
@@ -68,15 +65,8 @@ interface State {
   selectedCollectionId: string | null
   selectedArtistId: number | null
   musicRoot: MusicRootInfo | null
-  scanRuns: ScanRun[]
   scanJob: ScanJobStatus | null
-  scanEvents: Record<number, ScanEvent[]>
-  scanReports: Record<number, string>
-  scanReportsLoading: Record<number, boolean>
   providerLinks: Record<number, ArtistProviderLink[]>
-  providerCheckEvents: Record<number, ProviderCheckEvent[]>
-  providerCheckEventsLoading: Record<number, boolean>
-  providerCheckRuns: ProviderCheckRun[]
   providerJob: ProviderCheckJobStatus | null
   providerReleaseDateConflicts: ProviderReleaseDateConflict[]
   providerReleaseDateConflictDialogRequest: {
@@ -91,7 +81,7 @@ interface State {
     running: boolean
     message: string | null
     state: StatusHistoryEntry['state']
-    runIds?: number[]
+    reports?: ReportArtifact[]
   }
   loading: boolean
 }
@@ -161,15 +151,8 @@ export const useLibraryStore = defineStore('library', {
     selectedCollectionId: null,
     selectedArtistId: null,
     musicRoot: null,
-    scanRuns: [],
     scanJob: null,
-    scanEvents: {},
-    scanReports: {},
-    scanReportsLoading: {},
     providerLinks: {},
-    providerCheckEvents: {},
-    providerCheckEventsLoading: {},
-    providerCheckRuns: [],
     providerJob: null,
     providerReleaseDateConflicts: [],
     providerReleaseDateConflictDialogRequest: null,
@@ -225,21 +208,17 @@ export const useLibraryStore = defineStore('library', {
     async loadAll() {
       this.loading = true
       try {
-        const [artists, albums, collections, musicRoot, scanRuns, providerCheckRuns, providerReleaseDateConflicts] = await Promise.all([
+        const [artists, albums, collections, musicRoot, providerReleaseDateConflicts] = await Promise.all([
           apiGet<Artist[]>('/api/artists'),
           apiGet<Album[]>('/api/albums'),
           apiGet<MusicCollection[]>('/api/collections'),
           apiGet<MusicRootInfo>('/api/settings/music-root'),
-          apiGet<ScanRun[]>('/api/scan/runs?limit=25'),
-          apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25'),
           apiGet<ProviderReleaseDateConflict[]>('/api/provider-conflicts/release-dates'),
         ])
         this.artists = artists
         this.albums = albums
         this.collections = collections
         this.musicRoot = musicRoot
-        this.scanRuns = scanRuns
-        this.providerCheckRuns = providerCheckRuns
         this.providerReleaseDateConflicts = providerReleaseDateConflicts
       } catch (error) {
         this.showErrorStatus(error, 'Unable to load library data')
@@ -336,14 +315,12 @@ export const useLibraryStore = defineStore('library', {
     async loadSettings() {
       this.loading = true
       try {
-        const [collections, musicRoot, scanRuns] = await Promise.all([
+        const [collections, musicRoot] = await Promise.all([
           apiGet<MusicCollection[]>('/api/collections'),
           apiGet<MusicRootInfo>('/api/settings/music-root'),
-          apiGet<ScanRun[]>('/api/scan/runs?limit=25'),
         ])
         this.collections = collections
         this.musicRoot = musicRoot
-        this.scanRuns = scanRuns
       } catch (error) {
         this.showErrorStatus(error, 'Unable to load settings')
       } finally {
@@ -369,8 +346,9 @@ export const useLibraryStore = defineStore('library', {
     addStatusHistory(
       message: string,
       state: StatusHistoryEntry['state'] = 'info',
-      options: { scanRunIds?: number[]; providerRunIds?: number[] } = {},
+      options: { reports?: ReportArtifact[] } = {},
     ) {
+      const reports = options.reports?.filter((report) => report.text) ?? []
       this.statusHistory = [
         ...this.statusHistory,
         {
@@ -378,8 +356,7 @@ export const useLibraryStore = defineStore('library', {
           createdAt: formatDateWithJavaPattern(new Date(), this.uiSettings.statusHistoryDateFormat),
           message,
           state,
-          scanRunIds: options.scanRunIds,
-          providerRunIds: options.providerRunIds,
+          reports: reports.length ? reports : undefined,
         },
       ].slice(-100)
     },
@@ -1039,7 +1016,6 @@ export const useLibraryStore = defineStore('library', {
             this.stopProviderJobPolling()
             const collectionId = status?.requestedCollectionId ?? undefined
             const artistIds = uniqueArtistIds([status?.requestedArtistId, ...(status?.artistIds ?? [])])
-            this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
             await this.loadProviderReleaseDateConflicts()
             this.invalidateCollectionMetadata(collectionId)
             if (artistIds.length > 0) {
@@ -1138,35 +1114,6 @@ export const useLibraryStore = defineStore('library', {
     async cancelProviderJob() {
       this.providerJob = await apiSend<ProviderCheckJobStatus>('/api/provider-checks/jobs/current/cancel', 'POST')
       return this.providerJob
-    },
-    async loadScanEvents(runId: number) {
-      this.scanEvents[runId] = await apiGet<ScanEvent[]>(`/api/scan/runs/${runId}/events`)
-    },
-    async loadProviderCheckEvents(runId: number) {
-      if (this.providerCheckEvents[runId]) {
-        return this.providerCheckEvents[runId]
-      }
-      this.providerCheckEventsLoading[runId] = true
-      try {
-        const events = await apiGet<ProviderCheckEvent[]>(`/api/provider-checks/runs/${runId}/events`)
-        this.providerCheckEvents[runId] = events
-        return events
-      } finally {
-        this.providerCheckEventsLoading[runId] = false
-      }
-    },
-    async loadScanReport(runId: number) {
-      if (this.scanReports[runId]) {
-        return this.scanReports[runId]
-      }
-      this.scanReportsLoading[runId] = true
-      try {
-        const report = await apiText(`/api/scan/runs/${runId}/report`)
-        this.scanReports[runId] = report
-        return report
-      } finally {
-        this.scanReportsLoading[runId] = false
-      }
     },
     async loadPreference(key: string) {
       try {
@@ -1317,7 +1264,6 @@ export const useLibraryStore = defineStore('library', {
       this.providerStatus = { running: true, message: `Refreshing MusicBrainz for ${artistName}`, state: 'running' }
       try {
         const result = await apiSend<ProviderRefreshResult>(`/api/artists/${artistId}/provider/refresh`, 'POST')
-        this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
         await this.loadProviderReleaseDateConflicts()
         this.invalidateCollectionContent(this.selectedCollectionId ?? undefined)
         await this.loadArtists()
@@ -1328,8 +1274,8 @@ export const useLibraryStore = defineStore('library', {
         this.providerStatus = {
           running: false,
           message,
-          state: 'done',
-          runIds: [result.runId],
+          state: result.releaseDateConflictCount > 0 ? 'warning' : 'done',
+          reports: result.reports,
         }
         return result
       } catch (error) {
@@ -1348,7 +1294,6 @@ export const useLibraryStore = defineStore('library', {
           withQuery(`/api/provider-checks/artist/${artistId}`, { collectionId: this.selectedCollectionId }),
           'POST',
         )
-        this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
         await this.loadProviderReleaseDateConflicts()
         this.invalidateCollectionContent(this.selectedCollectionId ?? undefined)
         await this.loadArtists()
@@ -1360,7 +1305,7 @@ export const useLibraryStore = defineStore('library', {
           running: false,
           message,
           state: providerSummaryState(summary),
-          runIds: [summary.runId],
+          reports: summary.reports,
         }
         return summary
       } catch (error) {
@@ -1378,7 +1323,6 @@ export const useLibraryStore = defineStore('library', {
           `/api/provider-checks/collection/${encodeURIComponent(collectionId)}`,
           'POST',
         )
-        this.providerCheckRuns = await apiGet<ProviderCheckRun[]>('/api/provider-checks/runs?limit=25')
         await this.loadProviderReleaseDateConflicts()
         this.invalidateCollectionContent(collectionId)
         await this.loadArtists()
@@ -1390,7 +1334,7 @@ export const useLibraryStore = defineStore('library', {
           running: false,
           message,
           state: providerSummaryState(summary),
-          runIds: [summary.runId],
+          reports: summary.reports,
         }
         return summary
       } catch (error) {
@@ -1413,7 +1357,7 @@ export const useLibraryStore = defineStore('library', {
           running: false,
           message,
           state: providerSummaryState(summary),
-          runIds: [summary.runId],
+          reports: summary.reports,
         }
         return summary
       } catch (error) {

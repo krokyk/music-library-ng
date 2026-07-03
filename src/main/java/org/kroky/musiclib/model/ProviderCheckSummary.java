@@ -3,7 +3,6 @@ package org.kroky.musiclib.model;
 import java.util.List;
 
 public record ProviderCheckSummary(
-        long runId,
         int processedArtistCount,
         int skippedArtistCount,
         int foundAlbumCount,
@@ -11,5 +10,6 @@ public record ProviderCheckSummary(
         int existingAlbumCount,
         int releaseDateConflictCount,
         int errorCount,
-        List<String> messages) {
+        List<String> messages,
+        List<ReportArtifact> reports) {
 }

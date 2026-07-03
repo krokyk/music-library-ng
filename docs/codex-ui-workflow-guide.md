@@ -10,6 +10,8 @@ This file owns practical UI and working-process rules for future Codex sessions 
 - Be direct about contradictions.
   If a requested behavior conflicts with an earlier rule or creates a weak UX, call it out before coding.
 - For implementation requests, iterate through the task end to end: inspect, patch, build, run relevant checks, inspect the result, refine if needed.
+- Finish implementation changes with `./gradlew build` unless a concrete blocker prevents it.
+  The user expects the app to be build-ready without needing to run the build separately.
 - Keep changes scoped.
   Prefer small, coherent patches over broad rewrites.
 - Use existing store/action/repository patterns before adding new abstractions.

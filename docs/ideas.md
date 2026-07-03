@@ -36,16 +36,6 @@ Current behavior belongs in `docs/current-application.md`.
 - Consider loading existing collection artists and local paths into memory, scanning folder names quickly, and comparing the two sets before doing heavier database writes.
 - Preserve the current rule that scans update database evidence and never rename or delete files on disk.
 
-## Provider Action Detail Reports
-
-- Add structured plaintext detail for clickable status-history entries that summarize provider checks, provider matching, provider review, or provider decision application.
-- A compact status message should keep the outcome summary, for example `Applied MusicBrainz decisions: linked 3, created 2, skipped 7`.
-- The report popup should stay plaintext for consistency with scan reports and for easy copy, diagnostics, and log correlation.
-- The clickable detail should list exactly what happened in grouped sections such as linked albums, new unchecked albums, skipped artists, ignored provider records, skipped already-existing local albums, and errors.
-- Linked rows should include the provider album, the local album, and relevant collection membership when available.
-- Created rows should show the new unchecked album titles.
-- Skipped rows should explain why no database change was made.
-
 ## Grid Table Action Alignment
 
 - Revisit grid-table row action alignment so action controls align to the right edge of their action area.

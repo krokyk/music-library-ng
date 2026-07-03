@@ -119,24 +119,13 @@ export interface MusicRootInfo {
   candidates: RootCandidate[]
 }
 
-export interface ScanRun {
-  id: number
-  collectionId?: string | null
-  collectionName?: string | null
-  startedAt: string
-  finishedAt?: string | null
-  status: string
-  parsedCount: number
-  createdCount: number
-  updatedCount: number
-  missingCount: number
-  skippedCount: number
-  message?: string | null
-  reportPath?: string | null
+export interface ReportArtifact {
+  title: string
+  path?: string | null
+  text: string
 }
 
 export interface ScanJobStatus {
-  id: string
   status: string
   kind: 'COLLECTION' | 'LOCAL_ALBUMS'
   requestedCollectionId?: string | null
@@ -155,7 +144,7 @@ export interface ScanJobStatus {
   skippedCount: number
   cancelRequested: boolean
   message?: string | null
-  runIds: number[]
+  reports: ReportArtifact[]
 }
 
 export interface UiSettingsValues {
@@ -225,32 +214,13 @@ export interface StatusHistoryEntry {
   createdAt: string
   message: string
   state: 'running' | 'done' | 'warning' | 'failed' | 'info'
-  scanRunIds?: number[]
-  providerRunIds?: number[]
+  reports?: ReportArtifact[]
 }
 
 export interface UserPreference {
   key: string
   value: string
   updatedAt: string
-}
-
-export interface ScanEvent {
-  id: number
-  scanRunId: number
-  level: string
-  message: string
-  createdAt: string
-}
-
-export interface ProviderCheckEvent {
-  id: number
-  runId: number
-  artistId?: number | null
-  providerLinkId?: number | null
-  level: string
-  message: string
-  createdAt: string
 }
 
 export interface ArtistProviderLink {
@@ -337,19 +307,19 @@ export interface ArtistProviderBulkMatchResult {
 }
 
 export interface ProviderRefreshResult {
-  runId: number
   artistId: number
   artistName: string
   providerId: string
   foundReleaseGroupCount: number
   existingAlbumCount: number
   createdAlbumCount: number
+  releaseDateConflictCount: number
   skippedCount: number
   messages: string[]
+  reports: ReportArtifact[]
 }
 
 export interface ProviderCheckSummary {
-  runId: number
   processedArtistCount: number
   skippedArtistCount: number
   foundAlbumCount: number
@@ -358,10 +328,10 @@ export interface ProviderCheckSummary {
   releaseDateConflictCount: number
   errorCount: number
   messages: string[]
+  reports: ReportArtifact[]
 }
 
 export interface ProviderCheckJobStatus {
-  id: string
   status: string
   kind: 'PROVIDER_ARTIST' | 'PROVIDER_COLLECTION' | 'PROVIDER_ALL'
   requestedCollectionId?: string | null
@@ -381,23 +351,7 @@ export interface ProviderCheckJobStatus {
   cancelRequested: boolean
   message?: string | null
   artistIds: number[]
-  runIds: number[]
-}
-
-export interface ProviderCheckRun {
-  id: number
-  artistId?: number | null
-  providerLinkId?: number | null
-  startedAt: string
-  finishedAt?: string | null
-  status: string
-  processedArtistCount: number
-  foundAlbumCount: number
-  newAlbumCount: number
-  existingAlbumCount: number
-  releaseDateConflictCount: number
-  errorCount: number
-  message?: string | null
+  reports: ReportArtifact[]
 }
 
 export interface ProviderReleaseDateConflictSource {

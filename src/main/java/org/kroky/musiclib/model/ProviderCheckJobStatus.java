@@ -3,7 +3,6 @@ package org.kroky.musiclib.model;
 import java.util.List;
 
 public record ProviderCheckJobStatus(
-        String id,
         String status,
         String kind,
         String requestedCollectionId,
@@ -23,5 +22,5 @@ public record ProviderCheckJobStatus(
         boolean cancelRequested,
         String message,
         List<Long> artistIds,
-        List<Long> runIds) {
+        List<ReportArtifact> reports) {
 }

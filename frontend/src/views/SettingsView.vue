@@ -27,7 +27,7 @@ interface UiForm {
 }
 
 const store = useLibraryStore()
-const { collections, providerJob, providerStatus, scanJob, scanRuns, scanEvents, musicRoot, uiSettings } = storeToRefs(store)
+const { collections, providerJob, providerStatus, scanJob, musicRoot, uiSettings } = storeToRefs(store)
 
 const scanPollMin = 100
 const scanPollMax = 2000
@@ -557,55 +557,6 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section class="settings-section settings-section--last">
-          <div class="settings-section__header">
-            <div>
-              <h2 class="settings-section__title">Recent Scan Log</h2>
-              <div class="settings-section__subtitle">{{ scanRuns.length }} recent runs</div>
-            </div>
-          </div>
-
-          <v-expansion-panels variant="accordion">
-            <v-expansion-panel v-for="run in scanRuns" :key="run.id" @group:selected="store.loadScanEvents(run.id)">
-              <v-expansion-panel-title>
-                <div class="d-flex align-center ga-3 w-100">
-                  <v-chip
-                    size="small"
-                    :color="run.status === 'DONE' ? 'success' : run.status === 'FAILED' ? 'error' : 'warning'"
-                  >
-                    {{ run.status }}
-                  </v-chip>
-                  <span class="font-weight-medium">{{ run.collectionName ?? run.collectionId ?? 'All collections' }}</span>
-                  <span class="text-medium-emphasis">
-                    {{ run.parsedCount }} parsed,
-                    {{ run.createdCount }} created,
-                    {{ run.updatedCount }} updated,
-                    {{ run.missingCount }} removed,
-                    {{ run.skippedCount }} skipped
-                  </span>
-                  <span class="text-medium-emphasis ml-auto">{{ run.startedAt }}</span>
-                </div>
-              </v-expansion-panel-title>
-              <v-expansion-panel-text>
-                <div v-if="run.message" class="mb-3">{{ run.message }}</div>
-                <v-list density="compact" lines="two">
-                  <v-list-item v-for="event in scanEvents[run.id] ?? []" :key="event.id">
-                    <template #prepend>
-                      <v-chip
-                        size="x-small"
-                        :color="event.level === 'ERROR' ? 'error' : event.level === 'SKIPPED' ? 'warning' : 'primary'"
-                      >
-                        {{ event.level }}
-                      </v-chip>
-                    </template>
-                    <v-list-item-title>{{ event.message }}</v-list-item-title>
-                    <v-list-item-subtitle>{{ event.createdAt }}</v-list-item-subtitle>
-                  </v-list-item>
-                </v-list>
-              </v-expansion-panel-text>
-            </v-expansion-panel>
-          </v-expansion-panels>
-        </section>
       </div>
     </v-sheet>
 

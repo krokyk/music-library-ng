@@ -13,12 +13,12 @@ import org.kroky.musiclib.model.Album;
 import org.kroky.musiclib.model.ArtistProviderLink;
 import org.kroky.musiclib.model.MusicCollection;
 import org.kroky.musiclib.model.ProviderCheckSummary;
+import org.kroky.musiclib.model.ReportArtifact;
 import org.kroky.musiclib.repository.AlbumProviderLinkRepository;
 import org.kroky.musiclib.repository.AlbumRepository;
 import org.kroky.musiclib.repository.ArtistRepository;
 import org.kroky.musiclib.repository.ArtistProviderLinkRepository;
 import org.kroky.musiclib.repository.MusicCollectionRepository;
-import org.kroky.musiclib.repository.ProviderCheckRunRepository;
 import org.kroky.musiclib.provider.musicbrainz.MusicBrainzClient;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -70,7 +70,7 @@ public class ProviderCheckService {
     ProviderRegistry providers;
 
     @Inject
-    ProviderCheckRunRepository runs;
+    ProviderCheckReportWriter reportWriter;
 
     @Inject
     ArtistProviderRefreshService artistProviderRefresh;
@@ -78,8 +78,9 @@ public class ProviderCheckService {
     public ProviderCheckSummary checkLink(long linkId) {
         ArtistProviderLink link = providerLinks.find(linkId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown provider link: " + linkId));
-        long runId = runs.start(link.artistId(), link.id());
-        return checkLinks(runId, List.of(link), 0, null, 0, false, ProgressListener.NONE);
+        ProviderCheckReport report = new ProviderCheckReport(
+                link.artistName() + " " + providerLabel(link.providerId()));
+        return checkLinks(report, List.of(link), 0, null, 0, false, ProgressListener.NONE);
     }
 
     public ProviderCheckSummary checkArtist(long artistId) {
@@ -93,9 +94,13 @@ public class ProviderCheckService {
         List<ArtistProviderLink> links = providerLinks.listByArtist(artistId).stream()
                 .filter(ArtistProviderLink::enabled)
                 .toList();
-        long runId = runs.start(artistId, null);
         int skippedArtists = links.isEmpty() ? 1 : 0;
-        return checkLinks(runId, links, skippedArtists, collectionId, 0, false, ProgressListener.NONE);
+        String artistName = artists.find(artistId).map(artist -> artist.name()).orElse("artist " + artistId);
+        ProviderCheckReport report = new ProviderCheckReport(artistName + " provider check");
+        if (links.isEmpty()) {
+            report.artistSkipped(artistName + ": no enabled provider links");
+        }
+        return checkLinks(report, links, skippedArtists, collectionId, 0, false, ProgressListener.NONE);
     }
 
     public ProviderCheckSummary checkCollection(String collectionId) {
@@ -110,8 +115,11 @@ public class ProviderCheckService {
         int artistCount = artists.list(null, collection.id()).size();
         int artistsWithProviders = (int) links.stream().map(ArtistProviderLink::artistId).distinct().count();
         int skippedArtists = Math.max(0, artistCount - artistsWithProviders);
-        long runId = runs.start(null, null);
-        return checkLinks(runId, links, skippedArtists, collection.id(), batchRescanDelayMinutes, true, progress);
+        ProviderCheckReport report = new ProviderCheckReport(collection.name() + " provider check");
+        if (skippedArtists > 0) {
+            report.artistSkipped(skippedArtists + " artists without enabled provider links");
+        }
+        return checkLinks(report, links, skippedArtists, collection.id(), batchRescanDelayMinutes, true, progress);
     }
 
     public ProviderCheckSummary checkAll() {
@@ -119,11 +127,12 @@ public class ProviderCheckService {
     }
 
     public ProviderCheckSummary checkAll(int batchRescanDelayMinutes, ProgressListener progress) {
-        long runId = runs.start(null, null);
-        return checkLinks(runId, providerLinks.listEnabled(), 0, null, batchRescanDelayMinutes, true, progress);
+        ProviderCheckReport report = new ProviderCheckReport("all provider checks");
+        return checkLinks(report, providerLinks.listEnabled(), 0, null, batchRescanDelayMinutes, true, progress);
     }
 
-    private ProviderCheckSummary checkLinks(long runId, List<ArtistProviderLink> links, int skippedArtists,
+    private ProviderCheckSummary checkLinks(ProviderCheckReport report, List<ArtistProviderLink> links,
+            int skippedArtists,
             String collectionId, int batchRescanDelayMinutes, boolean skipRecentlyChecked,
             ProgressListener progress) {
         int processedArtists = 0;
@@ -134,6 +143,7 @@ public class ProviderCheckService {
         int newAlbums = 0;
         int existingAlbums = 0;
         int releaseDateConflicts = 0;
+        int ignoredProviderRecords = 0;
         int errors = 0;
         List<String> messages = new ArrayList<>();
         progress.started(links.size() + initialSkippedArtists, skippedArtists);
@@ -142,20 +152,17 @@ public class ProviderCheckService {
             String message = skippedArtists > 0
                     ? "No enabled provider links found; skipped " + skippedArtists + " artists."
                     : "No enabled provider links found.";
-            runs.event(runId, null, null, "WARN", message);
-            runs.finish(runId, "SKIPPED", 0, 0, 0, 0, 0, 0, message);
-            return new ProviderCheckSummary(runId, 0, skippedArtists, 0, 0, 0, 0, 0, List.of(message));
+            report.note(message);
+            return providerSummary(report, "SKIPPED", 0, skippedArtists, 0, 0, 0, 0, 0, 0, List.of(message));
         }
 
         for (ArtistProviderLink link : links) {
             if (progress.isCancelled()) {
                 String message = "Provider check cancelled.";
                 messages.add(message);
-                runs.event(runId, null, null, "INFO", message);
-                runs.finish(runId, "SKIPPED", processedArtists, foundAlbums, newAlbums, existingAlbums,
-                        releaseDateConflicts, errors, message);
-                return new ProviderCheckSummary(runId, processedArtists, skippedArtists, foundAlbums, newAlbums,
-                        existingAlbums, releaseDateConflicts, errors, messages);
+                report.note(message);
+                return providerSummary(report, "CANCELLED", processedArtists, skippedArtists, foundAlbums, newAlbums,
+                        existingAlbums, releaseDateConflicts, ignoredProviderRecords, errors, messages);
             }
             if (skipRecentlyChecked && recentlyChecked(link, batchRescanDelayMinutes)) {
                 skippedArtists++;
@@ -164,7 +171,7 @@ public class ProviderCheckService {
                 String reason = "successfully checked within " + delayLabel(batchRescanDelayMinutes);
                 String message = "Skipped " + link.artistName() + ": " + reason + ".";
                 messages.add(message);
-                runs.event(runId, link.artistId(), link.id(), "INFO", message);
+                report.artistSkipped(message);
                 progress.itemSkipped(link, processedItems, skippedArtists, reason);
                 continue;
             }
@@ -172,10 +179,12 @@ public class ProviderCheckService {
             try {
                 processedArtists++;
                 if (MusicBrainzClient.PROVIDER_ID.equals(link.providerId())) {
-                    var result = artistProviderRefresh.importMusicBrainz(runId, link, collectionId);
+                    var result = artistProviderRefresh.importMusicBrainz(link, collectionId, report);
                     foundAlbums += result.foundReleaseGroupCount();
                     newAlbums += result.createdAlbumCount();
                     existingAlbums += result.existingAlbumCount();
+                    releaseDateConflicts += result.releaseDateConflictCount();
+                    ignoredProviderRecords += result.skippedCount();
                     messages.addAll(result.messages());
                     providerLinks.markSuccess(link.id());
                     processedItems++;
@@ -188,9 +197,6 @@ public class ProviderCheckService {
                 providerLinks.updateProviderMetadata(link.id(), details.country(), details.active());
                 List<RemoteAlbum> remoteAlbums = details.albums();
                 foundAlbums += remoteAlbums.size();
-                runs.event(runId, link.artistId(), link.id(), "INFO",
-                        "Read " + remoteAlbums.size() + " " + providerLabel(link.providerId())
-                                + " albums for " + link.artistName());
                 int linkExistingAlbums = 0;
                 int linkNewAlbums = 0;
                 int linkReleaseDateConflicts = 0;
@@ -203,9 +209,11 @@ public class ProviderCheckService {
                         if (album != null && releaseDateConflict(album.releaseDate(), remoteAlbum.releaseDate())) {
                             releaseDateConflicts++;
                             linkReleaseDateConflicts++;
+                            report.releaseDateConflict(releaseDateConflictRow(link, album, remoteAlbum));
                         } else {
                             existingAlbums++;
                             linkExistingAlbums++;
+                            report.alreadyInLibrary(providerAlbumRow(link, remoteAlbum, album));
                         }
                         continue;
                     }
@@ -218,8 +226,7 @@ public class ProviderCheckService {
                         assignToCollectionIfUnassigned(album, collectionId);
                         releaseDateConflicts++;
                         linkReleaseDateConflicts++;
-                        runs.event(runId, link.artistId(), link.id(), "INFO",
-                                releaseDateConflictMessage(link.artistName(), album, remoteAlbum));
+                        report.releaseDateConflict(releaseDateConflictRow(link, album, remoteAlbum));
                         continue;
                     }
                     var existing = albums.findDuplicate(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseDate());
@@ -229,6 +236,7 @@ public class ProviderCheckService {
                         assignToCollectionIfUnassigned(album, collectionId);
                         existingAlbums++;
                         linkExistingAlbums++;
+                        report.alreadyInLibrary(providerAlbumRow(link, remoteAlbum, album));
                         continue;
                     }
                     if (titleMatch.isPresent()) {
@@ -238,11 +246,11 @@ public class ProviderCheckService {
                         if (releaseDateConflict(album.releaseDate(), remoteAlbum.releaseDate())) {
                             releaseDateConflicts++;
                             linkReleaseDateConflicts++;
-                            runs.event(runId, link.artistId(), link.id(), "INFO",
-                                    releaseDateConflictMessage(link.artistName(), album, remoteAlbum));
+                            report.releaseDateConflict(releaseDateConflictRow(link, album, remoteAlbum));
                         } else {
                             existingAlbums++;
                             linkExistingAlbums++;
+                            report.alreadyInLibrary(providerAlbumRow(link, remoteAlbum, album));
                         }
                         continue;
                     }
@@ -251,14 +259,11 @@ public class ProviderCheckService {
                     linkAlbum(album.id(), link.providerId(), remoteAlbum);
                     newAlbums++;
                     linkNewAlbums++;
-                    runs.event(runId, link.artistId(), link.id(), "INFO",
-                            "Added unchecked album: " + remoteAlbum.title());
+                    report.addedAsUnchecked(providerAlbumRow(link, remoteAlbum, album));
                 }
-                runs.event(runId, link.artistId(), link.id(), "INFO",
-                        "Provider check for " + link.artistName() + " read " + remoteAlbums.size()
-                                + " " + providerLabel(link.providerId()) + " albums, already in library "
-                                + linkExistingAlbums + ", release date conflicts " + linkReleaseDateConflicts
-                                + ", added " + linkNewAlbums + " unchecked albums.");
+                if (linkNewAlbums == 0 && linkReleaseDateConflicts == 0) {
+                    report.noChange(link.artistName() + " (" + providerLabel(link.providerId()) + ")");
+                }
                 providerLinks.markSuccess(link.id());
             } catch (Exception e) {
                 errors++;
@@ -266,9 +271,9 @@ public class ProviderCheckService {
                 String message = "Provider check failed for " + link.artistName() + ": " + errorDetail;
                 messages.add(message);
                 providerLinks.markError(link.id(), errorDetail);
-                runs.event(runId, link.artistId(), link.id(), "ERROR", message);
-                LOG.errorf(e, "Provider check failed runId=%d artistId=%d providerLinkId=%d artist=%s: %s",
-                        runId, link.artistId(), link.id(), link.artistName(), errorDetail);
+                report.error(link.artistName() + " (" + providerLabel(link.providerId()) + "): " + errorDetail);
+                LOG.errorf(e, "Provider check failed artistId=%d providerLinkId=%d artist=%s: %s",
+                        link.artistId(), link.id(), link.artistName(), errorDetail);
             }
             processedItems++;
             progress.itemFinished(link, processedItems, skippedArtists, foundAlbums, newAlbums, existingAlbums,
@@ -280,16 +285,33 @@ public class ProviderCheckService {
                 + " provider albums, added " + newAlbums + " unchecked albums"
                 + (releaseDateConflicts > 0 ? ", " + releaseDateConflicts + " release date conflicts" : "")
                 + skippedSummary(skippedArtists, initialSkippedArtists, recentlySkippedArtists) + ".";
-        runs.finish(runId, status, processedArtists, foundAlbums, newAlbums, existingAlbums,
-                releaseDateConflicts, errors, message);
         messages.add(message);
-        return new ProviderCheckSummary(runId, processedArtists, skippedArtists, foundAlbums, newAlbums,
-                existingAlbums, releaseDateConflicts, errors, messages);
+        return providerSummary(report, status, processedArtists, skippedArtists, foundAlbums, newAlbums,
+                existingAlbums, releaseDateConflicts, ignoredProviderRecords, errors, messages);
     }
 
     private void assignToCollectionIfUnassigned(org.kroky.musiclib.model.Album album, String collectionId) {
         if (album != null && collectionId != null && album.collections().isEmpty() && album.localPaths().isEmpty()) {
             albums.assignToCollection(album.id(), collectionId);
+        }
+    }
+
+    private ProviderCheckSummary providerSummary(ProviderCheckReport report, String status, int processedArtists,
+            int skippedArtists, int foundAlbums, int newAlbums, int existingAlbums, int releaseDateConflicts,
+            int ignoredProviderRecords, int errors, List<String> messages) {
+        String message = messages.isEmpty() ? null : messages.get(messages.size() - 1);
+        report.finish(status, processedArtists, skippedArtists, foundAlbums, existingAlbums, newAlbums,
+                releaseDateConflicts, ignoredProviderRecords, errors, message);
+        return new ProviderCheckSummary(processedArtists, skippedArtists, foundAlbums, newAlbums, existingAlbums,
+                releaseDateConflicts, errors, messages, writeReport(report));
+    }
+
+    private List<ReportArtifact> writeReport(ProviderCheckReport report) {
+        try {
+            return List.of(reportWriter.write(report));
+        } catch (Exception e) {
+            LOG.warnf("Unable to write provider check report for %s: %s", report.subject(), e.getMessage());
+            return List.of();
         }
     }
 
@@ -309,12 +331,6 @@ public class ProviderCheckService {
                 : remoteAlbum.sourceUrl();
     }
 
-    private static String releaseDateConflictMessage(String artistName, Album album, RemoteAlbum remoteAlbum) {
-        return "Release date conflict for " + artistName + ": " + album.title()
-                + " | local: " + blankValue(album.releaseDate())
-                + " | provider: " + blankValue(remoteAlbum.releaseDate());
-    }
-
     private static boolean releaseDateConflict(String localReleaseDate, String providerReleaseDate) {
         String localYear = releaseYear(localReleaseDate);
         String providerYear = releaseYear(providerReleaseDate);
@@ -331,6 +347,19 @@ public class ProviderCheckService {
 
     private static String blankValue(String value) {
         return value == null || value.isBlank() ? "<blank>" : value;
+    }
+
+    private static String releaseDateConflictRow(ArtistProviderLink link, Album album, RemoteAlbum remoteAlbum) {
+        return link.artistName() + " (" + providerLabel(link.providerId()) + "): " + album.title()
+                + " | local: " + blankValue(album.releaseDate())
+                + " | provider: " + blankValue(remoteAlbum.releaseDate())
+                + " | provider title: " + blankValue(remoteAlbum.title());
+    }
+
+    private static String providerAlbumRow(ArtistProviderLink link, RemoteAlbum remoteAlbum, Album album) {
+        return link.artistName() + " (" + providerLabel(link.providerId()) + "): " + blankValue(remoteAlbum.title())
+                + " | release: " + blankValue(remoteAlbum.releaseDate())
+                + (album == null ? "" : " | local album: " + album.title());
     }
 
     private static String skippedSummary(int skippedArtists, int initialSkippedArtists, int recentlySkippedArtists) {

@@ -9,7 +9,6 @@ import org.kroky.musiclib.model.MusicCollection;
 
 class ScanReport {
 
-    private final long runId;
     private final String kind;
     private final MusicCollection collection;
     private final Path collectionRoot;
@@ -33,8 +32,7 @@ class ScanReport {
     private int skippedCount;
     private String summaryMessage;
 
-    ScanReport(long runId, String kind, MusicCollection collection, Path collectionRoot) {
-        this.runId = runId;
+    ScanReport(String kind, MusicCollection collection, Path collectionRoot) {
         this.kind = kind;
         this.collection = collection;
         this.collectionRoot = collectionRoot;
@@ -86,10 +84,6 @@ class ScanReport {
         this.missingCount = missingCount;
         this.skippedCount = skippedCount;
         this.summaryMessage = summaryMessage;
-    }
-
-    long runId() {
-        return runId;
     }
 
     String kind() {

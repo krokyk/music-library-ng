@@ -1,31 +1,19 @@
 package org.kroky.musiclib.resource;
 
-import java.util.List;
-
 import org.jboss.logging.Logger;
-import org.kroky.musiclib.model.ScanEvent;
 import org.kroky.musiclib.model.ScanJobStatus;
-import org.kroky.musiclib.model.ScanRun;
-import org.kroky.musiclib.repository.ScanRunRepository;
 import org.kroky.musiclib.scan.ScanJobService;
 
 import jakarta.inject.Inject;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.QueryParam;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.GET;
 
 @Path("/api/scan")
 public class ScanResource {
 
     private static final Logger LOG = Logger.getLogger(ScanResource.class);
-
-    @Inject
-    ScanRunRepository scanRuns;
 
     @Inject
     ScanJobService scanJobs;
@@ -59,25 +47,4 @@ public class ScanResource {
         return scanJobs.cancelCurrent();
     }
 
-    @GET
-    @Path("/runs")
-    public List<ScanRun> runs(@QueryParam("limit") Integer limit) {
-        LOG.infof("Listing scan runs limit=%s", limit);
-        return scanRuns.listRecent(limit == null ? 25 : limit);
-    }
-
-    @GET
-    @Path("/runs/{id}/events")
-    public List<ScanEvent> events(@PathParam("id") long id) {
-        LOG.infof("Listing scan events runId=%d", id);
-        return scanRuns.listEvents(id);
-    }
-
-    @GET
-    @Path("/runs/{id}/report")
-    @Produces(MediaType.TEXT_PLAIN)
-    public String report(@PathParam("id") long id) {
-        LOG.infof("Loading scan report runId=%d", id);
-        return scanRuns.report(id).orElseThrow(NotFoundException::new);
-    }
 }

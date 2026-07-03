@@ -1,4 +1,4 @@
-package org.kroky.musiclib.scan;
+package org.kroky.musiclib.provider;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -10,14 +10,14 @@ import java.util.List;
 
 import org.kroky.musiclib.config.MusicLibraryConfig;
 import org.kroky.musiclib.db.Names;
-import org.kroky.musiclib.model.CollectionType;
 import org.kroky.musiclib.model.ReportArtifact;
+import org.kroky.musiclib.scan.PathResolver;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 @ApplicationScoped
-public class ScanReportWriter {
+public class ProviderCheckReportWriter {
 
     private static final DateTimeFormatter FILE_TIMESTAMP =
             DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss").withZone(ZoneId.systemDefault());
@@ -30,26 +30,27 @@ public class ScanReportWriter {
     @Inject
     PathResolver pathResolver;
 
-    public ReportArtifact write(ScanReport report) {
+    public ReportArtifact write(ProviderCheckReport report) {
         try {
             Path reportRoot = pathResolver.resolve(config.reportDirectory()).normalize();
-            Path scansRoot = reportRoot.resolve("scans");
-            Files.createDirectories(scansRoot);
-            String fileName = uniqueFileName(scansRoot, baseFileName(report));
-            Path reportFile = scansRoot.resolve(fileName);
+            Path providersRoot = reportRoot.resolve("providers");
+            Files.createDirectories(providersRoot);
+            String fileName = uniqueFileName(providersRoot, baseFileName(report));
+            Path reportFile = providersRoot.resolve(fileName);
             String text = render(report);
             Files.writeString(reportFile, text);
-            return new ReportArtifact("Scan report", "scans/" + fileName, text);
+            return new ReportArtifact("Provider Check Report", "providers/" + fileName, text);
         } catch (IOException e) {
-            throw new IllegalStateException("Unable to write scan report", e);
+            throw new IllegalStateException("Unable to write provider check report", e);
         }
     }
 
-    private static String baseFileName(ScanReport report) {
-        String collectionId = report.collection().id() == null ? "collection" : report.collection().id();
-        String safeCollection = Names.normalize(collectionId).replace(' ', '-');
-        String safeKind = Names.normalize(report.kind()).replace(' ', '-');
-        return FILE_TIMESTAMP.format(report.startedAt()) + "_" + safeCollection + "_" + safeKind + ".txt";
+    private static String baseFileName(ProviderCheckReport report) {
+        String safeSubject = Names.normalize(report.subject()).replace(' ', '-');
+        if (safeSubject.isBlank()) {
+            safeSubject = "provider-check";
+        }
+        return FILE_TIMESTAMP.format(report.startedAt()) + "_" + safeSubject + ".txt";
     }
 
     private static String uniqueFileName(Path reportRoot, String fileName) {
@@ -68,16 +69,12 @@ public class ScanReportWriter {
         throw new IllegalStateException("Unable to allocate report file name for " + fileName);
     }
 
-    private static String render(ScanReport report) {
+    private static String render(ProviderCheckReport report) {
         StringBuilder text = new StringBuilder();
-        line(text, "Scan report");
-        line(text, "===========");
+        line(text, "Provider Check Report");
+        line(text, "=====================");
         line(text, "");
-        line(text, "Kind: " + report.kind());
-        line(text, "Collection: " + report.collection().name() + " (" + report.collection().id() + ")");
-        line(text, "Collection type: " + report.collection().type());
-        line(text, "Parser: " + report.collection().parser());
-        line(text, "Root: " + report.collectionRoot());
+        line(text, "Subject: " + report.subject());
         line(text, "Started: " + DISPLAY_TIMESTAMP.format(report.startedAt()));
         line(text, "Finished: " + (report.finishedAt() == null ? "" : DISPLAY_TIMESTAMP.format(report.finishedAt())));
         line(text, "Duration: " + duration(report));
@@ -86,22 +83,28 @@ public class ScanReportWriter {
 
         line(text, "Summary");
         line(text, "-------");
-        line(text, "Dirs scanned: " + report.scannedDirs() + "/" + report.totalDirs());
-        summaryCounts(text, report);
-        line(text, "Local paths removed: " + report.missingCount());
-        line(text, "Folders skipped: " + report.skippedCount());
+        line(text, "Artists checked: " + report.artistsChecked());
+        line(text, "Artists skipped: " + report.artistsSkippedCount());
+        line(text, "Provider albums found: " + report.providerAlbumsFound());
+        line(text, "Already in library: " + report.alreadyInLibraryCount());
+        line(text, "Release date conflicts: " + report.releaseDateConflictCount());
+        line(text, "Added as unchecked: " + report.addedAsUncheckedCount());
+        line(text, "Provider records ignored: " + report.ignoredProviderRecordCount());
+        line(text, "Errors: " + report.errorCount());
         line(text, "");
 
-        section(text, "Created", report.created());
-        section(text, "Existing", report.existing());
-        section(text, "Skipped", report.skipped());
-        section(text, "Removed local paths", report.missing());
-        section(text, "Warnings", report.warnings());
+        section(text, "Errors", report.errors());
+        section(text, "Added As Unchecked", report.addedAsUnchecked());
+        section(text, "Already In Library", report.alreadyInLibrary());
+        section(text, "Release Date Conflicts", report.releaseDateConflicts());
+        section(text, "Provider Records Ignored", report.ignoredProviderRecords());
+        section(text, "Artists Skipped", report.artistsSkipped());
+        section(text, "No Changes", report.noChanges());
         section(text, "Notes", report.notes());
         return text.toString();
     }
 
-    private static String duration(ScanReport report) {
+    private static String duration(ProviderCheckReport report) {
         if (report.finishedAt() == null) {
             return "";
         }
@@ -110,20 +113,6 @@ public class ScanReportWriter {
 
     private static String value(String value) {
         return value == null ? "" : value;
-    }
-
-    private static void summaryCounts(StringBuilder text, ScanReport report) {
-        if (report.collection().type() == CollectionType.TITLE) {
-            line(text, "Titles parsed: " + report.parsedCount());
-            line(text, "Titles created: " + report.createdCount());
-            line(text, "Titles existing: " + report.existingCount());
-            line(text, "Contributor artists found: " + report.artistCount());
-            return;
-        }
-        line(text, "Artists found: " + report.artistCount());
-        line(text, "Albums parsed: " + report.parsedCount());
-        line(text, "Albums created: " + report.createdCount());
-        line(text, "Albums existing: " + report.existingCount());
     }
 
     private static void section(StringBuilder text, String title, List<String> rows) {

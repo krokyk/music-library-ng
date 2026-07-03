@@ -189,6 +189,7 @@ Keeping the local year preserves the local folder metadata while preventing futu
 Kept-local year decisions can be reset from the Artists detail year chip so the mismatch becomes unresolved again.
 Using the provider year renames every on-disk local folder for the album, updates the database local paths and release date, resolves grouped provider links, merges provider-only duplicates, and updates supported audio file year tags.
 Local album scans and provider scans run in background jobs so the workspace remains navigable while status updates continue.
+Local and provider scans write plaintext reports under `data/reports`, and clickable status-history reports are kept only for the current window session.
 Scan buttons and write actions such as add, edit, delete, and provider-link changes are disabled while a local or provider scan is running.
 Batch provider scans skip provider links checked within the configured batch rescan delay, while individual artist provider scans always run.
 The Artists view can bulk-match visible unlinked artists against MusicBrainz, Spirit of Metal, or Metal Archives after search and collection filters are applied.

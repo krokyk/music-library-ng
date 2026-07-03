@@ -3,7 +3,6 @@ package org.kroky.musiclib.model;
 import java.util.List;
 
 public record ScanJobStatus(
-        String id,
         String status,
         String kind,
         String requestedCollectionId,
@@ -22,5 +21,5 @@ public record ScanJobStatus(
         int skippedCount,
         boolean cancelRequested,
         String message,
-        List<Long> runIds) {
+        List<ReportArtifact> reports) {
 }

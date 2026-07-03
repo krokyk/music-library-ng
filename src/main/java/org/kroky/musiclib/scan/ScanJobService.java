@@ -1,13 +1,13 @@
 package org.kroky.musiclib.scan;
 
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.kroky.musiclib.model.CollectionType;
+import org.kroky.musiclib.model.ReportArtifact;
 import org.kroky.musiclib.model.ScanJobStatus;
 import org.kroky.musiclib.model.ScanSummary;
 import org.kroky.musiclib.repository.ArtistRepository;
@@ -52,8 +52,8 @@ public class ScanJobService {
         }
 
         String normalizedCollectionId = blankToNull(collectionId);
-        ScanJob job = new ScanJob(UUID.randomUUID().toString(), kind, normalizedCollectionId,
-                collectionName(normalizedCollectionId), artistId, artistName(artistId));
+        ScanJob job = new ScanJob(kind, normalizedCollectionId, collectionName(normalizedCollectionId), artistId,
+                artistName(artistId));
         currentJob.set(job);
         executor.submit(() -> run(job));
         return job.status();
@@ -99,7 +99,7 @@ public class ScanJobService {
 
             List<ScanSummary> summaries = runScan(job, progress);
             if (job.cancelRequested.get()) {
-                job.finish("CANCELLED", "Scan cancelled.");
+                job.finish("CANCELLED", "Scan cancelled.", summaries);
             } else {
                 job.finish("DONE", summarize(job, summaries), summaries);
             }
@@ -191,14 +191,13 @@ public class ScanJobService {
     }
 
     private static ScanJobStatus idleStatus() {
-        return new ScanJobStatus("", "IDLE", "COLLECTION", null, null, null, null, null, null, null, null, 0, 0, 0,
+        return new ScanJobStatus("IDLE", "COLLECTION", null, null, null, null, null, null, null, null, 0, 0, 0,
                 0, 0, 0, false,
                 null,
                 List.of());
     }
 
     private class ScanJob {
-        private final String id;
         private final String kind;
         private final String requestedCollectionId;
         private final String requestedCollectionName;
@@ -217,11 +216,10 @@ public class ScanJobService {
         private int createdCount;
         private int skippedCount;
         private String message;
-        private List<Long> runIds = List.of();
+        private List<ReportArtifact> reports = List.of();
 
-        private ScanJob(String id, String kind, String requestedCollectionId, String requestedCollectionName,
+        private ScanJob(String kind, String requestedCollectionId, String requestedCollectionName,
                 Long requestedArtistId, String requestedArtistName) {
-            this.id = id;
             this.kind = kind;
             this.requestedCollectionId = requestedCollectionId;
             this.requestedCollectionName = requestedCollectionName;
@@ -272,13 +270,12 @@ public class ScanJobService {
             this.parsedCount = summaries.stream().mapToInt(ScanSummary::parsedCount).sum();
             this.createdCount = summaries.stream().mapToInt(ScanSummary::createdCount).sum();
             this.skippedCount = summaries.stream().mapToInt(ScanSummary::skippedCount).sum();
-            this.runIds = summaries.stream().map(ScanSummary::runId).toList();
+            this.reports = summaries.stream().flatMap(summary -> summary.reports().stream()).toList();
             finish(status, message);
         }
 
         synchronized ScanJobStatus status() {
             return new ScanJobStatus(
-                    id,
                     status,
                     kind,
                     requestedCollectionId,
@@ -297,7 +294,7 @@ public class ScanJobService {
                     skippedCount,
                     cancelRequested.get(),
                     message,
-                    runIds);
+                    reports);
         }
 
         private String collectionLabel() {

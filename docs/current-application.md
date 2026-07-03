@@ -6,7 +6,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 ## Product Boundary
 
 - Music Library NG is a local-first music collection app for one user running on one PC at a time.
-- The backend is Quarkus on Java 21 with SQLite storage initialized from `src/main/resources/db/migration/V1__init.sql`.
+- The backend is Quarkus on Java 21 with SQLite storage initialized by Flyway migrations under `src/main/resources/db/migration`.
 - The frontend is Vue 3, Pinia, Vuetify, and Vite, and the production frontend is served by the Quarkus backend.
 - The default app URL is `http://localhost:8795/`.
 - Runtime data lives under `data/`.
@@ -42,8 +42,6 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - `providers` stores supported provider kinds.
 - `artist_provider_links` stores one provider identity per artist plus provider country, active-status, and disambiguation evidence.
 - `album_provider_links` stores provider release-group mappings to local albums and optional release-date conflict resolution.
-- `scan_runs` and `scan_events` store local scan history.
-- `provider_check_runs` and `provider_check_events` store provider check history, including release-date conflict counts.
 - `user_preferences` stores runtime preference overrides.
 
 ## Album State
@@ -85,7 +83,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 ## Local Scans
 
 - User-facing local scan actions run through scan job flows.
-- Scan jobs provide status, progress, cancellation, history, reports, and post-scan refresh behavior.
+- Scan jobs provide status, progress, cancellation, current-session report artifacts, and post-scan refresh behavior.
 - Collection scans enumerate direct child directories under the selected collection root.
 - Title collection scans parse direct child folders into album rows and contributor artist links when artist metadata exists.
 - Title collection scans assign scanned albums to the collection and upsert local path evidence.
@@ -97,6 +95,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Local scans preserve album rows, checked state, and collection membership when a local path disappears.
 - Local scans do not scan tracks.
 - Scan reports are generated as plain text and stored under the configured report directory.
+- Scan report files use a timestamp, collection id, and report kind in their filename, with a numeric suffix only when needed to avoid overwriting an existing file.
 - Scan reports render structured summary counts and do not duplicate the completion status message.
 - Artist collection scan summaries distinguish artists found from albums parsed.
 
@@ -126,8 +125,19 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Individual artist provider checks always run even when the artist was checked recently.
 - Provider checks do not infer local disk presence.
 - Provider checks do not delete local albums or local path evidence because a provider omits a release.
+- Provider checks generate plain text report files under the configured report directory.
+- Provider report files use a timestamp and short report subject in their filename, with a numeric suffix only when needed to avoid overwriting an existing file.
 - HTML provider checks link same-title local albums with mismatched years to the provider release and record unresolved release-date conflicts instead of creating duplicate unchecked albums.
 - Unresolved provider release-date conflicts remain visible after a provider check through the global conflict list.
+
+## Status History And Reports
+
+- The status bar and status history are current-window session state only.
+- Status history is not persisted in SQLite and is lost after reload or app exit.
+- Completed scan and provider-check status entries can carry one or more report artifacts returned by the completed job.
+- Report dialog navigation such as `1/3` is the current report index inside the in-memory status history.
+- Reports omit internal identifiers.
+- Durable audit data comes from the generated plain text files under `data/reports`, not from database job tables.
 - The global conflict list groups multiple provider sources for the same local album and provider year into one conflict row.
 - Keeping the local year marks all grouped provider releases as resolved against the local album so future provider checks do not add the provider album again.
 - Kept-local year decisions remain visible in the Artists detail known-album list and can be reset from the year chip to make the mismatch unresolved again.
@@ -221,8 +231,8 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Generic artist provider links also exist under `/api/artists/{artistId}/provider-links`.
 - Provider candidate search uses `GET /api/artists/{artistId}/provider-candidates/{providerId}`.
 - Provider bulk matching uses `POST /api/provider-matches/{providerId}/artists`.
-- Scan jobs and scan history use `/api/scan`.
-- Provider check jobs and provider history use `/api/provider-checks`.
+- Scan jobs use `/api/scan`.
+- Provider check jobs use `/api/provider-checks`.
 - Unresolved provider release-date conflicts use `GET /api/provider-conflicts/release-dates`.
 - Provider release-date conflict actions use `/api/albums/{albumId}/provider-links/{providerLinkId}/release-date-conflict`.
 - Resetting a kept-local release-date decision uses `POST /api/albums/{albumId}/provider-links/{providerLinkId}/release-date-conflict/reset-keep-local`.

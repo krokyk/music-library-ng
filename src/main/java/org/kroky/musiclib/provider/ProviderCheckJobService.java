@@ -2,7 +2,6 @@ package org.kroky.musiclib.provider;
 
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -11,6 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.kroky.musiclib.model.ArtistProviderLink;
 import org.kroky.musiclib.model.ProviderCheckJobStatus;
 import org.kroky.musiclib.model.ProviderCheckSummary;
+import org.kroky.musiclib.model.ReportArtifact;
 import org.kroky.musiclib.repository.ArtistRepository;
 import org.kroky.musiclib.repository.MusicCollectionRepository;
 
@@ -64,7 +64,6 @@ public class ProviderCheckJobService {
         }
 
         ProviderCheckJob job = new ProviderCheckJob(
-                UUID.randomUUID().toString(),
                 kind,
                 collectionId,
                 collectionName(collectionId),
@@ -185,12 +184,11 @@ public class ProviderCheckJobService {
     }
 
     private static ProviderCheckJobStatus idleStatus() {
-        return new ProviderCheckJobStatus("", "IDLE", PROVIDER_COLLECTION, null, null, null, null, null, null, 0, 0,
+        return new ProviderCheckJobStatus("IDLE", PROVIDER_COLLECTION, null, null, null, null, null, null, 0, 0,
                 0, 0, 0, 0, 0, 0, false, null, List.of(), List.of());
     }
 
     private class ProviderCheckJob {
-        private final String id;
         private final String kind;
         private final String requestedCollectionId;
         private final String requestedCollectionName;
@@ -210,11 +208,10 @@ public class ProviderCheckJobService {
         private int errorCount;
         private String message;
         private final LinkedHashSet<Long> artistIds = new LinkedHashSet<>();
-        private List<Long> runIds = List.of();
+        private List<ReportArtifact> reports = List.of();
 
-        private ProviderCheckJob(String id, String kind, String requestedCollectionId, String requestedCollectionName,
+        private ProviderCheckJob(String kind, String requestedCollectionId, String requestedCollectionName,
                 Long requestedArtistId, String requestedArtistName) {
-            this.id = id;
             this.kind = kind;
             this.requestedCollectionId = requestedCollectionId;
             this.requestedCollectionName = requestedCollectionName;
@@ -287,13 +284,12 @@ public class ProviderCheckJobService {
             this.existingAlbumCount = summary.existingAlbumCount();
             this.releaseDateConflictCount = summary.releaseDateConflictCount();
             this.errorCount = summary.errorCount();
-            this.runIds = List.of(summary.runId());
+            this.reports = summary.reports();
             finish(status, message);
         }
 
         synchronized ProviderCheckJobStatus status() {
             return new ProviderCheckJobStatus(
-                    id,
                     status,
                     kind,
                     requestedCollectionId,
@@ -313,7 +309,7 @@ public class ProviderCheckJobService {
                     cancelRequested.get(),
                     message,
                     List.copyOf(artistIds),
-                    runIds);
+                    reports);
         }
 
         private void addArtistId(Long artistId) {

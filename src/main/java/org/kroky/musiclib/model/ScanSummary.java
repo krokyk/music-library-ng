@@ -3,7 +3,6 @@ package org.kroky.musiclib.model;
 import java.util.List;
 
 public record ScanSummary(
-        long runId,
         String collectionId,
         String status,
         int artistCount,
@@ -12,5 +11,6 @@ public record ScanSummary(
         int updatedCount,
         int missingCount,
         int skippedCount,
-        List<String> messages) {
+        List<String> messages,
+        List<ReportArtifact> reports) {
 }
