@@ -15,9 +15,7 @@ import type {
   MusicRootInfo,
   MusicCollection,
   ProviderCheckJobStatus,
-  ProviderCheckSummary,
   ProviderReleaseDateConflict,
-  ProviderRefreshResult,
   ReportArtifact,
   ScanJobStatus,
   StatusHistoryEntry,
@@ -460,13 +458,16 @@ export const useLibraryStore = defineStore('library', {
       this.invalidateCollectionMetadata(this.selectedCollectionId)
       return updated
     },
-    async deleteTitleLocalPath(item: Album) {
+    async removeTitleFromSelectedCollection(item: Album) {
       if (!this.selectedCollectionId) {
         return
       }
-      await apiSend(`/api/collections/${encodeURIComponent(this.selectedCollectionId)}/titles/${item.id}`, 'DELETE')
-      await this.loadTitlesForCollection(this.selectedCollectionId, true)
-      this.invalidateCollectionMetadata(this.selectedCollectionId)
+      const collectionId = this.selectedCollectionId
+      const updated = await apiSend<Album>(`/api/collections/${encodeURIComponent(collectionId)}/titles/${item.id}`, 'DELETE')
+      this.replaceAlbum(updated)
+      this.invalidateCollectionMetadata(collectionId)
+      await this.loadTitlesForCollection(collectionId, true)
+      return updated
     },
     async loadArtistsForSelectedCollection() {
       if (!this.selectedCollectionId) {
@@ -659,14 +660,19 @@ export const useLibraryStore = defineStore('library', {
       await this.refreshCollectionContext()
       return updated
     },
-    async deleteAlbum(albumId: number) {
-      await apiSend(`/api/albums/${albumId}`, 'DELETE')
-      this.albums = this.albums.filter((album) => album.id !== albumId)
-      this.collectionAlbums = this.collectionAlbums.filter((album) => album.id !== albumId)
-      this.collectionTitleItems = this.collectionTitleItems.filter((album) => album.id !== albumId)
-      this.removeCachedAlbum(albumId)
+    async removeAlbumFromSelectedCollection(album: Album) {
+      if (!this.selectedCollectionId) {
+        return album
+      }
+      const collectionId = this.selectedCollectionId
+      const updated = await apiSend<Album>(
+        `/api/collections/${encodeURIComponent(collectionId)}/albums/${album.id}`,
+        'DELETE',
+      )
+      this.replaceAlbum(updated)
+      this.invalidateCollectionMetadata(collectionId)
       await this.refreshCollectionContext()
-      this.invalidateCollectionMetadata()
+      return updated
     },
     async deleteArtist(artistId: number) {
       await apiSend(`/api/artists/${artistId}`, 'DELETE')
@@ -1125,9 +1131,6 @@ export const useLibraryStore = defineStore('library', {
     async savePreference(key: string, value: string) {
       return apiSend<UserPreference>(`/api/preferences/${encodeURIComponent(key)}`, 'PUT', { value })
     },
-    async loadProviderLinks(artistId: number) {
-      this.providerLinks[artistId] = await apiGet<ArtistProviderLink[]>(`/api/artists/${artistId}/provider-links`)
-    },
     async loadArtistProvider(artistId: number) {
       try {
         const provider = await apiGet<ArtistProviderLink>(`/api/artists/${artistId}/provider`)
@@ -1226,146 +1229,6 @@ export const useLibraryStore = defineStore('library', {
         ? this.selectedCollectionId
         : null
     },
-    async saveProviderLink(artistId: number, payload: ProviderLinkPayload) {
-      const body = {
-        providerId: payload.providerId,
-        providerArtistId: payload.providerArtistId,
-        providerArtistName: payload.providerArtistName,
-        providerCountry: payload.providerCountry,
-        providerDisambiguation: payload.providerDisambiguation,
-        providerActive: payload.providerActive,
-        providerUrl: payload.providerUrl,
-        enabled: payload.enabled,
-      }
-      if (payload.id) {
-        await apiSend<ArtistProviderLink>(`/api/artists/${artistId}/provider-links/${payload.id}`, 'PUT', body)
-      } else {
-        await apiSend<ArtistProviderLink>(`/api/artists/${artistId}/provider-links`, 'POST', body)
-      }
-      await this.loadProviderLinks(artistId)
-      this.invalidateCollectionContent()
-      await this.loadArtists()
-      await this.refreshCollectionContext()
-    },
-    async addProviderLink(artistId: number, providerId: string, providerUrl: string) {
-      await this.saveProviderLink(artistId, { providerId, providerUrl, enabled: true })
-    },
-    async deleteProviderLink(artistId: number, linkId: number) {
-      await apiSend(`/api/artists/${artistId}/provider-links/${linkId}`, 'DELETE')
-      await this.loadProviderLinks(artistId)
-      this.invalidateCollectionContent()
-      await this.loadArtists()
-      await this.refreshCollectionContext()
-    },
-    async refreshArtistProvider(artistId: number) {
-      const artistName = this.collectionArtists.find((artist) => artist.id === artistId)?.name
-        ?? this.artists.find((artist) => artist.id === artistId)?.name
-        ?? `artist ${artistId}`
-      this.providerStatus = { running: true, message: `Refreshing MusicBrainz for ${artistName}`, state: 'running' }
-      try {
-        const result = await apiSend<ProviderRefreshResult>(`/api/artists/${artistId}/provider/refresh`, 'POST')
-        await this.loadProviderReleaseDateConflicts()
-        this.invalidateCollectionContent(this.selectedCollectionId ?? undefined)
-        await this.loadArtists()
-        await this.refreshCollectionContext()
-        this.invalidateCollectionMetadata(this.selectedCollectionId ?? undefined)
-        const detail = result.messages.join(' ').trim()
-        const message = detail || `MusicBrainz refresh complete: ${result.createdAlbumCount} new albums`
-        this.providerStatus = {
-          running: false,
-          message,
-          state: result.releaseDateConflictCount > 0 ? 'warning' : 'done',
-          reports: result.reports,
-        }
-        return result
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        this.providerStatus = { running: false, message: `MusicBrainz refresh failed: ${message}`, state: 'failed' }
-        throw error
-      }
-    },
-    async checkArtistProvider(artistId: number) {
-      const artistName = this.collectionArtists.find((artist) => artist.id === artistId)?.name
-        ?? this.artists.find((artist) => artist.id === artistId)?.name
-        ?? `artist ${artistId}`
-      this.providerStatus = { running: true, message: `Checking provider links for ${artistName}`, state: 'running' }
-      try {
-        const summary = await apiSend<ProviderCheckSummary>(
-          withQuery(`/api/provider-checks/artist/${artistId}`, { collectionId: this.selectedCollectionId }),
-          'POST',
-        )
-        await this.loadProviderReleaseDateConflicts()
-        this.invalidateCollectionContent(this.selectedCollectionId ?? undefined)
-        await this.loadArtists()
-        await this.refreshCollectionContext()
-        this.invalidateCollectionMetadata(this.selectedCollectionId ?? undefined)
-        const detail = summary.messages.join(' ').trim()
-        const message = detail || `Provider check complete: ${summary.newAlbumCount} new albums`
-        this.providerStatus = {
-          running: false,
-          message,
-          state: providerSummaryState(summary),
-          reports: summary.reports,
-        }
-        return summary
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        this.providerStatus = { running: false, message: `Provider check failed: ${message}`, state: 'failed' }
-        throw error
-      }
-    },
-    async checkCollectionProviders(collectionId: string) {
-      const collection = this.collections.find((item) => item.id === collectionId)
-      const collectionName = collection?.name ?? collectionId
-      this.providerStatus = { running: true, message: `Checking provider links for ${collectionName}`, state: 'running' }
-      try {
-        const summary = await apiSend<ProviderCheckSummary>(
-          `/api/provider-checks/collection/${encodeURIComponent(collectionId)}`,
-          'POST',
-        )
-        await this.loadProviderReleaseDateConflicts()
-        this.invalidateCollectionContent(collectionId)
-        await this.loadArtists()
-        await this.refreshCollectionContext()
-        this.invalidateCollectionMetadata(collectionId)
-        const detail = summary.messages.join(' ').trim()
-        const message = detail || `Provider check complete: ${summary.newAlbumCount} new albums`
-        this.providerStatus = {
-          running: false,
-          message,
-          state: providerSummaryState(summary),
-          reports: summary.reports,
-        }
-        return summary
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        this.providerStatus = { running: false, message: `Provider check failed: ${message}`, state: 'failed' }
-        throw error
-      }
-    },
-    async checkAllProviders() {
-      this.providerStatus = { running: true, message: 'Checking all provider links', state: 'running' }
-      try {
-        const summary = await apiSend<ProviderCheckSummary>('/api/provider-checks/all', 'POST')
-        this.invalidateCollectionContent()
-        await this.loadAll()
-        await this.refreshCollectionContext()
-        this.invalidateCollectionMetadata()
-        const detail = summary.messages.join(' ').trim()
-        const message = detail || `Provider check complete: ${summary.newAlbumCount} new albums`
-        this.providerStatus = {
-          running: false,
-          message,
-          state: providerSummaryState(summary),
-          reports: summary.reports,
-        }
-        return summary
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        this.providerStatus = { running: false, message: `Provider check failed: ${message}`, state: 'failed' }
-        throw error
-      }
-    },
   },
 })
 
@@ -1391,19 +1254,6 @@ function uniqueArtistIds(artistIds: Array<number | null | undefined>) {
 
 function artistMap(artists: Artist[]) {
   return new Map(artists.map((artist) => [artist.id, artist]))
-}
-
-function providerSummaryState(summary: ProviderCheckSummary): StatusHistoryEntry['state'] {
-  if (summary.errorCount > 0) {
-    return 'failed'
-  }
-  if (summary.releaseDateConflictCount > 0) {
-    return 'warning'
-  }
-  if (summary.messages.some((message) => message.includes('No enabled provider links found'))) {
-    return 'warning'
-  }
-  return 'done'
 }
 
 function providerConflictPath(conflict: ProviderReleaseDateConflict, action: string) {

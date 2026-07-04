@@ -102,24 +102,6 @@ public class ArtistProviderLinkRepository {
         }
     }
 
-    public Optional<ArtistProviderLink> find(long id) {
-        String sql = baseSelect() + " WHERE apl.id = ?";
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, id);
-            try (ResultSet rs = statement.executeQuery()) {
-                return rs.next() ? Optional.of(map(rs)) : Optional.empty();
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to find provider link " + id, e);
-        }
-    }
-
-    public ArtistProviderLink create(long artistId, String providerId, String providerUrl, boolean enabled) {
-        return upsertForArtist(artistId, providerId, derivedProviderArtistId(providerId, providerUrl), null,
-                providerUrl, enabled);
-    }
-
     public ArtistProviderLink upsertForArtist(long artistId, String providerId, String providerArtistId,
             String providerArtistName, String providerUrl, boolean enabled) {
         return upsertForArtist(artistId, providerId, providerArtistId, providerArtistName, providerUrl,
@@ -172,50 +154,6 @@ public class ArtistProviderLinkRepository {
         }
     }
 
-    public Optional<ArtistProviderLink> update(long id, String providerId, String providerUrl, boolean enabled) {
-        return update(id, providerId, derivedProviderArtistId(providerId, providerUrl), null, providerUrl, enabled);
-    }
-
-    public Optional<ArtistProviderLink> update(long id, String providerId, String providerArtistId,
-            String providerArtistName, String providerUrl, boolean enabled) {
-        return update(id, providerId, providerArtistId, providerArtistName, providerUrl,
-                null, null, null, enabled);
-    }
-
-    public Optional<ArtistProviderLink> update(long id, String providerId, String providerArtistId,
-            String providerArtistName, String providerUrl, String providerCountry,
-            String providerDisambiguation, Boolean providerActive, boolean enabled) {
-        String sql = """
-                UPDATE artist_provider_links
-                SET provider_id = ?,
-                    provider_artist_id = ?,
-                    provider_artist_name = ?,
-                    country = ?,
-                    disambiguation = ?,
-                    active = ?,
-                    provider_url = ?,
-                    enabled = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, providerId);
-            statement.setString(2, blankToNull(providerArtistId));
-            statement.setString(3, blankToNull(providerArtistName));
-            statement.setString(4, countryCode(providerCountry));
-            statement.setString(5, blankToNull(providerDisambiguation));
-            setNullableBoolean(statement, 6, providerActive);
-            statement.setString(7, blankToNull(providerUrl));
-            statement.setInt(8, enabled ? 1 : 0);
-            statement.setLong(9, id);
-            statement.executeUpdate();
-            return find(id);
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to update provider link " + id, e);
-        }
-    }
-
     public void updateProviderMetadata(long id, String providerCountry, Boolean providerActive) {
         String sql = """
                 UPDATE artist_provider_links
@@ -242,16 +180,6 @@ public class ArtistProviderLinkRepository {
             statement.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to delete provider for artist " + artistId, e);
-        }
-    }
-
-    public void delete(long id) {
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement("DELETE FROM artist_provider_links WHERE id = ?")) {
-            statement.setLong(1, id);
-            statement.executeUpdate();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to delete provider link " + id, e);
         }
     }
 
@@ -323,35 +251,6 @@ public class ArtistProviderLinkRepository {
                 rs.getString("last_error_message"),
                 rs.getString("created_at"),
                 rs.getString("updated_at"));
-    }
-
-    private static String derivedProviderArtistId(String providerId, String providerUrl) {
-        if ("musicbrainz".equals(providerId)) {
-            return musicBrainzIdFromUrl(providerUrl);
-        }
-        return blankToNull(providerUrl);
-    }
-
-    private static String musicBrainzIdFromUrl(String providerUrl) {
-        String value = blankToNull(providerUrl);
-        if (value == null) {
-            return null;
-        }
-        int marker = value.indexOf("/artist/");
-        if (marker >= 0) {
-            String suffix = value.substring(marker + "/artist/".length());
-            int slash = suffix.indexOf('/');
-            int query = suffix.indexOf('?');
-            int end = suffix.length();
-            if (slash >= 0) {
-                end = Math.min(end, slash);
-            }
-            if (query >= 0) {
-                end = Math.min(end, query);
-            }
-            return blankToNull(suffix.substring(0, end));
-        }
-        return value;
     }
 
     private static void setNullableBoolean(PreparedStatement statement, int index, Boolean value) throws Exception {

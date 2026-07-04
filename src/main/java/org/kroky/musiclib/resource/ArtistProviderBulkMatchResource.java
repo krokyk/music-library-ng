@@ -6,6 +6,7 @@ import org.kroky.musiclib.model.ArtistProviderBulkMatchResult;
 import org.kroky.musiclib.provider.ArtistProviderBulkMatchService;
 
 import jakarta.inject.Inject;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -21,8 +22,11 @@ public class ArtistProviderBulkMatchResource {
     @POST
     public ArtistProviderBulkMatchResult match(@PathParam("providerId") String providerId,
             ArtistProviderBulkMatchRequest request) {
-        int requested = request == null || request.artistIds() == null ? 0 : request.artistIds().size();
+        if (request == null || request.artistIds() == null) {
+            throw new BadRequestException("artistIds is required");
+        }
+        int requested = request.artistIds().size();
         LOG.infof("Bulk provider artist match request provider=%s artists=%d", providerId, requested);
-        return bulkMatches.matchProviderArtists(providerId, request == null ? null : request.artistIds());
+        return bulkMatches.matchProviderArtists(providerId, request.artistIds());
     }
 }

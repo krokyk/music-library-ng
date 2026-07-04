@@ -4,13 +4,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import org.jboss.logging.Logger;
 import org.kroky.musiclib.db.Names;
 import org.kroky.musiclib.model.Album;
 import org.kroky.musiclib.model.ArtistProviderLink;
 import org.kroky.musiclib.model.ProviderRefreshResult;
 import org.kroky.musiclib.model.RemoteReleaseGroup;
-import org.kroky.musiclib.model.ReportArtifact;
 import org.kroky.musiclib.provider.musicbrainz.MusicBrainzArtistResult;
 import org.kroky.musiclib.provider.musicbrainz.MusicBrainzClient;
 import org.kroky.musiclib.repository.AlbumProviderLinkRepository;
@@ -23,8 +21,6 @@ import jakarta.inject.Inject;
 @ApplicationScoped
 public class ArtistProviderRefreshService {
 
-    private static final Logger LOG = Logger.getLogger(ArtistProviderRefreshService.class);
-
     @Inject
     ArtistProviderLinkRepository providerLinks;
 
@@ -35,35 +31,7 @@ public class ArtistProviderRefreshService {
     AlbumProviderLinkRepository albumProviderLinks;
 
     @Inject
-    ProviderCheckReportWriter reportWriter;
-
-    @Inject
     MusicBrainzClient musicBrainz;
-
-    public ProviderRefreshResult refreshArtist(long artistId) throws ProviderException {
-        ArtistProviderLink link = enabledMusicBrainzProvider(artistId);
-        ProviderCheckReport report = new ProviderCheckReport(link.artistName() + " MusicBrainz");
-        try {
-            ProviderRefreshResult result = importMusicBrainz(link, null, report);
-            String message = result.messages().get(result.messages().size() - 1);
-            report.finish("DONE", 1, 0, result.foundReleaseGroupCount(), result.existingAlbumCount(),
-                    result.createdAlbumCount(), result.releaseDateConflictCount(), result.skippedCount(), 0, message);
-            providerLinks.markSuccess(link.id());
-            return withReports(result, writeReport(report));
-        } catch (Exception e) {
-            String errorDetail = ProviderException.describe(e);
-            String message = "MusicBrainz refresh failed for " + link.artistName() + ": " + errorDetail;
-            report.error(link.artistName() + " (MusicBrainz): " + errorDetail);
-            report.finish("FAILED", 1, 0, 0, 0, 0, 0, 0, 1, message);
-            writeReport(report);
-            providerLinks.markError(link.id(), errorDetail);
-            LOG.error(message, e);
-            if (e instanceof ProviderException providerException) {
-                throw providerException;
-            }
-            throw new ProviderException(message, e);
-        }
-    }
 
     public ProviderRefreshResult importMusicBrainz(ArtistProviderLink link, ProviderCheckReport report)
             throws ProviderException {
@@ -193,39 +161,6 @@ public class ArtistProviderRefreshService {
                 releaseGroup.title(),
                 releaseGroup.releaseDate(),
                 releaseGroup.providerUrl());
-    }
-
-    private ProviderRefreshResult withReports(ProviderRefreshResult result, List<ReportArtifact> reports) {
-        return new ProviderRefreshResult(
-                result.artistId(),
-                result.artistName(),
-                result.providerId(),
-                result.foundReleaseGroupCount(),
-                result.existingAlbumCount(),
-                result.createdAlbumCount(),
-                result.releaseDateConflictCount(),
-                result.skippedCount(),
-                result.messages(),
-                reports);
-    }
-
-    private List<ReportArtifact> writeReport(ProviderCheckReport report) {
-        try {
-            return List.of(reportWriter.write(report));
-        } catch (Exception e) {
-            LOG.warnf("Unable to write provider check report for %s: %s", report.subject(), e.getMessage());
-            return List.of();
-        }
-    }
-
-    private ArtistProviderLink enabledMusicBrainzProvider(long artistId) {
-        ArtistProviderLink link = providerLinks.findByArtist(artistId)
-                .orElseThrow(() -> new IllegalArgumentException("No provider assigned to artist " + artistId));
-        if (!link.enabled()) {
-            throw new IllegalArgumentException("Artist provider is disabled");
-        }
-        requireMusicBrainzIdentity(link);
-        return link;
     }
 
     private static void requireMusicBrainzIdentity(ArtistProviderLink link) {

@@ -488,16 +488,6 @@ public class ScanService {
         return artistIds;
     }
 
-    private List<Long> upsertArtists(String artistName, String collectionId) {
-        List<Long> artistIds = new ArrayList<>();
-        for (String name : ArtistNames.splitList(artistName)) {
-            UpsertResult artistResult = artistRepository.upsertByName(name);
-            artistRepository.assignToCollection(artistResult.id(), collectionId, false);
-            artistIds.add(artistResult.id());
-        }
-        return artistIds;
-    }
-
     private Optional<NestedArtistFolder> nestedArtistFolder(Path artistFolder, String collectionId) throws Exception {
         List<Path> albumFolders = directChildDirectories(artistFolder);
         List<LocalAlbumCandidate> albums = new ArrayList<>();

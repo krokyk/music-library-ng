@@ -1,9 +1,7 @@
 package org.kroky.musiclib.resource;
 
 import org.kroky.musiclib.model.ProviderCheckJobStatus;
-import org.kroky.musiclib.model.ProviderCheckSummary;
 import org.kroky.musiclib.provider.ProviderCheckJobService;
-import org.kroky.musiclib.provider.ProviderCheckService;
 
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -14,9 +12,6 @@ import jakarta.ws.rs.QueryParam;
 
 @Path("/api/provider-checks")
 public class ProviderCheckResource {
-
-    @Inject
-    ProviderCheckService checks;
 
     @Inject
     ProviderCheckJobService jobs;
@@ -51,31 +46,5 @@ public class ProviderCheckResource {
     @Path("/jobs/current/cancel")
     public ProviderCheckJobStatus cancelCurrentJob() {
         return jobs.cancelCurrent();
-    }
-
-    @POST
-    @Path("/artist/{artistId}")
-    public ProviderCheckSummary checkArtist(
-            @PathParam("artistId") long artistId,
-            @QueryParam("collectionId") String collectionId) {
-        return checks.checkArtist(artistId, collectionId);
-    }
-
-    @POST
-    @Path("/collection/{collectionId}")
-    public ProviderCheckSummary checkCollection(@PathParam("collectionId") String collectionId) {
-        return checks.checkCollection(collectionId);
-    }
-
-    @POST
-    @Path("/provider-link/{linkId}")
-    public ProviderCheckSummary checkProviderLink(@PathParam("linkId") long linkId) {
-        return checks.checkLink(linkId);
-    }
-
-    @POST
-    @Path("/all")
-    public ProviderCheckSummary checkAll() {
-        return checks.checkAll();
     }
 }

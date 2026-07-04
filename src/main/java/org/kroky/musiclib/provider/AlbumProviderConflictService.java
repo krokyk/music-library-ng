@@ -35,6 +35,8 @@ public class AlbumProviderConflictService {
 
     private static final Pattern FLAT_FOLDER =
             Pattern.compile("^(.+?) - (\\d{4}(?:-\\d{2}(?:-\\d{2})?)?) - (.+)$");
+    private static final Pattern NESTED_ALBUM_FOLDER =
+            Pattern.compile("^(\\d{4}(?:-\\d{2}(?:-\\d{2})?)?) - (.+)$");
     private static final Pattern UNSAFE_FOLDER_NAME = Pattern.compile("[<>:\"/\\\\|?*\\p{Cntrl}]");
     private static final Set<String> AUDIO_EXTENSIONS = Set.of(
             "mp3", "flac", "m4a", "mp4", "ogg", "oga", "wav", "aif", "aiff", "wma", "dsf");
@@ -94,7 +96,7 @@ public class AlbumProviderConflictService {
             if (Files.exists(folder.target())) {
                 throw new IllegalStateException("Target folder already exists: " + folder.target());
             }
-            if (!safeDirectFolderName(folder.targetRelativePath())) {
+            if (!safeDirectFolderName(folder.targetFolderName())) {
                 throw new IllegalStateException("Target folder name contains characters that are not safe on Windows: "
                         + folder.targetRelativePath());
             }
@@ -199,7 +201,7 @@ public class AlbumProviderConflictService {
         if (Files.exists(folder.target())) {
             warnings.add("Target folder already exists: " + folder.target());
         }
-        if (!safeDirectFolderName(folder.targetRelativePath())) {
+        if (!safeDirectFolderName(folder.targetFolderName())) {
             warnings.add("Target folder name contains characters that are not safe on Windows: "
                     + folder.targetRelativePath());
         }
@@ -243,9 +245,17 @@ public class AlbumProviderConflictService {
     private ConflictPath conflictPath(AlbumLocalPath localPath, AlbumProviderLink providerLink) {
         var collection = collections.find(localPath.collectionId())
                 .orElseThrow(() -> new IllegalArgumentException("Unknown collection: " + localPath.collectionId()));
-        if (collection.parser() != ParserType.FLAT_ARTIST_YEAR_ALBUM) {
-            throw new IllegalArgumentException("Folder rename is only supported for flat artist-year-album collections.");
+        if (collection.parser() == ParserType.FLAT_ARTIST_YEAR_ALBUM) {
+            return flatConflictPath(localPath, providerLink);
         }
+        if (collection.parser() == ParserType.NESTED_ARTIST_ALBUM) {
+            return nestedConflictPath(localPath, providerLink);
+        }
+        throw new IllegalArgumentException(
+                "Folder rename is only supported for flat and nested artist-album collections.");
+    }
+
+    private ConflictPath flatConflictPath(AlbumLocalPath localPath, AlbumProviderLink providerLink) {
         if (localPath.relativePath().contains("/") || localPath.relativePath().contains("\\")) {
             throw new IllegalArgumentException("Folder rename is only supported for direct album folders.");
         }
@@ -256,7 +266,27 @@ public class AlbumProviderConflictService {
         String targetRelativePath = matcher.group(1) + " - " + providerDateSegment(providerLink) + " - "
                 + providerLink.providerTitle();
         Path source = Path.of(localPath.resolvedPath());
-        return new ConflictPath(localPath, targetRelativePath, source, source.resolveSibling(targetRelativePath));
+        return new ConflictPath(localPath, targetRelativePath, targetRelativePath, source,
+                source.resolveSibling(targetRelativePath));
+    }
+
+    private ConflictPath nestedConflictPath(AlbumLocalPath localPath, AlbumProviderLink providerLink) {
+        String normalizedPath = localPath.relativePath().replace('\\', '/');
+        int separator = normalizedPath.indexOf('/');
+        if (separator <= 0 || separator != normalizedPath.lastIndexOf('/') || separator >= normalizedPath.length() - 1) {
+            throw new IllegalArgumentException("Nested folder rename is only supported for artist/album folders.");
+        }
+        String artistFolder = normalizedPath.substring(0, separator);
+        String albumFolder = normalizedPath.substring(separator + 1);
+        Matcher matcher = NESTED_ALBUM_FOLDER.matcher(albumFolder);
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException("Local folder does not match artist/release date - album layout.");
+        }
+        String targetAlbumFolder = providerDateSegment(providerLink) + " - " + providerLink.providerTitle();
+        String targetRelativePath = artistFolder + "/" + targetAlbumFolder;
+        Path source = Path.of(localPath.resolvedPath());
+        return new ConflictPath(localPath, targetRelativePath, targetAlbumFolder, source,
+                source.resolveSibling(targetAlbumFolder));
     }
 
     private int mergeProviderOnlyDuplicates(Album album, AlbumProviderLink providerLink) {
@@ -395,6 +425,7 @@ public class AlbumProviderConflictService {
     private record ConflictPath(
             AlbumLocalPath localPath,
             String targetRelativePath,
+            String targetFolderName,
             Path source,
             Path target) {
     }

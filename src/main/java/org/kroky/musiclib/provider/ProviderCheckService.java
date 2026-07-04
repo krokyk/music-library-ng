@@ -75,18 +75,6 @@ public class ProviderCheckService {
     @Inject
     ArtistProviderRefreshService artistProviderRefresh;
 
-    public ProviderCheckSummary checkLink(long linkId) {
-        ArtistProviderLink link = providerLinks.find(linkId)
-                .orElseThrow(() -> new IllegalArgumentException("Unknown provider link: " + linkId));
-        ProviderCheckReport report = new ProviderCheckReport(
-                link.artistName() + " " + providerLabel(link.providerId()));
-        return checkLinks(report, List.of(link), 0, null, 0, false, ProgressListener.NONE);
-    }
-
-    public ProviderCheckSummary checkArtist(long artistId) {
-        return checkArtist(artistId, null);
-    }
-
     public ProviderCheckSummary checkArtist(long artistId, String collectionId) {
         if (collectionId != null && collections.find(collectionId).isEmpty()) {
             throw new IllegalArgumentException("Unknown collection: " + collectionId);
@@ -103,10 +91,6 @@ public class ProviderCheckService {
         return checkLinks(report, links, skippedArtists, collectionId, 0, false, ProgressListener.NONE);
     }
 
-    public ProviderCheckSummary checkCollection(String collectionId) {
-        return checkCollection(collectionId, 0, ProgressListener.NONE);
-    }
-
     public ProviderCheckSummary checkCollection(String collectionId, int batchRescanDelayMinutes,
             ProgressListener progress) {
         MusicCollection collection = collections.find(collectionId)
@@ -120,10 +104,6 @@ public class ProviderCheckService {
             report.artistSkipped(skippedArtists + " artists without enabled provider links");
         }
         return checkLinks(report, links, skippedArtists, collection.id(), batchRescanDelayMinutes, true, progress);
-    }
-
-    public ProviderCheckSummary checkAll() {
-        return checkAll(0, ProgressListener.NONE);
     }
 
     public ProviderCheckSummary checkAll(int batchRescanDelayMinutes, ProgressListener progress) {

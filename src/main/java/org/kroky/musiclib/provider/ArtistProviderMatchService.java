@@ -1,9 +1,7 @@
 package org.kroky.musiclib.provider;
 
-import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -56,7 +54,6 @@ public class ArtistProviderMatchService {
         Artist artist = artists.find(artistId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown artist: " + artistId));
         List<Album> localAlbums = albums.list(artist.id(), null, null, null, null).stream()
-                .filter(ArtistProviderMatchService::isScoringAlbum)
                 .filter(Album::onDisk)
                 .toList();
         return searchProviderResults(artist.name(), providerId).stream()
@@ -107,17 +104,14 @@ public class ArtistProviderMatchService {
             details = new CandidateDetails(result.country(), result.active(), List.of());
         }
         List<RemoteReleaseGroup> releaseGroups = details.releaseGroups();
-        Set<String> remoteTitles = releaseGroups.stream()
-                .map(RemoteReleaseGroup::title)
-                .map(Names::normalize)
-                .collect(HashSet::new, Set::add, Set::addAll);
         List<String> matchedAlbums = localAlbums.stream()
-                .filter(album -> remoteTitles.contains(Names.normalize(album.title())))
+                .filter(album -> releaseGroups.stream()
+                        .anyMatch(releaseGroup -> titleMatchesForScoring(album, releaseGroup)))
                 .map(Album::title)
                 .distinct()
                 .toList();
         List<ArtistProviderCandidateAlbum> candidateAlbums = candidateAlbums(localAlbums, releaseGroups);
-        int titleAndYearMatches = titleAndYearMatches(localAlbums, releaseGroups);
+        int titleAndYearMatches = titleAndCompatibleYearMatches(localAlbums, releaseGroups);
         int matchScore = matchScore(
                 artist.name(),
                 result.providerArtistName(),
@@ -201,15 +195,17 @@ public class ArtistProviderMatchService {
                 .orElse(titleMatches.get(0));
     }
 
-    private static int titleAndYearMatches(List<Album> localAlbums, List<RemoteReleaseGroup> releaseGroups) {
+    static boolean titleMatchesForScoring(Album album, RemoteReleaseGroup releaseGroup) {
+        return Names.normalize(album.title()).equals(Names.normalize(releaseGroup.title()));
+    }
+
+    private static int titleAndCompatibleYearMatches(List<Album> localAlbums, List<RemoteReleaseGroup> releaseGroups) {
         int matches = 0;
         for (Album album : localAlbums) {
             String albumTitle = Names.normalize(album.title());
-            String albumYear = releaseYear(album.releaseDate());
             for (RemoteReleaseGroup releaseGroup : releaseGroups) {
                 if (albumTitle.equals(Names.normalize(releaseGroup.title()))
-                        && albumYear != null
-                        && albumYear.equals(releaseYear(releaseGroup.releaseDate()))) {
+                        && knownReleaseYearsScoreCompatible(album.releaseDate(), releaseGroup.releaseDate())) {
                     matches++;
                     break;
                 }
@@ -244,20 +240,37 @@ public class ArtistProviderMatchService {
         return total == 0 ? 0 : (int) Math.round(25.0 * overlap / total);
     }
 
-    private static boolean isScoringAlbum(Album album) {
-        String normalizedTitle = Names.normalize(album.title());
-        if (normalizedTitle.startsWith("ui test ")) {
-            return false;
-        }
-        String year = releaseYear(album.releaseDate());
-        return year == null || Integer.parseInt(year) <= LocalDate.now().getYear() + 1;
-    }
-
     private static String releaseYear(String releaseDate) {
         if (releaseDate == null || releaseDate.length() < 4) {
             return null;
         }
         return releaseDate.substring(0, 4);
+    }
+
+    static boolean releaseYearsScoreCompatible(String localReleaseDate, String providerReleaseDate) {
+        Integer localYear = releaseYearValue(localReleaseDate);
+        Integer providerYear = releaseYearValue(providerReleaseDate);
+        return localYear == null || providerYear == null || Math.abs(localYear - providerYear) <= 1;
+    }
+
+    private static boolean knownReleaseYearsScoreCompatible(String localReleaseDate, String providerReleaseDate) {
+        Integer localYear = releaseYearValue(localReleaseDate);
+        Integer providerYear = releaseYearValue(providerReleaseDate);
+        return localYear != null
+                && providerYear != null
+                && releaseYearsScoreCompatible(localReleaseDate, providerReleaseDate);
+    }
+
+    private static Integer releaseYearValue(String releaseDate) {
+        String year = releaseYear(releaseDate);
+        if (year == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(year);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static boolean releaseDateConflict(String localReleaseDate, String providerReleaseDate) {

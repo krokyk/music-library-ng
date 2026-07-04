@@ -10,7 +10,6 @@ import org.kroky.musiclib.repository.AlbumRepository;
 
 import jakarta.inject.Inject;
 import jakarta.ws.rs.BadRequestException;
-import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.POST;
@@ -64,14 +63,6 @@ public class AlbumResource {
         }
         return albums.update(id, request.title(), request.normalizedReleaseDate(),
                 request.checkedOrDefault(), request.notes()).orElseThrow(NotFoundException::new);
-    }
-
-    @DELETE
-    @Path("/{id}")
-    public Response delete(@PathParam("id") long id) {
-        LOG.infof("Delete album request id=%d", id);
-        albums.delete(id);
-        return Response.noContent().build();
     }
 
     public record AlbumRequest(long artistId, String title, String releaseDate, Boolean checked, String notes) {

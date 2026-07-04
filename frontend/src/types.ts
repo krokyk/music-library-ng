@@ -306,31 +306,6 @@ export interface ArtistProviderBulkMatchResult {
   messages: string[]
 }
 
-export interface ProviderRefreshResult {
-  artistId: number
-  artistName: string
-  providerId: string
-  foundReleaseGroupCount: number
-  existingAlbumCount: number
-  createdAlbumCount: number
-  releaseDateConflictCount: number
-  skippedCount: number
-  messages: string[]
-  reports: ReportArtifact[]
-}
-
-export interface ProviderCheckSummary {
-  processedArtistCount: number
-  skippedArtistCount: number
-  foundAlbumCount: number
-  newAlbumCount: number
-  existingAlbumCount: number
-  releaseDateConflictCount: number
-  errorCount: number
-  messages: string[]
-  reports: ReportArtifact[]
-}
-
 export interface ProviderCheckJobStatus {
   status: string
   kind: 'PROVIDER_ARTIST' | 'PROVIDER_COLLECTION' | 'PROVIDER_ALL'

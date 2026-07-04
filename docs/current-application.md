@@ -71,12 +71,15 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 
 ## Collection Semantics
 
-- Album collection membership is explicit through `collection_albums`.
+- Album collection membership is explicit through `collection_albums` and survives local scan changes until the user removes that membership or deletes the collection.
+- `album_local_paths` is scan-owned local folder evidence for an album within a collection.
 - Artist presence in a collection is derived from collection albums plus local scan-state rows.
 - Artist membership alone is not enough to decide which albums belong to a collection.
 - A soundtrack contributor can be linked to one title without implying that the full artist discography belongs to that collection.
 - One album can belong to multiple collections.
-- Deleting collection membership must not delete the shared album or artist unless a specific delete workflow says so.
+- Removing collection membership must not delete the shared album or artist unless a specific delete workflow says so.
+- Removing collection membership must not remove valid local path evidence, folders, or files.
+- Removing collection membership may clean local path rows whose resolved folders are already gone.
 - Deleting a collection removes collection membership, local path evidence, and artist scan-state rows for that collection.
 - Database deletes must never delete files or folders on disk unless the request explicitly says it is a filesystem delete.
 
@@ -110,6 +113,8 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Artist country and active-status overrides live on the artist row and are never overwritten by provider rescans.
 - Effective artist country and status prefer the artist override, then the current provider evidence, then unknown.
 - Provider candidate search is shared across supported providers through `GET /api/artists/{artistId}/provider-candidates/{providerId}`.
+- Provider candidate scoring counts same normalized on-disk album-title evidence even when the local and provider release years differ.
+- Provider candidate scoring gives an extra title-and-year bonus only when both release years are known and differ by at most one year.
 - Provider candidate dialogs are shared between Collections and Artists and show candidate albums as chips with overflow counts.
 - Clicking a provider candidate row applies that candidate, while the row's `Open` button opens the provider artist page as a separate action with a tooltip.
 - Provider candidate rows show one coherent clickable hover highlight, and the `Open` button has its own hover treatment.
@@ -142,6 +147,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Keeping the local year marks all grouped provider releases as resolved against the local album so future provider checks do not add the provider album again.
 - Kept-local year decisions remain visible in the Artists detail known-album list and can be reset from the year chip to make the mismatch unresolved again.
 - Using the provider year renames every on-disk local album folder for the album, updates the matching album local paths and release date, resolves all grouped provider releases, merges provider-only duplicates, and writes the provider year to supported audio file tags.
+- Provider-year folder renaming supports flat artist-year-album collections and nested artist-album collections.
 - Collection-scoped provider checks assign newly created or otherwise unassigned provider albums to the selected collection.
 - Provider checks from the global Artists screen refresh artist-level provider data without assigning collection membership.
 - MusicBrainz imports supported full albums only.
@@ -173,7 +179,12 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - With `Show All` off, the Albums pane shows albums that belong to the selected collection and selected artist.
 - With `Show All` on, the Albums pane shows all albums for the selected artist.
 - With `Show All` on, albums with no collection membership show a warning `No collection` chip.
-- Removing an artist from a collection removes that artist's collection album links and scan-state row for the selected collection.
+- Album and title row `Remove` actions remove only selected-collection membership.
+- Album and title row `Remove` actions are disabled when the album is present on disk in the selected collection.
+- Stale local path rows whose folders are already gone do not block collection removal and may be cleaned during removal.
+- The Collections screen does not expose real album database deletion.
+- Removing an artist from a collection is disabled when at least one of that artist's albums is present on disk in the selected collection.
+- Removing an artist from a collection removes that artist's scan-state row and all selected-collection album memberships for albums linked to that artist.
 - Removing an artist from a collection does not delete the artist from the library database.
 - The Collections screen does not expose artist metadata editing.
 - Deleting an artist from the global Artists screen is a real library database delete and never deletes files on disk.
@@ -222,15 +233,16 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Collection candidates use `GET /api/collections/candidates`.
 - Collection metadata uses `GET /api/collections/{id}/metadata`.
 - Collection artists use `GET /api/collections/{id}/artists`.
-- Collection titles use `GET`, `POST`, `PUT`, and `DELETE` routes under `/api/collections/{id}/titles`.
+- Collection titles use `GET`, `POST`, `PUT`, and membership-removing `DELETE` routes under `/api/collections/{id}/titles`.
 - Collection album membership additions use `POST /api/collections/{id}/albums`.
+- Collection album membership removal uses `DELETE /api/collections/{id}/albums/{albumId}`.
 - Artists use `GET`, `POST`, `PUT`, and `DELETE` routes under `/api/artists`.
 - Artist removal from a collection uses `DELETE /api/artists/{id}/collections/{collectionId}`.
-- Albums use `GET`, `POST`, `PUT`, and `DELETE` routes under `/api/albums`.
+- Albums use `GET`, `POST`, and `PUT` routes under `/api/albums`.
 - One-artist provider identity uses `GET`, `PUT`, and `DELETE /api/artists/{artistId}/provider`.
-- Generic artist provider links also exist under `/api/artists/{artistId}/provider-links`.
 - Provider candidate search uses `GET /api/artists/{artistId}/provider-candidates/{providerId}`.
 - Provider bulk matching uses `POST /api/provider-matches/{providerId}/artists`.
+- Provider bulk matching requires an explicit `artistIds` array and never falls back to all artists.
 - Scan jobs use `/api/scan`.
 - Provider check jobs use `/api/provider-checks`.
 - Unresolved provider release-date conflicts use `GET /api/provider-conflicts/release-dates`.
@@ -249,6 +261,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Track file scanning and audio tag parsing are not part of normal collection scans.
 - Cover art is not implemented.
 - Provider refresh has no track, release, cover-art, or MusicBrainz edit submission flow.
+- Provider-year folder renaming is not implemented for title-pipeline collections.
 - HTML provider search pages are not stable public APIs, so parser tests are required when their parsing changes.
 - Title provider scans are not a default title-collection workflow.
 - Multi-user sync conflict handling is not implemented.

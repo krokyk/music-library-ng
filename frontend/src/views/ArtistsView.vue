@@ -1401,7 +1401,7 @@ function artistDeleteWarningLines(artist: Artist | null) {
   }
   const lines: string[] = []
   if (artist.localAlbumCount > 0) {
-    lines.push(`Local albums in the library DB: ${artist.localAlbumCount}`)
+    lines.push(`Local albums on disk: ${artist.localAlbumCount}`)
   }
   return lines
 }

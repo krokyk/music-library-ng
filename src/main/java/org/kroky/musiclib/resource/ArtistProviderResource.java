@@ -5,9 +5,7 @@ import java.util.regex.Pattern;
 
 import org.kroky.musiclib.model.ArtistProviderCandidate;
 import org.kroky.musiclib.model.ArtistProviderLink;
-import org.kroky.musiclib.model.ProviderRefreshResult;
 import org.kroky.musiclib.provider.ArtistProviderMatchService;
-import org.kroky.musiclib.provider.ArtistProviderRefreshService;
 import org.kroky.musiclib.provider.ProviderException;
 import org.kroky.musiclib.provider.ProviderRegistry;
 import org.kroky.musiclib.provider.ProviderUrlNormalizer;
@@ -19,7 +17,6 @@ import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
-import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -36,9 +33,6 @@ public class ArtistProviderResource {
 
     @Inject
     ArtistProviderMatchService matches;
-
-    @Inject
-    ArtistProviderRefreshService refreshes;
 
     @Inject
     MusicBrainzClient musicBrainz;
@@ -94,16 +88,6 @@ public class ArtistProviderResource {
     public Response clearProvider(@PathParam("artistId") long artistId) {
         providerLinks.deleteByArtist(artistId);
         return Response.noContent().build();
-    }
-
-    @POST
-    @Path("/provider/refresh")
-    public ProviderRefreshResult refreshProvider(@PathParam("artistId") long artistId) {
-        try {
-            return refreshes.refreshArtist(artistId);
-        } catch (ProviderException e) {
-            throw new BadRequestException(e.getMessage(), e);
-        }
     }
 
     private String validateProviderRequest(ProviderRequest request) {

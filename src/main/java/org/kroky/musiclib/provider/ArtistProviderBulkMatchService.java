@@ -168,10 +168,7 @@ public class ArtistProviderBulkMatchService {
     }
 
     private List<Long> artistIds(List<Long> requestedArtistIds) {
-        if (requestedArtistIds == null) {
-            return artists.list(null, null).stream().map(Artist::id).toList();
-        }
-        if (requestedArtistIds.isEmpty()) {
+        if (requestedArtistIds == null || requestedArtistIds.isEmpty()) {
             return List.of();
         }
         Set<Long> deduped = new LinkedHashSet<>();

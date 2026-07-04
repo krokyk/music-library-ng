@@ -275,17 +275,6 @@ public class AlbumRepository {
         }
     }
 
-    public void delete(long id) {
-        LOG.infof("Deleting album id=%d", id);
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement("DELETE FROM albums WHERE id = ?")) {
-            statement.setLong(1, id);
-            statement.executeUpdate();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to delete album " + id, e);
-        }
-    }
-
     public UpsertResult upsertScanned(long artistId, String title, String releaseDate, String relativePath,
             String collectionId) {
         return upsertScanned(List.of(artistId), title, releaseDate, null, relativePath, collectionId);
@@ -444,21 +433,179 @@ public class AlbumRepository {
         return removeUnseenLocalPaths(collectionId, artistId, seenPaths);
     }
 
-    public int removeLocalPaths(String collectionId, long albumId) {
+    public boolean removeFromCollection(String collectionId, long albumId) {
+        String normalizedCollectionId = blankToNull(collectionId);
+        if (normalizedCollectionId == null) {
+            return false;
+        }
         String sql = """
-                DELETE FROM album_local_paths
+                DELETE FROM collection_albums
                 WHERE collection_id = ? AND album_id = ?
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, collectionId);
+            statement.setString(1, normalizedCollectionId);
             statement.setLong(2, albumId);
-            return statement.executeUpdate();
+            return statement.executeUpdate() > 0;
         } catch (Exception e) {
-            throw new IllegalStateException("Unable to remove album local paths", e);
+            throw new IllegalStateException("Unable to remove album " + albumId
+                    + " from collection " + collectionId, e);
         }
     }
 
+    public int removeStaleLocalPaths(String collectionId, long albumId) {
+        return removeStaleLocalPaths(collectionId, albumId, null);
+    }
+
+    public int removeStaleLocalPathsForArtist(String collectionId, long artistId) {
+        return removeStaleLocalPaths(collectionId, null, artistId);
+    }
+
+    public boolean hasOnDiskLocalPath(String collectionId, long albumId) {
+        String normalizedCollectionId = blankToNull(collectionId);
+        if (normalizedCollectionId == null) {
+            return false;
+        }
+        String sql = """
+                SELECT c.relative_path AS collection_relative_path, lp.relative_path
+                FROM album_local_paths lp
+                JOIN collections c ON c.id = lp.collection_id
+                WHERE lp.collection_id = ? AND lp.album_id = ?
+                """;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, normalizedCollectionId);
+            statement.setLong(2, albumId);
+            try (ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    if (isOnDiskPath(
+                            rs.getString("collection_relative_path"),
+                            rs.getString("relative_path"))) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to check album local paths", e);
+        }
+    }
+
+    public boolean hasOnDiskLocalPathForArtist(String collectionId, long artistId) {
+        String normalizedCollectionId = blankToNull(collectionId);
+        if (normalizedCollectionId == null) {
+            return false;
+        }
+        String sql = """
+                SELECT c.relative_path AS collection_relative_path, lp.relative_path
+                FROM album_local_paths lp
+                JOIN collections c ON c.id = lp.collection_id
+                WHERE lp.collection_id = ?
+                  AND EXISTS (
+                      SELECT 1
+                      FROM album_artists aa
+                      WHERE aa.album_id = lp.album_id
+                        AND aa.artist_id = ?
+                  )
+                """;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, normalizedCollectionId);
+            statement.setLong(2, artistId);
+            try (ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    if (isOnDiskPath(
+                            rs.getString("collection_relative_path"),
+                            rs.getString("relative_path"))) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to check artist local paths", e);
+        }
+    }
+
+    public int countOnDiskLocalAlbumsForArtist(String collectionId, long artistId) {
+        String sql = """
+                SELECT lp.album_id, c.relative_path AS collection_relative_path, lp.relative_path
+                FROM album_local_paths lp
+                JOIN collections c ON c.id = lp.collection_id
+                WHERE (? IS NULL OR lp.collection_id = ?)
+                  AND EXISTS (
+                      SELECT 1
+                      FROM album_artists aa
+                      WHERE aa.album_id = lp.album_id
+                        AND aa.artist_id = ?
+                  )
+                """;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            String normalizedCollectionId = blankToNull(collectionId);
+            statement.setString(1, normalizedCollectionId);
+            statement.setString(2, normalizedCollectionId);
+            statement.setLong(3, artistId);
+            Set<Long> albumIds = new HashSet<>();
+            try (ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    if (isOnDiskPath(
+                            rs.getString("collection_relative_path"),
+                            rs.getString("relative_path"))) {
+                        albumIds.add(rs.getLong("album_id"));
+                    }
+                }
+                return albumIds.size();
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to count artist local albums", e);
+        }
+    }
+
+    private int removeStaleLocalPaths(String collectionId, Long albumId, Long artistId) {
+        String normalizedCollectionId = blankToNull(collectionId);
+        if (normalizedCollectionId == null) {
+            return 0;
+        }
+        String select = """
+                SELECT lp.id, c.relative_path AS collection_relative_path, lp.relative_path
+                FROM album_local_paths lp
+                JOIN collections c ON c.id = lp.collection_id
+                WHERE lp.collection_id = ?
+                  AND (? IS NULL OR lp.album_id = ?)
+                  AND (? IS NULL OR EXISTS (
+                      SELECT 1
+                      FROM album_artists aa
+                      WHERE aa.album_id = lp.album_id
+                        AND aa.artist_id = ?
+                  ))
+                """;
+        String delete = "DELETE FROM album_local_paths WHERE id = ?";
+        int removed = 0;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement selectStatement = connection.prepareStatement(select);
+                PreparedStatement deleteStatement = connection.prepareStatement(delete)) {
+            selectStatement.setString(1, normalizedCollectionId);
+            setNullableLong(selectStatement, 2, albumId);
+            setNullableLong(selectStatement, 3, albumId);
+            setNullableLong(selectStatement, 4, artistId);
+            setNullableLong(selectStatement, 5, artistId);
+            try (ResultSet rs = selectStatement.executeQuery()) {
+                while (rs.next()) {
+                    if (isOnDiskPath(
+                            rs.getString("collection_relative_path"),
+                            rs.getString("relative_path"))) {
+                        continue;
+                    }
+                    deleteStatement.setLong(1, rs.getLong("id"));
+                    removed += deleteStatement.executeUpdate();
+                }
+            }
+            return removed;
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to remove stale local paths", e);
+        }
+    }
 
     private int removeUnseenLocalPaths(String collectionId, Long artistId, Set<String> seenPaths) {
         Set<String> normalizedSeen = new HashSet<>(seenPaths);
@@ -1075,6 +1222,11 @@ public class AlbumRepository {
                     collectionRelativePath, albumRelativePath, e.getMessage());
             return null;
         }
+    }
+
+    private boolean isOnDiskPath(String collectionRelativePath, String albumRelativePath) {
+        String resolved = resolvedPath(collectionRelativePath, albumRelativePath);
+        return resolved != null && Files.isDirectory(Path.of(resolved));
     }
 
     private static List<Long> parseArtistIds(String value) {

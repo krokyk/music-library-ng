@@ -152,70 +152,13 @@ CREATE TABLE album_provider_links (
     provider_title TEXT NOT NULL,
     provider_release_date TEXT,
     provider_url TEXT,
+    release_date_resolution TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
+    CHECK (release_date_resolution IN ('KEEP_LOCAL', 'USE_PROVIDER')),
     UNIQUE (provider_id, provider_release_group_id),
     UNIQUE (album_id, provider_id, provider_release_group_id)
 );
 
 CREATE INDEX idx_album_provider_links_album ON album_provider_links(album_id);
-
-CREATE TABLE scan_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collection_id TEXT,
-    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    finished_at TEXT,
-    status TEXT NOT NULL,
-    parsed_count INTEGER NOT NULL DEFAULT 0,
-    created_count INTEGER NOT NULL DEFAULT 0,
-    updated_count INTEGER NOT NULL DEFAULT 0,
-    missing_count INTEGER NOT NULL DEFAULT 0,
-    skipped_count INTEGER NOT NULL DEFAULT 0,
-    message TEXT,
-    report_path TEXT,
-    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE SET NULL,
-    CHECK (status IN ('RUNNING', 'DONE', 'FAILED', 'SKIPPED'))
-);
-
-CREATE TABLE scan_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    scan_run_id INTEGER NOT NULL,
-    level TEXT NOT NULL,
-    message TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (scan_run_id) REFERENCES scan_runs(id) ON DELETE CASCADE,
-    CHECK (level IN ('INFO', 'WARN', 'ERROR', 'SKIPPED'))
-);
-
-CREATE TABLE provider_check_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    artist_id INTEGER,
-    provider_link_id INTEGER,
-    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    finished_at TEXT,
-    status TEXT NOT NULL,
-    processed_artist_count INTEGER NOT NULL DEFAULT 0,
-    found_album_count INTEGER NOT NULL DEFAULT 0,
-    new_album_count INTEGER NOT NULL DEFAULT 0,
-    existing_album_count INTEGER NOT NULL DEFAULT 0,
-    error_count INTEGER NOT NULL DEFAULT 0,
-    message TEXT,
-    FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE SET NULL,
-    FOREIGN KEY (provider_link_id) REFERENCES artist_provider_links(id) ON DELETE SET NULL,
-    CHECK (status IN ('RUNNING', 'DONE', 'FAILED', 'SKIPPED'))
-);
-
-CREATE TABLE provider_check_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id INTEGER NOT NULL,
-    artist_id INTEGER,
-    provider_link_id INTEGER,
-    level TEXT NOT NULL,
-    message TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (run_id) REFERENCES provider_check_runs(id) ON DELETE CASCADE,
-    FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE SET NULL,
-    FOREIGN KEY (provider_link_id) REFERENCES artist_provider_links(id) ON DELETE SET NULL,
-    CHECK (level IN ('INFO', 'WARN', 'ERROR'))
-);

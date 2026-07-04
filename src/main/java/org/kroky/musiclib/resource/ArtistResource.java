@@ -8,6 +8,7 @@ import org.kroky.musiclib.model.Artist;
 import org.kroky.musiclib.repository.ArtistRepository;
 
 import jakarta.inject.Inject;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
@@ -61,7 +62,11 @@ public class ArtistResource {
     public Response removeFromCollection(@PathParam("id") long id, @PathParam("collectionId") String collectionId) {
         LOG.infof("Remove artist from collection request id=%d collectionId=%s", id, collectionId);
         artists.find(id).orElseThrow(NotFoundException::new);
-        artists.removeFromCollection(id, collectionId);
+        try {
+            artists.removeFromCollection(id, collectionId);
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException(e.getMessage(), e);
+        }
         return Response.noContent().build();
     }
 

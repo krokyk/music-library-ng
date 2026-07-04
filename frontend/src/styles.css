@@ -1685,6 +1685,10 @@ body,
   display: inline-flex;
 }
 
+.row-action-tooltip-anchor {
+  display: inline-flex;
+}
+
 .sortable-header {
   cursor: pointer;
   gap: 6px;

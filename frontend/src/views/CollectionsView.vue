@@ -67,10 +67,10 @@ const providerSetupArtist = ref<Artist | null>(null)
 const providerSetupProviderId = ref<ProviderId>('musicbrainz')
 const providerSetupUrl = ref('')
 const providerCandidates = ref<ArtistProviderCandidate[]>([])
-const deleteDialog = ref(false)
+const removeAlbumDialog = ref(false)
 const addCollectionDropdownOpen = ref(false)
 const deleteCollectionDialog = ref(false)
-const albumToDelete = ref<Album | null>(null)
+const albumToRemove = ref<Album | null>(null)
 const collectionToDelete = ref<MusicCollection | null>(null)
 const collectionEditOpenId = ref<string | null>(null)
 const collectionEditTarget = ref<HTMLElement | undefined>(undefined)
@@ -892,6 +892,35 @@ function albumShowsNoCollectionChip(album: Album) {
   return albumShowAllEnabled.value && album.collections.length === 0
 }
 
+function albumRemoveDisabled(album: Album) {
+  return writeActionsDisabled.value
+    || !albumIsInSelectedCollection(album)
+    || albumIsLocalToSelectedCollection(album)
+}
+
+function albumRemoveTooltip(album: Album) {
+  if (albumIsLocalToSelectedCollection(album)) {
+    return 'Album present on disk in this collection'
+  }
+  if (!albumIsInSelectedCollection(album)) {
+    return 'Album is not in this collection'
+  }
+  return 'Remove from collection'
+}
+
+function titleRemoveDisabled(item: Album) {
+  return writeActionsDisabled.value
+    || !selectedCollectionId.value
+    || albumIsLocalToSelectedCollection(item)
+}
+
+function titleRemoveTooltip(item: Album) {
+  if (albumIsLocalToSelectedCollection(item)) {
+    return 'Album present on disk in this collection'
+  }
+  return 'Remove from collection'
+}
+
 function albumCollectionsColumnLabel() {
   return albumShowAllEnabled.value ? 'In' : 'Also in'
 }
@@ -925,19 +954,30 @@ function albumIsLocalToSelectedCollection(album: Album) {
 }
 
 function artistIsLocalToSelectedCollection(artist: Artist) {
-  return Boolean(
-    selectedCollectionId.value
-    && artist.localCollectionIds.includes(selectedCollectionId.value),
-  )
+  return selectedCollectionIsArtist.value && artist.localAlbumCount > 0
 }
 
-function artistCanBeRemovedFromSelectedCollection(artist: Artist) {
+function artistRemoveVisible(artist: Artist) {
   return Boolean(
     selectedCollectionIsArtist.value
     && selectedCollectionId.value
-    && artist.collectionIds.includes(selectedCollectionId.value)
-    && artist.collectionAlbumCount === 0,
+    && artist.collectionIds.includes(selectedCollectionId.value),
   )
+}
+
+function artistRemoveBlockedByLocalAlbum(artist: Artist) {
+  return artistRemoveVisible(artist) && artist.localAlbumCount > 0
+}
+
+function artistRemoveDisabled(artist: Artist) {
+  return writeActionsDisabled.value || artistRemoveBlockedByLocalAlbum(artist)
+}
+
+function artistRemoveTooltip(artist: Artist) {
+  if (artistRemoveBlockedByLocalAlbum(artist)) {
+    return 'At least 1 album still present on disk in this collection'
+  }
+  return 'Remove from collection'
 }
 
 function artistRowClass(artist: Artist) {
@@ -2124,7 +2164,7 @@ function artistLabeledActionWidth(artist: Artist) {
     artistProviderActionWidth(artist, true),
     rowActionButtonWidths.edit,
   ]
-  if (artistCanBeRemovedFromSelectedCollection(artist)) {
+  if (artistRemoveVisible(artist)) {
     widths.push(rowActionButtonWidths.remove)
   }
   return actionSetWidth(widths)
@@ -2143,7 +2183,7 @@ function artistIconActionWidth(artist: Artist) {
     artistProviderActionWidth(artist, false),
     artistIconActionButtonWidth,
   ]
-  if (artistCanBeRemovedFromSelectedCollection(artist)) {
+  if (artistRemoveVisible(artist)) {
     widths.push(artistIconActionButtonWidth)
   }
   return actionSetWidth(widths)
@@ -2350,7 +2390,7 @@ function handleDocumentKeyDown(event: KeyboardEvent) {
 
 async function removeArtistFromCollection(artist: Artist) {
   selectArtistRow(artist)
-  if (writeActionsDisabled.value) {
+  if (artistRemoveDisabled(artist)) {
     return
   }
   try {
@@ -2656,28 +2696,28 @@ async function saveAlbumTitle() {
   }
 }
 
-function askDeleteAlbum(album: Album) {
+function askRemoveAlbumFromCollection(album: Album) {
   selectAlbumRow(album)
-  if (writeActionsDisabled.value) {
+  if (albumRemoveDisabled(album)) {
     return
   }
-  albumToDelete.value = album
-  deleteDialog.value = true
+  albumToRemove.value = album
+  removeAlbumDialog.value = true
 }
 
-async function deleteAlbum() {
+async function removeAlbumFromCollection() {
   if (writeActionsDisabled.value) {
     return
   }
-  if (!albumToDelete.value) {
+  if (!albumToRemove.value) {
     return
   }
   try {
-    await store.deleteAlbum(albumToDelete.value.id)
-    deleteDialog.value = false
-    albumToDelete.value = null
+    await store.removeAlbumFromSelectedCollection(albumToRemove.value)
+    removeAlbumDialog.value = false
+    albumToRemove.value = null
   } catch (error) {
-    store.showErrorStatus(error, 'Unable to delete album')
+    store.showErrorStatus(error, 'Unable to remove album from collection')
   }
 }
 
@@ -2726,15 +2766,15 @@ async function saveTitleItem() {
   }
 }
 
-async function deleteTitleLocalPath(item: Album) {
+async function removeTitleFromCollection(item: Album) {
   selectTitleRow(item)
-  if (writeActionsDisabled.value) {
+  if (titleRemoveDisabled(item)) {
     return
   }
   try {
-    await store.deleteTitleLocalPath(item)
+    await store.removeTitleFromSelectedCollection(item)
   } catch (error) {
-    store.showErrorStatus(error, 'Unable to delete title local path')
+    store.showErrorStatus(error, 'Unable to remove title from collection')
   }
 }
 
@@ -3287,20 +3327,21 @@ watch(sortedCollectionTitleItems, (items) => {
                         </v-btn>
                       </template>
                     </v-tooltip>
-                    <v-tooltip text="Remove local title path" location="top">
+                    <v-tooltip :text="titleRemoveTooltip(item)" location="top">
                       <template #activator="{ props }">
-                        <v-btn
-                          v-bind="props"
-                          prepend-icon="mdi-trash-can-outline"
-                          size="x-small"
-                          variant="text"
-                          color="error"
-                          :class="gridRowActionClass('title')"
-                          :disabled="writeActionsDisabled || !item.hasLocalPath"
-                          @click.stop="deleteTitleLocalPath(item)"
-                        >
-                          <span v-if="showGridActionLabels('title')">Delete</span>
-                        </v-btn>
+                        <span v-bind="props" class="row-action-tooltip-anchor">
+                          <v-btn
+                            prepend-icon="mdi-link-variant-off"
+                            size="x-small"
+                            variant="text"
+                            color="error"
+                            :class="gridRowActionClass('title')"
+                            :disabled="titleRemoveDisabled(item)"
+                            @click.stop="removeTitleFromCollection(item)"
+                          >
+                            <span v-if="showGridActionLabels('title')">Remove</span>
+                          </v-btn>
+                        </span>
                       </template>
                     </v-tooltip>
                   </div>
@@ -3536,23 +3577,24 @@ watch(sortedCollectionTitleItems, (items) => {
                       </template>
                     </v-tooltip>
                     <v-tooltip
-                      v-if="artistCanBeRemovedFromSelectedCollection(artist)"
-                      text="Remove from collection"
+                      v-if="artistRemoveVisible(artist)"
+                      :text="artistRemoveTooltip(artist)"
                       location="top"
                     >
                       <template #activator="{ props }">
-                        <v-btn
-                          v-bind="props"
-                          prepend-icon="mdi-account-remove-outline"
-                          size="x-small"
-                          variant="text"
-                          color="error"
-                          :class="artistRowActionClass(artist)"
-                          :disabled="writeActionsDisabled"
-                          @click.stop="removeArtistFromCollection(artist)"
-                        >
-                          <span v-if="showArtistRowActionLabels(artist)">Remove</span>
-                        </v-btn>
+                        <span v-bind="props" class="row-action-tooltip-anchor">
+                          <v-btn
+                            prepend-icon="mdi-account-remove-outline"
+                            size="x-small"
+                            variant="text"
+                            color="error"
+                            :class="artistRowActionClass(artist)"
+                            :disabled="artistRemoveDisabled(artist)"
+                            @click.stop="removeArtistFromCollection(artist)"
+                          >
+                            <span v-if="showArtistRowActionLabels(artist)">Remove</span>
+                          </v-btn>
+                        </span>
                       </template>
                     </v-tooltip>
                   </div>
@@ -3845,20 +3887,21 @@ watch(sortedCollectionTitleItems, (items) => {
                       </v-btn>
                     </template>
                   </v-tooltip>
-                  <v-tooltip text="Delete album" location="top">
+                  <v-tooltip :text="albumRemoveTooltip(album)" location="top">
                     <template #activator="{ props }">
-                      <v-btn
-                        v-bind="props"
-                        prepend-icon="mdi-trash-can-outline"
-                        size="x-small"
-                        variant="text"
-                        color="error"
-                        :class="gridRowActionClass('album')"
-                        :disabled="writeActionsDisabled"
-                        @click.stop="askDeleteAlbum(album)"
-                      >
-                        <span v-if="showGridActionLabels('album')">Delete</span>
-                      </v-btn>
+                      <span v-bind="props" class="row-action-tooltip-anchor">
+                        <v-btn
+                          prepend-icon="mdi-link-variant-off"
+                          size="x-small"
+                          variant="text"
+                          color="error"
+                          :class="gridRowActionClass('album')"
+                          :disabled="albumRemoveDisabled(album)"
+                          @click.stop="askRemoveAlbumFromCollection(album)"
+                        >
+                          <span v-if="showGridActionLabels('album')">Remove</span>
+                        </v-btn>
+                      </span>
                     </template>
                   </v-tooltip>
                 </div>
@@ -3963,16 +4006,16 @@ watch(sortedCollectionTitleItems, (items) => {
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="deleteDialog" max-width="420">
+    <v-dialog v-model="removeAlbumDialog" max-width="420">
       <v-card class="dialog-card">
-        <v-card-title>Delete Album</v-card-title>
+        <v-card-title>Remove From Collection</v-card-title>
         <v-card-text>
-          Delete {{ albumToDelete?.title }}?
+          Remove {{ albumToRemove?.title }} from {{ selectedCollection?.name ?? 'this collection' }}?
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
-          <v-btn variant="text" @click="deleteDialog = false">Cancel</v-btn>
-          <v-btn color="error" :disabled="writeActionsDisabled" @click="deleteAlbum">Delete</v-btn>
+          <v-btn variant="text" @click="removeAlbumDialog = false">Cancel</v-btn>
+          <v-btn color="error" :disabled="writeActionsDisabled" @click="removeAlbumFromCollection">Remove</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

@@ -228,7 +228,10 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 ## Collection And Library Semantics
 
 - Collection screen Artists pane:
-  - `Remove` removes only the artist association with the selected collection.
+  - `Remove` is visible for artists in the selected artist collection.
+  - `Remove` is disabled with tooltip text `At least 1 album still present on disk in this collection` when any album by that artist is present on disk in the selected collection.
+  - Stale local path rows whose folders are already gone must not disable `Remove`.
+  - Enabled `Remove` removes the artist scan-state row and all selected-collection album memberships for albums linked to that artist.
   - It does not delete the artist from the library database.
   - The artist should disappear from that collection pane after removal.
   - Artist metadata editing belongs to the main Artists screen, not the Collections screen Artists pane.
@@ -239,6 +242,15 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   Off shows albums that belong to the selected collection and labels the collection chip column `Also in`.
   On shows all albums for the selected artist and labels the collection chip column `In`.
   When `Show All` is on, the `In` column shows all collection chips including the selected collection, or a warning `No collection` chip when the album has no memberships.
+  Album row `Remove` removes only selected-collection membership.
+  Album row `Remove` is disabled with tooltip text `Album present on disk in this collection` when the album has active local presence in the selected collection.
+  Stale local path rows whose folders are already gone must not disable album row `Remove`.
+  Album row `Remove` is disabled with tooltip text `Album is not in this collection` for `Show All` rows that are not members of the selected collection.
+- Collections screen Titles pane:
+  - Title row `Remove` removes only selected-collection membership.
+  - Title row `Remove` is disabled with tooltip text `Album present on disk in this collection` when the title has active local presence in the selected collection.
+  - Stale local path rows whose folders are already gone must not disable title row `Remove`.
+  - The Titles pane does not expose manual local-path removal.
 - Main Artists screen:
   - `Delete` is a real library database delete.
   - If the artist belongs to any collection or has local albums, require a second warning confirmation.

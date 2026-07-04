@@ -70,7 +70,7 @@ public class ArtistRepository {
             try (ResultSet rs = statement.executeQuery()) {
                 List<Artist> artists = new ArrayList<>();
                 while (rs.next()) {
-                    artists.add(map(rs));
+                    artists.add(map(rs, normalizedCollectionId));
                 }
                 return artists;
             }
@@ -97,7 +97,7 @@ public class ArtistRepository {
             statement.setString(6, normalizedCollectionId);
             statement.setLong(7, id);
             try (ResultSet rs = statement.executeQuery()) {
-                return rs.next() ? Optional.of(map(rs)) : Optional.empty();
+                return rs.next() ? Optional.of(map(rs, normalizedCollectionId)) : Optional.empty();
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to find artist " + id, e);
@@ -330,6 +330,10 @@ public class ArtistRepository {
             return false;
         }
         LOG.infof("Removing artist id=%d from collection=%s", id, normalizedCollectionId);
+        albums.removeStaleLocalPathsForArtist(normalizedCollectionId, id);
+        if (albums.hasOnDiskLocalPathForArtist(normalizedCollectionId, id)) {
+            throw new IllegalArgumentException("At least 1 album still present on disk in this collection.");
+        }
         try (Connection connection = dataSource.getConnection()) {
             boolean autoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
@@ -444,7 +448,7 @@ public class ArtistRepository {
             statement.setString(6, null);
             statement.setString(7, normalizedName);
             try (ResultSet rs = statement.executeQuery()) {
-                return rs.next() ? Optional.of(map(rs)) : Optional.empty();
+                return rs.next() ? Optional.of(map(rs, null)) : Optional.empty();
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to find artist " + normalizedName, e);
@@ -516,9 +520,10 @@ public class ArtistRepository {
                 """;
     }
 
-    private static Artist map(ResultSet rs) throws Exception {
+    private Artist map(ResultSet rs, String collectionId) throws Exception {
+        long artistId = rs.getLong("id");
         return new Artist(
-                rs.getLong("id"),
+                artistId,
                 rs.getString("name"),
                 rs.getString("sort_name"),
                 rs.getString("country_override"),
@@ -528,7 +533,7 @@ public class ArtistRepository {
                 rs.getInt("album_count"),
                 rs.getInt("checked_album_count"),
                 rs.getInt("unchecked_album_count"),
-                rs.getInt("local_album_count"),
+                albums.countOnDiskLocalAlbumsForArtist(collectionId, artistId),
                 rs.getInt("provider_link_count"),
                 rs.getString("provider_id"),
                 rs.getString("provider_artist_id"),

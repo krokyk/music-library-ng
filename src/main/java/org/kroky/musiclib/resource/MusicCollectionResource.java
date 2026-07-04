@@ -107,6 +107,13 @@ public class MusicCollectionResource {
         return updated;
     }
 
+    @DELETE
+    @Path("/{id}/albums/{albumId}")
+    public Album removeAlbum(@PathParam("id") String id, @PathParam("albumId") long albumId) {
+        LOG.infof("Remove album from collection request collection=%s album=%d", id, albumId);
+        return removeAlbumFromCollection(id, albumId);
+    }
+
     @POST
     @Path("/{id}/titles")
     public Album createTitle(@PathParam("id") String id, TitleItemRequest request) {
@@ -159,13 +166,11 @@ public class MusicCollectionResource {
 
     @DELETE
     @Path("/{id}/titles/{titleItemId}")
-    public Response deleteTitleLocalPath(
+    public Album removeTitle(
             @PathParam("id") String id,
             @PathParam("titleItemId") long titleItemId) {
-        LOG.infof("Delete title local path request collection=%s id=%d", id, titleItemId);
-        albums.find(titleItemId).orElseThrow(NotFoundException::new);
-        albums.removeLocalPaths(id, titleItemId);
-        return Response.noContent().build();
+        LOG.infof("Remove title from collection request collection=%s id=%d", id, titleItemId);
+        return removeAlbumFromCollection(id, titleItemId);
     }
 
     @PUT
@@ -216,6 +221,19 @@ public class MusicCollectionResource {
 
     private static String normalizeReleaseDate(String releaseDate) {
         return ReleaseDates.normalize(releaseDate);
+    }
+
+    private Album removeAlbumFromCollection(String collectionId, long albumId) {
+        collections.find(collectionId).orElseThrow(NotFoundException::new);
+        albums.find(albumId).orElseThrow(NotFoundException::new);
+        albums.removeStaleLocalPaths(collectionId, albumId);
+        if (albums.hasOnDiskLocalPath(collectionId, albumId)) {
+            throw new BadRequestException("Album present on disk in this collection.");
+        }
+        if (!albums.removeFromCollection(collectionId, albumId)) {
+            throw new BadRequestException("Album is not in this collection.");
+        }
+        return albums.find(albumId).orElseThrow(NotFoundException::new);
     }
 
     public record MusicCollectionRequest(String name, String relativePath, String type, String parser) {
