@@ -126,6 +126,8 @@ const defaultArtistsScreenColumnDefaults = {
 
 let scanJobPoller: number | null = null
 let providerJobPoller: number | null = null
+let scanJobRefreshedCollectionId: string | null = null
+let scanJobRefreshedArtistIds = new Set<number>()
 
 export const useLibraryStore = defineStore('library', {
   state: (): State => ({
@@ -547,6 +549,7 @@ export const useLibraryStore = defineStore('library', {
             artistId,
           }),
         )
+        this.replaceGlobalAlbumsForArtists([artistId], albums)
         this.collectionAlbumsByArtist = { ...this.collectionAlbumsByArtist, [cacheKey]: albums }
         if (this.selectedArtistId === artistId) {
           this.collectionAlbums = albums
@@ -573,6 +576,7 @@ export const useLibraryStore = defineStore('library', {
     },
     async refreshCollectionAfterScan(collectionId?: string | null) {
       this.invalidateCollectionMetadata(collectionId ?? undefined)
+      this.invalidateCollectionContent(collectionId ?? undefined)
       await this.loadSettings()
       if (!collectionId || this.selectedCollectionId !== collectionId) {
         return
@@ -759,6 +763,7 @@ export const useLibraryStore = defineStore('library', {
         this.invalidateOtherCollectionArtistCaches(scopedCollectionId)
       }
 
+      await this.refreshGlobalAlbumsForArtists(ids)
       if (this.selectedArtistId && ids.includes(this.selectedArtistId)) {
         await this.loadAlbumsForArtist(this.selectedArtistId, true, { clearCurrent: false })
       } else {
@@ -781,11 +786,32 @@ export const useLibraryStore = defineStore('library', {
       if (this.selectedArtistId === artistId) {
         await this.loadAlbumsForArtist(artistId, true, { clearCurrent: false })
       } else {
+        await this.refreshGlobalAlbumsForArtists([artistId])
         this.invalidateAlbumCacheForArtist(artistId)
       }
     },
+    async refreshGlobalAlbumsForArtists(artistIds: number[]) {
+      const ids = uniqueArtistIds(artistIds)
+      if (ids.length === 0) {
+        return
+      }
+      if (ids.length === 1) {
+        const albums = await apiGet<Album[]>(withQuery('/api/albums', { artistId: ids[0] }))
+        this.replaceGlobalAlbumsForArtists(ids, albums)
+        return
+      }
+      this.albums = await apiGet<Album[]>('/api/albums')
+    },
+    replaceGlobalAlbumsForArtists(artistIds: number[], refreshedAlbums: Album[]) {
+      const ids = new Set(artistIds)
+      this.albums = [
+        ...this.albums.filter((album) => !album.artistIds.some((artistId) => ids.has(artistId))),
+        ...refreshedAlbums,
+      ]
+    },
     replaceArtist(artist: Artist) {
       if (!this.artists.some((item) => item.id === artist.id)) {
+        this.artists = [...this.artists, artist]
         return
       }
       this.artists = this.artists.map((item) => (item.id === artist.id ? artist : item))
@@ -933,13 +959,9 @@ export const useLibraryStore = defineStore('library', {
       const intervalMs = Math.min(2000, Math.max(100, this.uiSettings.scanPollIntervalMs))
       const poll = async () => {
         try {
-          const previousActiveArtistId = this.scanJob?.activeArtistId ?? null
           const status = await this.loadScanJob()
-          if (status?.status === 'RUNNING' && previousActiveArtistId && previousActiveArtistId !== status.activeArtistId) {
-            await this.refreshArtistAfterScanStep(
-              previousActiveArtistId,
-              status.requestedCollectionId ?? status.activeCollectionId,
-            )
+          if (status?.status === 'RUNNING') {
+            await this.refreshProcessedScanArtists(status)
           }
           if (!status || status.status !== 'RUNNING') {
             this.stopScanJobPolling()
@@ -968,15 +990,34 @@ export const useLibraryStore = defineStore('library', {
       scanJobPoller = null
     },
     async startScanJob(collectionId?: string) {
+      resetScanLiveRefresh()
       const query = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : ''
       this.scanJob = await apiSend<ScanJobStatus>(`/api/scan/jobs${query}`, 'POST')
       return this.scanJob
     },
     async runLocalAlbumScanJob(collectionId: string, artistId?: number) {
+      resetScanLiveRefresh()
       const query = withQuery('/api/scan/jobs/local-albums', { collectionId, artistId })
       this.scanJob = await apiSend<ScanJobStatus>(query, 'POST')
       this.startScanJobPolling()
       return this.scanJob
+    },
+    async refreshProcessedScanArtists(status: ScanJobStatus) {
+      const collectionId = status.requestedCollectionId ?? status.activeCollectionId ?? null
+      if (!collectionId || !status.processedArtistIds?.length) {
+        return
+      }
+      if (scanJobRefreshedCollectionId !== collectionId) {
+        scanJobRefreshedCollectionId = collectionId
+        scanJobRefreshedArtistIds = new Set()
+      }
+      const artistIds = uniqueArtistIds(status.processedArtistIds)
+        .filter((artistId) => !scanJobRefreshedArtistIds.has(artistId))
+      if (artistIds.length === 0) {
+        return
+      }
+      artistIds.forEach((artistId) => scanJobRefreshedArtistIds.add(artistId))
+      await this.refreshArtistsAfterScopedJob(artistIds, collectionId)
     },
     async loadScanJob() {
       try {
@@ -1289,6 +1330,11 @@ function uniqueArtistIds(artistIds: Array<number | null | undefined>) {
   return [...new Set(
     artistIds.filter((artistId): artistId is number => typeof artistId === 'number' && artistId > 0),
   )]
+}
+
+function resetScanLiveRefresh() {
+  scanJobRefreshedCollectionId = null
+  scanJobRefreshedArtistIds = new Set()
 }
 
 function artistMap(artists: Artist[]) {

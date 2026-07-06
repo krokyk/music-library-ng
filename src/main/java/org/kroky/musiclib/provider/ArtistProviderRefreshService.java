@@ -55,6 +55,7 @@ public class ArtistProviderRefreshService {
             AlbumImportPlan plan = classify(releaseGroup, localAlbums);
             switch (plan.decision()) {
                 case SKIP_ALREADY_LINKED -> {
+                    mergeProviderOnlyDuplicates(plan.album(), releaseGroup);
                     assignToCollectionIfUnassigned(plan.album(), collectionId);
                     ProviderAlbumOutcome outcome = reportProviderAlbumOutcome(link.artistName(), "MusicBrainz",
                             plan.album(), releaseGroup, report);
@@ -69,8 +70,10 @@ public class ArtistProviderRefreshService {
                 }
                 case AUTO_MATCH_EXISTING -> {
                     Album album = plan.album();
+                    mergeProviderOnlyDuplicates(album, releaseGroup);
                     albums.updateReleaseDateIfMissing(album.id(), releaseGroup.releaseDate());
                     linkAlbum(album.id(), releaseGroup);
+                    album = albums.find(album.id()).orElse(album);
                     assignToCollectionIfUnassigned(album, collectionId);
                     ProviderAlbumOutcome outcome = reportProviderAlbumOutcome(link.artistName(), "MusicBrainz",
                             album, releaseGroup, report);
@@ -116,8 +119,15 @@ public class ArtistProviderRefreshService {
         var linkedAlbumId = albumProviderLinks.findAlbumId(
                 releaseGroup.providerId(), releaseGroup.providerReleaseGroupId());
         if (linkedAlbumId.isPresent()) {
-            Album album = albums.find(linkedAlbumId.get()).orElse(null);
-            return new AlbumImportPlan(AlbumImportDecision.SKIP_ALREADY_LINKED, album, "Already in library");
+            Album linkedAlbum = albums.find(linkedAlbumId.get()).orElse(null);
+            AlbumImportPlan preferred = autoMatchExisting(releaseGroup, localAlbums);
+            if (preferred.album() != null
+                    && linkedAlbum != null
+                    && preferred.album().id() != linkedAlbum.id()
+                    && linkedAlbum.localPaths().isEmpty()) {
+                return preferred;
+            }
+            return new AlbumImportPlan(AlbumImportDecision.SKIP_ALREADY_LINKED, linkedAlbum, "Already in library");
         }
         if (releaseGroup.title() == null || releaseGroup.title().isBlank()) {
             return new AlbumImportPlan(AlbumImportDecision.SKIP_UNSUPPORTED, null, "Blank provider album title");
@@ -131,17 +141,26 @@ public class ArtistProviderRefreshService {
                     "Secondary type: " + String.join(", ", releaseGroup.secondaryTypes()));
         }
 
-        ArtistProviderCandidateAlbum evidence = ProviderCandidateEvidenceEvaluator.albumEvidence(localAlbums, releaseGroup);
-        if (ProviderCandidateEvidenceEvaluator.canAutoLinkAlbum(evidence)) {
-            return localAlbums.stream()
-                    .filter(album -> evidence.localAlbumId().equals(album.id()))
-                    .findFirst()
-                    .map(album -> new AlbumImportPlan(AlbumImportDecision.AUTO_MATCH_EXISTING, album,
-                            evidence.matchType() + " title match"))
-                    .orElseGet(() -> new AlbumImportPlan(AlbumImportDecision.SKIP_UNSUPPORTED, null,
-                            "Matched local album is no longer available"));
+        AlbumImportPlan matched = autoMatchExisting(releaseGroup, localAlbums);
+        if (matched.album() != null) {
+            return matched;
         }
         return new AlbumImportPlan(AlbumImportDecision.AUTO_CREATE, null, "New full album");
+    }
+
+    private AlbumImportPlan autoMatchExisting(RemoteReleaseGroup releaseGroup, List<Album> localAlbums) {
+        ArtistProviderCandidateAlbum evidence = ProviderCandidateEvidenceEvaluator.albumEvidence(localAlbums, releaseGroup);
+        Album evidenceAlbum = evidence.localAlbumId() == null
+                ? null
+                : localAlbums.stream()
+                        .filter(album -> evidence.localAlbumId().equals(album.id()))
+                        .findFirst()
+                        .orElse(null);
+        if (ProviderCandidateEvidenceEvaluator.canAutoLinkProviderImportAlbum(evidence, evidenceAlbum)) {
+            return new AlbumImportPlan(AlbumImportDecision.AUTO_MATCH_EXISTING, evidenceAlbum,
+                    evidence.matchType() + " title match");
+        }
+        return new AlbumImportPlan(AlbumImportDecision.SKIP_UNSUPPORTED, null, "No supported existing album match");
     }
 
     private void assignToCollectionIfUnassigned(Album album, String collectionId) {
@@ -158,6 +177,19 @@ public class ArtistProviderRefreshService {
                 releaseGroup.title(),
                 releaseGroup.releaseDate(),
                 releaseGroup.providerUrl());
+    }
+
+    private void mergeProviderOnlyDuplicates(Album album, RemoteReleaseGroup releaseGroup) {
+        if (album == null) {
+            return;
+        }
+        for (long artistId : album.artistIds()) {
+            albums.mergeProviderOnlyDuplicates(
+                    album.id(),
+                    artistId,
+                    releaseGroup.title(),
+                    releaseGroup.releaseDate());
+        }
     }
 
     private static void requireMusicBrainzIdentity(ArtistProviderLink link) {

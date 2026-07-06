@@ -139,6 +139,7 @@ export interface ScanJobStatus {
   activeCollectionName?: string | null
   activeArtistId?: number | null
   activeArtistName?: string | null
+  processedArtistIds: number[]
   itemTotal: number
   itemProcessed: number
   artistCount: number

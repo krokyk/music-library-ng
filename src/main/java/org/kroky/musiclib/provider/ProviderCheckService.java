@@ -189,9 +189,28 @@ public class ProviderCheckService {
                 List<Album> localAlbums = new ArrayList<>(albums.list(link.artistId(), null, null, null, null));
                 for (RemoteAlbum remoteAlbum : remoteAlbums) {
                     String providerReleaseGroupId = providerReleaseGroupId(remoteAlbum);
+                    RemoteReleaseGroup releaseGroup = remoteReleaseGroup(
+                            link.providerId(), providerReleaseGroupId, remoteAlbum);
+                    ArtistProviderCandidateAlbum evidence = ProviderCandidateEvidenceEvaluator.albumEvidence(
+                            localAlbums,
+                            releaseGroup);
+                    Album evidenceAlbum = evidence.localAlbumId() == null
+                            ? null
+                            : localAlbums.stream()
+                                    .filter(localAlbum -> evidence.localAlbumId().equals(localAlbum.id()))
+                                    .findFirst()
+                                    .orElseGet(() -> albums.find(evidence.localAlbumId()).orElse(null));
                     var linkedAlbumId = albumProviderLinks.findAlbumId(link.providerId(), providerReleaseGroupId);
                     if (linkedAlbumId.isPresent()) {
                         Album album = albums.find(linkedAlbumId.get()).orElse(null);
+                        if (shouldRelinkProviderOnlyAlbum(album, evidenceAlbum, evidence)) {
+                            mergeProviderOnlyDuplicates(evidenceAlbum.id(), link.artistId(), remoteAlbum);
+                            linkAlbum(evidenceAlbum.id(), link.providerId(), remoteAlbum);
+                            album = albums.find(evidenceAlbum.id()).orElse(evidenceAlbum);
+                        } else if (album != null) {
+                            mergeProviderOnlyDuplicates(album.id(), link.artistId(), remoteAlbum);
+                            album = albums.find(album.id()).orElse(album);
+                        }
                         assignToCollectionIfUnassigned(album, collectionId);
                         ProviderAlbumOutcome outcome = reportProviderAlbumOutcome(link, album, remoteAlbum, report);
                         existingAlbums += outcome.existingAlbums();
@@ -203,14 +222,8 @@ public class ProviderCheckService {
                         continue;
                     }
 
-                    ArtistProviderCandidateAlbum evidence = ProviderCandidateEvidenceEvaluator.albumEvidence(
-                            localAlbums,
-                            remoteReleaseGroup(link.providerId(), providerReleaseGroupId, remoteAlbum));
-                    if (ProviderCandidateEvidenceEvaluator.canAutoLinkAlbum(evidence)) {
-                        Album album = localAlbums.stream()
-                                .filter(localAlbum -> evidence.localAlbumId().equals(localAlbum.id()))
-                                .findFirst()
-                                .orElseGet(() -> albums.find(evidence.localAlbumId()).orElse(null));
+                    if (ProviderCandidateEvidenceEvaluator.canAutoLinkProviderImportAlbum(evidence, evidenceAlbum)) {
+                        Album album = evidenceAlbum;
                         if (album == null) {
                             report.ignoredProviderRecord(link.artistName() + " (" + providerLabel(link.providerId())
                                     + "): " + remoteAlbum.title()
@@ -219,6 +232,8 @@ public class ProviderCheckService {
                             continue;
                         }
                         linkAlbum(album.id(), link.providerId(), remoteAlbum);
+                        mergeProviderOnlyDuplicates(album.id(), link.artistId(), remoteAlbum);
+                        album = albums.find(album.id()).orElse(album);
                         assignToCollectionIfUnassigned(album, collectionId);
                         ProviderAlbumOutcome outcome = reportProviderAlbumOutcome(link, album, remoteAlbum, report);
                         existingAlbums += outcome.existingAlbums();
@@ -300,6 +315,23 @@ public class ProviderCheckService {
                 remoteAlbum.title(),
                 remoteAlbum.releaseDate(),
                 remoteAlbum.sourceUrl());
+    }
+
+    private void mergeProviderOnlyDuplicates(long keepAlbumId, long artistId, RemoteAlbum remoteAlbum) {
+        albums.mergeProviderOnlyDuplicates(
+                keepAlbumId,
+                artistId,
+                remoteAlbum.title(),
+                remoteAlbum.releaseDate());
+    }
+
+    private static boolean shouldRelinkProviderOnlyAlbum(Album linkedAlbum, Album evidenceAlbum,
+            ArtistProviderCandidateAlbum evidence) {
+        return linkedAlbum != null
+                && evidenceAlbum != null
+                && linkedAlbum.id() != evidenceAlbum.id()
+                && linkedAlbum.localPaths().isEmpty()
+                && ProviderCandidateEvidenceEvaluator.canAutoLinkProviderImportAlbum(evidence, evidenceAlbum);
     }
 
     private static String providerReleaseGroupId(RemoteAlbum remoteAlbum) {

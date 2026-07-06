@@ -12,6 +12,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
 
@@ -34,6 +35,17 @@ import jakarta.inject.Inject;
 public class AlbumRepository {
 
     private static final Logger LOG = Logger.getLogger(AlbumRepository.class);
+    private static final Set<String> GENERIC_TITLES = Set.of(
+            "Greatest Hits",
+            "Best Of",
+            "Live",
+            "Anthology",
+            "Collection",
+            "The Collection",
+            "Essential",
+            "The Essential").stream()
+            .map(Names::normalize)
+            .collect(Collectors.toUnmodifiableSet());
 
     @Inject
     DataSource dataSource;
@@ -321,6 +333,7 @@ public class AlbumRepository {
                                 : findScannedFuzzyDuplicateId(connection, normalizedArtistIds, title, releaseDate);
                         if (fuzzyDuplicateAlbumId.isPresent()) {
                             albumId = fuzzyDuplicateAlbumId.get();
+                            updateScannedReleaseDate(connection, albumId, releaseDate);
                             markScannedAlbumChecked(connection, albumId);
                         } else {
                             albumId = insertAlbum(connection, title, releaseDate, sortName, true, null);
@@ -333,6 +346,9 @@ public class AlbumRepository {
                 }
                 assignToCollection(connection, albumId, collectionId);
                 upsertLocalPath(connection, albumId, collectionId, relativePath);
+                for (long artistId : normalizedArtistIds) {
+                    mergeProviderOnlyDuplicates(connection, albumId, artistId, title, releaseDate);
+                }
                 connection.commit();
                 return new UpsertResult(albumId, created);
             } catch (Exception e) {
@@ -423,14 +439,9 @@ public class AlbumRepository {
             boolean autoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
             try {
-                List<Long> duplicates = providerOnlyDuplicateIds(connection, keepAlbumId, artistId, title, releaseDate);
-                for (long duplicateId : duplicates) {
-                    transferCollectionMemberships(connection, keepAlbumId, duplicateId);
-                    transferProviderLinks(connection, keepAlbumId, duplicateId);
-                    deleteAlbum(connection, duplicateId);
-                }
+                int merged = mergeProviderOnlyDuplicates(connection, keepAlbumId, artistId, title, releaseDate);
                 connection.commit();
-                return duplicates.size();
+                return merged;
             } catch (Exception e) {
                 rollbackQuietly(connection);
                 throw e;
@@ -790,6 +801,55 @@ public class AlbumRepository {
         }
     }
 
+    private void updateScannedReleaseDate(Connection connection, long albumId, String releaseDate)
+            throws Exception {
+        String normalizedReleaseDate = blankToNull(releaseDate);
+        if (normalizedReleaseDate == null) {
+            return;
+        }
+        String selectSql = """
+                SELECT title, release_date, sort_name_source
+                FROM albums
+                WHERE id = ?
+        """;
+        String title = null;
+        String currentReleaseDate = null;
+        try (PreparedStatement statement = connection.prepareStatement(selectSql)) {
+            statement.setLong(1, albumId);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (rs.next()) {
+                    title = rs.getString("title");
+                    currentReleaseDate = rs.getString("release_date");
+                }
+            }
+        }
+        if (title == null || normalizedReleaseDate.equals(currentReleaseDate)) {
+            return;
+        }
+        String autoSortName = TitleSortNames.create(title, normalizedReleaseDate);
+        String updateSql = """
+                UPDATE albums
+                SET release_date = ?,
+                    sort_name = CASE
+                        WHEN sort_name_source = 'MANUAL' THEN sort_name
+                        ELSE ?
+                    END,
+                    normalized_sort_name = CASE
+                        WHEN sort_name_source = 'MANUAL' THEN normalized_sort_name
+                        ELSE ?
+                    END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
+            statement.setString(1, normalizedReleaseDate);
+            statement.setString(2, autoSortName);
+            statement.setString(3, Names.normalize(autoSortName));
+            statement.setLong(4, albumId);
+            statement.executeUpdate();
+        }
+    }
+
     private void updateTitleMetadata(Connection connection, long albumId, List<Long> artistIds, String title,
             String releaseDate, String sortName, Boolean checked) throws Exception {
         String normalizedReleaseDate = blankToNull(releaseDate);
@@ -956,7 +1016,7 @@ public class AlbumRepository {
                   )
                   AND %s
                 ORDER BY provider_rank, a.id
-        """.formatted(compatibleReleaseDatePredicate());
+        """.formatted(fuzzyCompatibleReleaseDatePredicate());
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, artistId);
             setCompatibleReleaseDatePredicateParameters(statement, 2, releaseDate);
@@ -1013,6 +1073,24 @@ public class AlbumRepository {
                         length(a.release_date) >= 4
                         AND length(?) >= 4
                         AND substr(a.release_date, 1, 4) = substr(?, 1, 4)
+                    )
+                )
+                """;
+    }
+
+    private static String fuzzyCompatibleReleaseDatePredicate() {
+        return """
+                (
+                    coalesce(a.release_date, '') = coalesce(?, '')
+                    OR a.release_date IS NULL
+                    OR ? IS NULL
+                    OR (
+                        length(a.release_date) >= 4
+                        AND length(?) >= 4
+                        AND abs(
+                            CAST(substr(a.release_date, 1, 4) AS INTEGER)
+                            - CAST(substr(?, 1, 4) AS INTEGER)
+                        ) <= 1
                     )
                 )
                 """;
@@ -1088,31 +1166,95 @@ public class AlbumRepository {
     private List<Long> providerOnlyDuplicateIds(Connection connection, long keepAlbumId, long artistId, String title,
             String releaseDate) throws Exception {
         String sql = """
-                SELECT a.id
+                SELECT a.id, a.title, a.release_date
                 FROM albums a
                 JOIN album_artists aa ON aa.album_id = a.id
                 WHERE a.id <> ?
                   AND aa.artist_id = ?
-                  AND a.normalized_title = ?
-                  AND coalesce(a.release_date, '') = coalesce(?, '')
                   AND NOT EXISTS (
                       SELECT 1 FROM album_local_paths lp
                       WHERE lp.album_id = a.id
+                  )
+                  AND EXISTS (
+                      SELECT 1 FROM album_provider_links apl
+                      WHERE apl.album_id = a.id
                   )
                 ORDER BY a.id
                 """;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, keepAlbumId);
             statement.setLong(2, artistId);
-            statement.setString(3, Names.normalize(title));
-            statement.setString(4, blankToNull(releaseDate));
             try (ResultSet rs = statement.executeQuery()) {
                 List<Long> ids = new ArrayList<>();
                 while (rs.next()) {
-                    ids.add(rs.getLong("id"));
+                    if (providerOnlyDuplicateMatch(
+                            title,
+                            releaseDate,
+                            rs.getString("title"),
+                            rs.getString("release_date"))) {
+                        ids.add(rs.getLong("id"));
+                    }
                 }
                 return ids;
             }
+        }
+    }
+
+    private int mergeProviderOnlyDuplicates(Connection connection, long keepAlbumId, long artistId, String title,
+            String releaseDate) throws Exception {
+        List<Long> duplicates = providerOnlyDuplicateIds(connection, keepAlbumId, artistId, title, releaseDate);
+        for (long duplicateId : duplicates) {
+            transferCollectionMemberships(connection, keepAlbumId, duplicateId);
+            transferProviderLinks(connection, keepAlbumId, duplicateId);
+            deleteAlbum(connection, duplicateId);
+        }
+        return duplicates.size();
+    }
+
+    private static boolean providerOnlyDuplicateMatch(String keepTitle, String keepReleaseDate,
+            String candidateTitle, String candidateReleaseDate) {
+        var match = ProviderTitles.titleMatch(keepTitle, candidateTitle);
+        if (!strongProviderDuplicateTitleMatch(match.type(), match.score())) {
+            return false;
+        }
+        if (genericTitle(keepTitle) || genericTitle(candidateTitle)) {
+            return knownReleaseYearsEqual(keepReleaseDate, candidateReleaseDate);
+        }
+        return releaseYearsCompatible(keepReleaseDate, candidateReleaseDate);
+    }
+
+    private static boolean strongProviderDuplicateTitleMatch(String matchType, int titleScore) {
+        return ProviderTitles.MATCH_EXACT.equals(matchType)
+                || ProviderTitles.MATCH_NORMALIZED.equals(matchType)
+                || (ProviderTitles.MATCH_FUZZY.equals(matchType)
+                        && titleScore >= ProviderTitles.FUZZY_HIGH_CONFIDENCE_THRESHOLD);
+    }
+
+    private static boolean genericTitle(String title) {
+        return GENERIC_TITLES.contains(Names.normalize(title));
+    }
+
+    private static boolean releaseYearsCompatible(String leftReleaseDate, String rightReleaseDate) {
+        Integer leftYear = releaseYearValue(leftReleaseDate);
+        Integer rightYear = releaseYearValue(rightReleaseDate);
+        return leftYear == null || rightYear == null || Math.abs(leftYear - rightYear) <= 1;
+    }
+
+    private static boolean knownReleaseYearsEqual(String leftReleaseDate, String rightReleaseDate) {
+        Integer leftYear = releaseYearValue(leftReleaseDate);
+        Integer rightYear = releaseYearValue(rightReleaseDate);
+        return leftYear != null && leftYear.equals(rightYear);
+    }
+
+    private static Integer releaseYearValue(String releaseDate) {
+        String year = releaseYear(releaseDate);
+        if (year == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(year);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

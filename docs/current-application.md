@@ -99,11 +99,13 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Local scans preserve album rows, checked state, and collection membership when a local path disappears.
 - Local artist scans can attach a newly found local folder to an existing same-artist checked or provider-linked DB-only album when exact, normalized, or high-confidence fuzzy title evidence matches and the release year is compatible.
 - Local scan fuzzy merges preserve the existing album identity, checked state, display title, provider links, and collection memberships while adding the new local path evidence.
+- Local scans merge same-artist provider-only duplicate albums into the scanned local album when strong title evidence and compatible release years identify the same album.
 - Local scans do not scan tracks.
 - Scan reports are generated as plain text and stored under the configured report directory.
 - Scan report files use a timestamp, collection id, and report kind in their filename, with a numeric suffix only when needed to avoid overwriting an existing file.
 - Scan reports render structured summary counts and do not duplicate the completion status message.
 - Artist collection scan summaries distinguish artists found from albums parsed.
+- Artist collection scans refresh processed artists into the Collections artist pane while the scan is still running.
 
 ## Providers
 
@@ -169,6 +171,8 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Provider checks generate plain text report files under the configured report directory.
 - Provider report files use a timestamp and short report subject in their filename, with a numeric suffix only when needed to avoid overwriting an existing file.
 - Provider checks use the shared provider candidate album-title evaluator to link exact, normalized, and high-confidence fuzzy provider releases to existing local albums.
+- Provider checks can link a provider release to an existing provider-created unchecked album from another provider when strong title evidence and compatible release years identify the same album.
+- Provider checks prefer a strong local album match over an existing provider-only link and merge same-artist provider-only duplicates into that local album.
 - Provider checks keep the local album path unchanged when provider and local album titles differ.
 - Provider checks record unresolved title conflicts when a provider release links to an existing local album whose title differs from the provider title.
 - Provider checks record unresolved release-date conflicts when a provider release links to an existing local album whose release year differs from the provider year.

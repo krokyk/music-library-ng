@@ -1,6 +1,8 @@
 package org.kroky.musiclib.scan;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -14,8 +16,8 @@ import org.kroky.musiclib.repository.ArtistRepository;
 import org.kroky.musiclib.repository.MusicCollectionRepository;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 import jakarta.annotation.PreDestroy;
+import jakarta.inject.Inject;
 
 @ApplicationScoped
 public class ScanJobService {
@@ -191,8 +193,8 @@ public class ScanJobService {
     }
 
     private static ScanJobStatus idleStatus() {
-        return new ScanJobStatus("IDLE", "COLLECTION", null, null, null, null, null, null, null, null, 0, 0, 0,
-                0, 0, 0, false,
+        return new ScanJobStatus("IDLE", "COLLECTION", null, null, null, null, null, null, null, null,
+                List.of(), 0, 0, 0, 0, 0, 0, false,
                 null,
                 List.of());
     }
@@ -209,6 +211,7 @@ public class ScanJobService {
         private String activeCollectionName;
         private Long activeArtistId;
         private String activeArtistName;
+        private final Set<Long> processedArtistIds = new LinkedHashSet<>();
         private int itemTotal;
         private int itemProcessed;
         private int artistCount;
@@ -237,6 +240,7 @@ public class ScanJobService {
             this.activeCollectionName = collectionName(collectionId);
             this.activeArtistId = requestedArtistId;
             this.activeArtistName = requestedArtistName;
+            this.processedArtistIds.clear();
             this.itemTotal = itemTotal;
             this.itemProcessed = 0;
             this.message = runningMessage(activeCollectionName);
@@ -252,6 +256,9 @@ public class ScanJobService {
         synchronized void itemProcessed(String collectionId, int itemProcessed) {
             if (collectionId.equals(activeCollectionId)) {
                 this.itemProcessed = itemProcessed;
+                if (activeArtistId != null) {
+                    processedArtistIds.add(activeArtistId);
+                }
             }
         }
 
@@ -286,6 +293,7 @@ public class ScanJobService {
                     activeCollectionName,
                     activeArtistId,
                     activeArtistName,
+                    List.copyOf(processedArtistIds),
                     itemTotal,
                     itemProcessed,
                     artistCount,

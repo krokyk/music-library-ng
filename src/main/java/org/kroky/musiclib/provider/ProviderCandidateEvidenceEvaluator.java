@@ -214,6 +214,28 @@ final class ProviderCandidateEvidenceEvaluator {
                 && evidence.evidenceStrength() > 0;
     }
 
+    static boolean canAutoLinkProviderImportAlbum(ArtistProviderCandidateAlbum evidence, Album album) {
+        if (canAutoLinkAlbum(evidence)) {
+            return true;
+        }
+        if (evidence == null
+                || album == null
+                || evidence.localAlbumId() == null
+                || album.providerLinks().isEmpty()
+                || !releaseYearsScoreCompatible(album.releaseDate(), evidence.providerReleaseDate())
+                || !strongTitleMatch(evidence.matchType(), evidence.titleScore())) {
+            return false;
+        }
+        return !evidence.genericTitle()
+                || knownReleaseYearsEqual(album.releaseDate(), evidence.providerReleaseDate());
+    }
+
+    private static boolean strongTitleMatch(String matchType, int titleScore) {
+        return MATCH_EXACT.equals(matchType)
+                || MATCH_NORMALIZED.equals(matchType)
+                || (MATCH_FUZZY.equals(matchType) && titleScore >= FUZZY_HIGH_CONFIDENCE_THRESHOLD);
+    }
+
     private static int evidenceStrength(Album album, TitleMatch match, boolean genericTitle) {
         if (album == null || MATCH_NONE.equals(match.type())) {
             return 0;
@@ -319,6 +341,12 @@ final class ProviderCandidateEvidenceEvaluator {
         return localYear != null
                 && providerYear != null
                 && Math.abs(localYear - providerYear) <= 1;
+    }
+
+    private static boolean knownReleaseYearsEqual(String localReleaseDate, String providerReleaseDate) {
+        Integer localYear = releaseYearValue(localReleaseDate);
+        Integer providerYear = releaseYearValue(providerReleaseDate);
+        return localYear != null && localYear.equals(providerYear);
     }
 
     private static boolean releaseDateConflict(String localReleaseDate, String providerReleaseDate) {

@@ -8,6 +8,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.kroky.musiclib.model.Album;
+import org.kroky.musiclib.model.AlbumProviderLink;
 import org.kroky.musiclib.model.ArtistProviderCandidateAlbum;
 import org.kroky.musiclib.model.MetadataSource;
 import org.kroky.musiclib.model.RemoteReleaseGroup;
@@ -135,6 +136,18 @@ class ArtistProviderMatchServiceTest {
     }
 
     @Test
+    void providerImportCanLinkUncheckedProviderCreatedAlbumWithoutCandidateEvidenceScore() {
+        Album providerAlbum = providerAlbum(1, "Twilight of Days", "2001");
+        ArtistProviderCandidateAlbum evidence = ProviderCandidateEvidenceEvaluator.albumEvidence(
+                List.of(providerAlbum),
+                releaseGroup("Twilight Of Days", "2000"));
+
+        assertEquals(0, evidence.evidenceStrength());
+        assertEquals("unchecked", evidence.localEvidenceKind());
+        assertTrue(ProviderCandidateEvidenceEvaluator.canAutoLinkProviderImportAlbum(evidence, providerAlbum));
+    }
+
+    @Test
     void albumEvidenceAutoLinksStrongProviderTitleVariantsToLocalAlbums() {
         List<Album> localAlbums = List.of(
                 album(1, "The Alliance of the Kings", "2010", true, true),
@@ -253,6 +266,39 @@ class ArtistProviderMatchServiceTest {
                 onDisk,
                 List.of(),
                 List.of(),
+                null,
+                "2026-01-01T00:00:00",
+                "2026-01-01T00:00:00");
+    }
+
+    static Album providerAlbum(long id, String title, String releaseDate) {
+        return new Album(
+                id,
+                List.of(1L),
+                List.of(),
+                "Ancient Bards",
+                title,
+                releaseDate,
+                null,
+                MetadataSource.AUTO,
+                false,
+                false,
+                false,
+                List.of(),
+                List.of(new AlbumProviderLink(
+                        id,
+                        id,
+                        "musicbrainz",
+                        "mb-" + id,
+                        title,
+                        releaseDate,
+                        "https://musicbrainz.org/release-group/mb-" + id,
+                        null,
+                        null,
+                        false,
+                        false,
+                        "2026-01-01T00:00:00",
+                        "2026-01-01T00:00:00")),
                 null,
                 "2026-01-01T00:00:00",
                 "2026-01-01T00:00:00");

@@ -148,6 +148,114 @@ class AlbumRepositoryTest {
         assertEquals(albumId, scalarLong("SELECT album_id FROM album_local_paths WHERE collection_id = 'power-metal'"));
     }
 
+    @Test
+    void scannedLocalFolderAssociatesExistingAlbumWithAdditionalCollection() throws Exception {
+        var first = repository.upsertScanned(
+                1,
+                "A New Religion",
+                "1998",
+                "ATHENA - 1998 - A New Religion",
+                "metal-ballads");
+        var second = repository.upsertScanned(
+                1,
+                "A New Religion",
+                "1998",
+                "ATHENA - 1998 - A New Religion",
+                "power-metal");
+
+        assertEquals(first.id(), second.id());
+        assertFalse(second.created());
+        assertEquals(1, scalarInt("SELECT count(*) FROM albums"));
+        assertEquals(2, scalarInt("SELECT count(*) FROM collection_albums WHERE album_id = " + first.id()));
+        assertEquals(2, scalarInt("SELECT count(*) FROM album_local_paths WHERE album_id = " + first.id()));
+    }
+
+    @Test
+    void scannedLocalFolderMatchesProviderOnlyAlbumWithAdjacentProviderYear() throws Exception {
+        long albumId;
+        try (var connection = dataSource.getConnection();
+                var insert = connection.prepareStatement("""
+                        INSERT INTO albums (
+                            title, normalized_title, release_date,
+                            sort_name, normalized_sort_name, checked
+                        )
+                        VALUES (?, ?, '2001', ?, ?, 0)
+                        """, java.sql.Statement.RETURN_GENERATED_KEYS)) {
+            String providerTitle = "Twilight of Days";
+            insert.setString(1, providerTitle);
+            insert.setString(2, Names.normalize(providerTitle));
+            insert.setString(3, providerTitle + " | 2001");
+            insert.setString(4, Names.normalize(providerTitle + " | 2001"));
+            insert.executeUpdate();
+            try (var keys = insert.getGeneratedKeys()) {
+                keys.next();
+                albumId = keys.getLong(1);
+            }
+        }
+        try (var connection = dataSource.getConnection();
+                var statement = connection.createStatement()) {
+            statement.execute("INSERT INTO album_artists (album_id, artist_id, position) VALUES (" + albumId + ", 1, 0)");
+            statement.execute("""
+                    INSERT INTO album_provider_links (
+                        album_id, provider_id, provider_release_group_id,
+                        provider_title, provider_release_date
+                    )
+                    VALUES (
+                        %d, 'musicbrainz', 'mb-twilight',
+                        'Twilight of Days', '2001'
+                    )
+                    """.formatted(albumId));
+        }
+
+        var result = repository.upsertScanned(
+                1,
+                "Twilight Of Days",
+                "2000",
+                "ATHENA - 2000 - Twilight Of Days",
+                "metal-ballads");
+
+        assertEquals(albumId, result.id());
+        assertFalse(result.created());
+        assertEquals(1, scalarInt("SELECT count(*) FROM albums"));
+        assertEquals("2000", scalarString("SELECT release_date FROM albums WHERE id = " + albumId));
+        assertEquals(albumId, scalarLong("SELECT album_id FROM album_local_paths WHERE collection_id = 'metal-ballads'"));
+    }
+
+    @Test
+    void scannedLocalFolderMergesProviderOnlyDuplicatesIntoLocalAlbum() throws Exception {
+        var local = repository.upsertScanned(
+                1,
+                "Twilight Of Days",
+                "2000",
+                "ATHENA - 2000 - Twilight Of Days",
+                "metal-ballads");
+        insertProviderOnlyAlbum(
+                "Twilight of Days",
+                "2001",
+                "metal_archives",
+                "ma-twilight",
+                "Twilight of Days");
+        insertProviderOnlyAlbum(
+                "Twilight of Days",
+                "2001-01-19",
+                "musicbrainz",
+                "mb-twilight",
+                "Twilight of Days");
+
+        var result = repository.upsertScanned(
+                1,
+                "Twilight Of Days",
+                "2000",
+                "ATHENA - 2000 - Twilight Of Days",
+                "metal-ballads");
+
+        assertEquals(local.id(), result.id());
+        assertFalse(result.created());
+        assertEquals(1, scalarInt("SELECT count(*) FROM albums"));
+        assertEquals(2, scalarInt("SELECT count(*) FROM album_provider_links WHERE album_id = " + local.id()));
+        assertEquals(0, scalarInt("SELECT count(*) FROM album_provider_links WHERE album_id <> " + local.id()));
+    }
+
     private int scalarInt(String sql) throws Exception {
         try (var connection = dataSource.getConnection();
                 var statement = connection.createStatement();
@@ -164,5 +272,52 @@ class AlbumRepositoryTest {
             rs.next();
             return rs.getLong(1);
         }
+    }
+
+    private String scalarString(String sql) throws Exception {
+        try (var connection = dataSource.getConnection();
+                var statement = connection.createStatement();
+                var rs = statement.executeQuery(sql)) {
+            rs.next();
+            return rs.getString(1);
+        }
+    }
+
+    private long insertProviderOnlyAlbum(String title, String releaseDate, String providerId,
+            String providerReleaseGroupId, String providerTitle) throws Exception {
+        long albumId;
+        try (var connection = dataSource.getConnection();
+                var insert = connection.prepareStatement("""
+                        INSERT INTO albums (
+                            title, normalized_title, release_date,
+                            sort_name, normalized_sort_name, checked
+                        )
+                        VALUES (?, ?, ?, ?, ?, 0)
+                        """, java.sql.Statement.RETURN_GENERATED_KEYS)) {
+            insert.setString(1, title);
+            insert.setString(2, Names.normalize(title));
+            insert.setString(3, releaseDate);
+            insert.setString(4, title + " | " + releaseDate);
+            insert.setString(5, Names.normalize(title + " | " + releaseDate));
+            insert.executeUpdate();
+            try (var keys = insert.getGeneratedKeys()) {
+                keys.next();
+                albumId = keys.getLong(1);
+            }
+        }
+        try (var connection = dataSource.getConnection();
+                var statement = connection.createStatement()) {
+            statement.execute("INSERT INTO album_artists (album_id, artist_id, position) VALUES (" + albumId + ", 1, 0)");
+            statement.execute("""
+                    INSERT INTO album_provider_links (
+                        album_id, provider_id, provider_release_group_id,
+                        provider_title, provider_release_date
+                    )
+                    VALUES (
+                        %d, '%s', '%s', '%s', '%s'
+                    )
+                    """.formatted(albumId, providerId, providerReleaseGroupId, providerTitle, releaseDate));
+        }
+        return albumId;
     }
 }
