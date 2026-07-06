@@ -14,21 +14,21 @@ export const providerDefinitions: ProviderDefinition[] = [
     label: 'MusicBrainz',
     actionIcon: 'mdi-music-circle',
     iconSrc: '/provider-icons/musicbrainz.svg',
-    chipClass: 'artists-provider-chip--musicbrainz',
+    chipClass: 'provider-chip--musicbrainz',
   },
   {
     id: 'spirit_of_metal',
     label: 'Spirit of Metal',
     actionIcon: 'mdi-fire',
     iconSrc: '/provider-icons/spirit-of-metal.png',
-    chipClass: 'artists-provider-chip--spirit-of-metal',
+    chipClass: 'provider-chip--spirit-of-metal',
   },
   {
     id: 'metal_archives',
     label: 'Metal Archives',
     actionIcon: 'mdi-archive',
     iconSrc: '/provider-icons/metal-archives.ico',
-    chipClass: 'artists-provider-chip--metal-archives',
+    chipClass: 'provider-chip--metal-archives',
   },
 ]
 
@@ -39,8 +39,40 @@ export function providerDefinition(providerId?: string | null) {
       label: providerId ?? 'Provider',
       actionIcon: 'mdi-link-variant',
       iconSrc: '',
-      chipClass: 'artists-provider-chip--generic',
+      chipClass: 'provider-chip--generic',
     }
+}
+
+export function providerExternalArtistUrl(providerId?: string | null, providerUrl?: string | null) {
+  if (!providerUrl) {
+    return ''
+  }
+  if (providerId === 'metal_archives') {
+    return metalArchivesExternalArtistUrl(providerUrl)
+  }
+  return providerUrl
+}
+
+function metalArchivesExternalArtistUrl(providerUrl: string) {
+  let parsed: URL
+  try {
+    parsed = new URL(providerUrl)
+  } catch (error) {
+    return providerUrl
+  }
+  const host = parsed.hostname.toLowerCase()
+  if (host !== 'www.metal-archives.com' && host !== 'metal-archives.com') {
+    return providerUrl
+  }
+  const bandMatch = parsed.pathname.match(/^\/bands\/([^/]+)\/(\d+)\/?$/)
+  if (bandMatch) {
+    return `https://www.metal-archives.com/bands/${bandMatch[1]}/${bandMatch[2]}#band_tab_discography`
+  }
+  const discographyMatch = parsed.pathname.match(/^\/band\/discography\/id\/(\d+)(?:\/tab\/main)?\/?$/)
+  if (discographyMatch) {
+    return `https://www.metal-archives.com/bands/_/${discographyMatch[1]}#band_tab_discography`
+  }
+  return providerUrl
 }
 
 export function validateProviderUrl(providerId: ProviderId | null, value: string) {

@@ -23,6 +23,7 @@ public record Artist(
         String providerDisambiguation,
         Boolean providerActive,
         String providerLastErrorMessage,
+        List<ArtistProviderLink> providerLinks,
         int collectionAlbumCount,
         String localScanErrorMessage,
         String createdAt,

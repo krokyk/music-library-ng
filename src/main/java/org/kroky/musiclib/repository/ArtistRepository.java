@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -14,6 +15,7 @@ import javax.sql.DataSource;
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.db.Names;
 import org.kroky.musiclib.model.Artist;
+import org.kroky.musiclib.model.ArtistProviderLink;
 import org.kroky.musiclib.model.UpsertResult;
 import org.kroky.musiclib.provider.CountryCodes;
 
@@ -30,6 +32,9 @@ public class ArtistRepository {
 
     @Inject
     AlbumRepository albums;
+
+    @Inject
+    ArtistProviderLinkRepository providerLinks;
 
     public List<Artist> list(String search) {
         return list(search, null);
@@ -52,28 +57,21 @@ public class ArtistRepository {
                         AND (ac_filter.local = 1 OR ac_filter.last_local_scan_error_message IS NOT NULL)
                   ))
                 """);
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
+        try {
             String normalizedSearch = search == null || search.isBlank() ? null : Names.normalize(search);
             String normalizedCollectionId = blankToNull(collectionId);
-            statement.setString(1, normalizedCollectionId);
-            statement.setString(2, normalizedCollectionId);
-            statement.setString(3, normalizedCollectionId);
-            statement.setString(4, normalizedCollectionId);
-            statement.setString(5, normalizedCollectionId);
-            statement.setString(6, normalizedCollectionId);
-            statement.setString(7, normalizedSearch);
-            statement.setString(8, normalizedSearch);
-            statement.setString(9, normalizedCollectionId);
-            statement.setString(10, normalizedCollectionId);
-            statement.setString(11, normalizedCollectionId);
-            try (ResultSet rs = statement.executeQuery()) {
-                List<Artist> artists = new ArrayList<>();
-                while (rs.next()) {
-                    artists.add(map(rs, normalizedCollectionId));
-                }
-                return artists;
-            }
+            List<ArtistRow> rows = queryArtistRows(sql, statement -> {
+                statement.setString(1, normalizedCollectionId);
+                statement.setString(2, normalizedCollectionId);
+                statement.setString(3, normalizedCollectionId);
+                statement.setString(4, normalizedCollectionId);
+                statement.setString(5, normalizedSearch);
+                statement.setString(6, normalizedSearch);
+                statement.setString(7, normalizedCollectionId);
+                statement.setString(8, normalizedCollectionId);
+                statement.setString(9, normalizedCollectionId);
+            });
+            return mapRows(rows, normalizedCollectionId);
         } catch (Exception e) {
             throw new IllegalStateException("Unable to list artists", e);
         }
@@ -86,19 +84,20 @@ public class ArtistRepository {
     public Optional<Artist> find(long id, String collectionId) {
         LOG.tracef("Finding artist id=%d", id);
         String sql = selectArtists("WHERE a.id = ?");
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
+        try {
             String normalizedCollectionId = blankToNull(collectionId);
-            statement.setString(1, normalizedCollectionId);
-            statement.setString(2, normalizedCollectionId);
-            statement.setString(3, normalizedCollectionId);
-            statement.setString(4, normalizedCollectionId);
-            statement.setString(5, normalizedCollectionId);
-            statement.setString(6, normalizedCollectionId);
-            statement.setLong(7, id);
-            try (ResultSet rs = statement.executeQuery()) {
-                return rs.next() ? Optional.of(map(rs, normalizedCollectionId)) : Optional.empty();
+            List<ArtistRow> rows = queryArtistRows(sql, statement -> {
+                statement.setString(1, normalizedCollectionId);
+                statement.setString(2, normalizedCollectionId);
+                statement.setString(3, normalizedCollectionId);
+                statement.setString(4, normalizedCollectionId);
+                statement.setLong(5, id);
+            });
+            if (rows.isEmpty()) {
+                return Optional.empty();
             }
+            List<ArtistProviderLink> links = providerLinks.listByArtist(rows.get(0).id());
+            return Optional.of(map(rows.get(0), normalizedCollectionId, links));
         } catch (Exception e) {
             throw new IllegalStateException("Unable to find artist " + id, e);
         }
@@ -107,9 +106,9 @@ public class ArtistRepository {
     public UpsertResult upsertByName(String name) {
         LOG.debugf("Finding or creating artist by name '%s'", name);
         String normalizedName = Names.normalize(name);
-        Optional<Artist> existing = findByNormalizedName(normalizedName);
+        Optional<Long> existing = findIdByNormalizedName(normalizedName);
         if (existing.isPresent()) {
-            return new UpsertResult(existing.get().id(), false);
+            return new UpsertResult(existing.get(), false);
         }
         return new UpsertResult(create(name, null, null, null).id(), true);
     }
@@ -436,23 +435,45 @@ public class ArtistRepository {
         }
     }
 
-    private Optional<Artist> findByNormalizedName(String normalizedName) {
-        String sql = selectArtists("WHERE a.normalized_name = ?");
+    private Optional<Long> findIdByNormalizedName(String normalizedName) {
+        String sql = """
+                SELECT id
+                FROM artists
+                WHERE normalized_name = ?
+                """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, null);
-            statement.setString(2, null);
-            statement.setString(3, null);
-            statement.setString(4, null);
-            statement.setString(5, null);
-            statement.setString(6, null);
-            statement.setString(7, normalizedName);
+            statement.setString(1, normalizedName);
             try (ResultSet rs = statement.executeQuery()) {
-                return rs.next() ? Optional.of(map(rs, null)) : Optional.empty();
+                return rs.next() ? Optional.of(rs.getLong("id")) : Optional.empty();
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to find artist " + normalizedName, e);
         }
+    }
+
+    private List<ArtistRow> queryArtistRows(String sql, StatementBinder binder) throws Exception {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            binder.bind(statement);
+            try (ResultSet rs = statement.executeQuery()) {
+                List<ArtistRow> rows = new ArrayList<>();
+                while (rs.next()) {
+                    rows.add(ArtistRow.from(rs));
+                }
+                return rows;
+            }
+        }
+    }
+
+    private List<Artist> mapRows(List<ArtistRow> rows, String collectionId) {
+        Map<Long, List<ArtistProviderLink>> linksByArtist = providerLinks.listByArtistIds(
+                rows.stream().map(ArtistRow::id).toList());
+        List<Artist> artists = new ArrayList<>();
+        for (ArtistRow row : rows) {
+            artists.add(map(row, collectionId, linksByArtist.getOrDefault(row.id(), List.of())));
+        }
+        return artists;
     }
 
     private static String selectArtists(String whereClause) {
@@ -462,20 +483,49 @@ public class ArtistRepository {
                        count(al.id) AS album_count,
                        coalesce(sum(CASE WHEN al.checked = 1 THEN 1 ELSE 0 END), 0) AS checked_album_count,
                        coalesce(sum(CASE WHEN al.checked = 0 THEN 1 ELSE 0 END), 0) AS unchecked_album_count,
-                       coalesce(sum(CASE WHEN EXISTS (
-                           SELECT 1 FROM album_local_paths lp
-                           WHERE lp.album_id = al.id
-                             AND (? IS NULL OR lp.collection_id = ?)
-                       ) THEN 1 ELSE 0 END), 0) AS local_album_count,
-                       count(DISTINCT apl.id) AS provider_link_count,
-                       apl.provider_id,
-                       apl.provider_artist_id,
-                       apl.provider_artist_name,
-                       apl.provider_url,
-                       apl.country AS provider_country,
-                       apl.disambiguation AS provider_disambiguation,
-                       apl.active AS provider_active,
-                       apl.last_error_message AS provider_last_error_message,
+                       (SELECT count(*)
+                        FROM artist_provider_links apl_count
+                        WHERE apl_count.artist_id = a.id) AS provider_link_count,
+                       (SELECT apl.provider_id
+                        FROM artist_provider_links apl
+                        WHERE apl.artist_id = a.id
+                        ORDER BY apl.id
+                        LIMIT 1) AS provider_id,
+                       (SELECT apl.provider_artist_id
+                        FROM artist_provider_links apl
+                        WHERE apl.artist_id = a.id
+                        ORDER BY apl.id
+                        LIMIT 1) AS provider_artist_id,
+                       (SELECT apl.provider_artist_name
+                        FROM artist_provider_links apl
+                        WHERE apl.artist_id = a.id
+                        ORDER BY apl.id
+                        LIMIT 1) AS provider_artist_name,
+                       (SELECT apl.provider_url
+                        FROM artist_provider_links apl
+                        WHERE apl.artist_id = a.id
+                        ORDER BY apl.id
+                        LIMIT 1) AS provider_url,
+                       (SELECT apl.country
+                        FROM artist_provider_links apl
+                        WHERE apl.artist_id = a.id
+                        ORDER BY apl.id
+                        LIMIT 1) AS provider_country,
+                       (SELECT apl.disambiguation
+                        FROM artist_provider_links apl
+                        WHERE apl.artist_id = a.id
+                        ORDER BY apl.id
+                        LIMIT 1) AS provider_disambiguation,
+                       (SELECT apl.active
+                        FROM artist_provider_links apl
+                        WHERE apl.artist_id = a.id
+                        ORDER BY apl.id
+                        LIMIT 1) AS provider_active,
+                       (SELECT apl.last_error_message
+                        FROM artist_provider_links apl
+                        WHERE apl.artist_id = a.id
+                        ORDER BY apl.id
+                        LIMIT 1) AS provider_last_error_message,
                        (SELECT count(DISTINCT ca.album_id)
                         FROM collection_albums ca
                         JOIN album_artists aa_ca ON aa_ca.album_id = ca.album_id
@@ -510,7 +560,6 @@ public class ArtistRepository {
                 FROM artists a
                 LEFT JOIN album_artists aa ON aa.artist_id = a.id
                 LEFT JOIN albums al ON al.id = aa.album_id
-                LEFT JOIN artist_provider_links apl ON apl.artist_id = a.id
                 """
                 + whereClause
                 + "\n"
@@ -520,33 +569,91 @@ public class ArtistRepository {
                 """;
     }
 
-    private Artist map(ResultSet rs, String collectionId) throws Exception {
-        long artistId = rs.getLong("id");
+    private Artist map(ArtistRow row, String collectionId, List<ArtistProviderLink> providerLinks) {
         return new Artist(
-                artistId,
-                rs.getString("name"),
-                rs.getString("sort_name"),
-                rs.getString("country_override"),
-                nullableBoolean(rs, "active_override"),
-                parseCollectionIds(rs.getString("collection_ids")),
-                parseCollectionIds(rs.getString("local_collection_ids")),
-                rs.getInt("album_count"),
-                rs.getInt("checked_album_count"),
-                rs.getInt("unchecked_album_count"),
-                albums.countOnDiskLocalAlbumsForArtist(collectionId, artistId),
-                rs.getInt("provider_link_count"),
-                rs.getString("provider_id"),
-                rs.getString("provider_artist_id"),
-                rs.getString("provider_artist_name"),
-                rs.getString("provider_url"),
-                rs.getString("provider_country"),
-                rs.getString("provider_disambiguation"),
-                nullableBoolean(rs, "provider_active"),
-                rs.getString("provider_last_error_message"),
-                rs.getInt("collection_album_count"),
-                rs.getString("local_scan_error_message"),
-                rs.getString("created_at"),
-                rs.getString("updated_at"));
+                row.id(),
+                row.name(),
+                row.sortName(),
+                row.countryOverride(),
+                row.activeOverride(),
+                parseCollectionIds(row.collectionIds()),
+                parseCollectionIds(row.localCollectionIds()),
+                row.albumCount(),
+                row.checkedAlbumCount(),
+                row.uncheckedAlbumCount(),
+                albums.countOnDiskLocalAlbumsForArtist(collectionId, row.id()),
+                row.providerLinkCount(),
+                row.providerId(),
+                row.providerArtistId(),
+                row.providerArtistName(),
+                row.providerUrl(),
+                row.providerCountry(),
+                row.providerDisambiguation(),
+                row.providerActive(),
+                row.providerLastErrorMessage(),
+                List.copyOf(providerLinks),
+                row.collectionAlbumCount(),
+                row.localScanErrorMessage(),
+                row.createdAt(),
+                row.updatedAt());
+    }
+
+    @FunctionalInterface
+    private interface StatementBinder {
+        void bind(PreparedStatement statement) throws Exception;
+    }
+
+    private record ArtistRow(
+            long id,
+            String name,
+            String sortName,
+            String countryOverride,
+            Boolean activeOverride,
+            int albumCount,
+            int checkedAlbumCount,
+            int uncheckedAlbumCount,
+            int providerLinkCount,
+            String providerId,
+            String providerArtistId,
+            String providerArtistName,
+            String providerUrl,
+            String providerCountry,
+            String providerDisambiguation,
+            Boolean providerActive,
+            String providerLastErrorMessage,
+            int collectionAlbumCount,
+            String localScanErrorMessage,
+            String collectionIds,
+            String localCollectionIds,
+            String createdAt,
+            String updatedAt) {
+
+        static ArtistRow from(ResultSet rs) throws Exception {
+            return new ArtistRow(
+                    rs.getLong("id"),
+                    rs.getString("name"),
+                    rs.getString("sort_name"),
+                    rs.getString("country_override"),
+                    nullableBoolean(rs, "active_override"),
+                    rs.getInt("album_count"),
+                    rs.getInt("checked_album_count"),
+                    rs.getInt("unchecked_album_count"),
+                    rs.getInt("provider_link_count"),
+                    rs.getString("provider_id"),
+                    rs.getString("provider_artist_id"),
+                    rs.getString("provider_artist_name"),
+                    rs.getString("provider_url"),
+                    rs.getString("provider_country"),
+                    rs.getString("provider_disambiguation"),
+                    nullableBoolean(rs, "provider_active"),
+                    rs.getString("provider_last_error_message"),
+                    rs.getInt("collection_album_count"),
+                    rs.getString("local_scan_error_message"),
+                    rs.getString("collection_ids"),
+                    rs.getString("local_collection_ids"),
+                    rs.getString("created_at"),
+                    rs.getString("updated_at"));
+        }
     }
 
     private static Boolean nullableBoolean(ResultSet rs, String column) throws Exception {

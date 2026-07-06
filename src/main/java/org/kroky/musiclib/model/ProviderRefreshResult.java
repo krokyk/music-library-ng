@@ -10,6 +10,7 @@ public record ProviderRefreshResult(
         int existingAlbumCount,
         int createdAlbumCount,
         int releaseDateConflictCount,
+        int titleConflictCount,
         int skippedCount,
         List<String> messages,
         List<ReportArtifact> reports) {

@@ -1,16 +1,11 @@
 package org.kroky.musiclib.provider;
 
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 import org.kroky.musiclib.config.MusicLibraryConfig;
-import org.kroky.musiclib.db.Names;
 import org.kroky.musiclib.model.Album;
 import org.kroky.musiclib.model.Artist;
-import org.kroky.musiclib.model.ArtistProviderCandidateAlbum;
 import org.kroky.musiclib.model.ArtistProviderCandidate;
 import org.kroky.musiclib.model.RemoteReleaseGroup;
 import org.kroky.musiclib.provider.html.MetalArchivesProvider;
@@ -53,12 +48,11 @@ public class ArtistProviderMatchService {
     public List<ArtistProviderCandidate> searchCandidates(long artistId, String providerId) throws ProviderException {
         Artist artist = artists.find(artistId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown artist: " + artistId));
-        List<Album> localAlbums = albums.list(artist.id(), null, null, null, null).stream()
-                .filter(Album::onDisk)
-                .toList();
+        List<Album> artistAlbums = albums.list(artist.id(), null, null, null, null);
         return searchProviderResults(artist.name(), providerId).stream()
-                .map(result -> candidate(artist, localAlbums, result))
-                .sorted(Comparator.comparingInt(ArtistProviderCandidate::matchScore).reversed()
+                .map(result -> candidate(artist, artistAlbums, result))
+                .sorted(Comparator.comparingInt(ArtistProviderCandidate::finalScore).reversed()
+                        .thenComparing(Comparator.comparingInt(ArtistProviderCandidate::albumEvidenceScore).reversed())
                         .thenComparing(Comparator.comparingInt(ArtistProviderCandidate::providerScore).reversed())
                         .thenComparing(ArtistProviderCandidate::providerArtistName,
                                 Comparator.nullsLast(String::compareToIgnoreCase)))
@@ -95,7 +89,7 @@ public class ArtistProviderMatchService {
                 .toList();
     }
 
-    private ArtistProviderCandidate candidate(Artist artist, List<Album> localAlbums,
+    private ArtistProviderCandidate candidate(Artist artist, List<Album> artistAlbums,
             ProviderArtistSearchResult result) {
         CandidateDetails details;
         try {
@@ -104,20 +98,13 @@ public class ArtistProviderMatchService {
             details = new CandidateDetails(result.country(), result.active(), List.of());
         }
         List<RemoteReleaseGroup> releaseGroups = details.releaseGroups();
-        List<String> matchedAlbums = localAlbums.stream()
-                .filter(album -> releaseGroups.stream()
-                        .anyMatch(releaseGroup -> titleMatchesForScoring(album, releaseGroup)))
-                .map(Album::title)
-                .distinct()
-                .toList();
-        List<ArtistProviderCandidateAlbum> candidateAlbums = candidateAlbums(localAlbums, releaseGroups);
-        int titleAndYearMatches = titleAndCompatibleYearMatches(localAlbums, releaseGroups);
-        int matchScore = matchScore(
+        var evidence = ProviderCandidateEvidenceEvaluator.evaluate(
                 artist.name(),
+                artistAlbums,
                 result.providerArtistName(),
                 result.providerScore(),
-                matchedAlbums.size(),
-                titleAndYearMatches);
+                providerAliases(result),
+                releaseGroups);
         return new ArtistProviderCandidate(
                 result.providerId(),
                 result.providerArtistId(),
@@ -127,10 +114,16 @@ public class ArtistProviderMatchService {
                 result.disambiguation(),
                 details.active(),
                 result.providerScore(),
-                matchScore,
-                matchedAlbums,
+                evidence.finalScore(),
+                evidence.finalScore(),
+                evidence.nameScore(),
+                evidence.albumEvidenceScore(),
+                evidence.yearBonus(),
+                evidence.evidenceSummary(),
+                evidence.matchedLocalAlbums(),
+                evidence.albumEvidence(),
                 releaseGroups,
-                candidateAlbums);
+                evidence.albumEvidence());
     }
 
     private CandidateDetails fetchCandidateDetails(ProviderArtistSearchResult result) throws ProviderException {
@@ -163,119 +156,24 @@ public class ArtistProviderMatchService {
     private record CandidateDetails(String country, Boolean active, List<RemoteReleaseGroup> releaseGroups) {
     }
 
-    private static List<ArtistProviderCandidateAlbum> candidateAlbums(List<Album> localAlbums,
-            List<RemoteReleaseGroup> releaseGroups) {
-        return releaseGroups.stream()
-                .map(releaseGroup -> {
-                    Album localAlbum = bestLocalAlbum(localAlbums, releaseGroup);
-                    return new ArtistProviderCandidateAlbum(
-                            releaseGroup.title(),
-                            releaseGroup.releaseDate(),
-                            releaseGroup.providerUrl(),
-                            localAlbum == null ? null : localAlbum.id(),
-                            localAlbum == null ? null : localAlbum.releaseDate(),
-                            localAlbum != null && localAlbum.onDisk(),
-                            localAlbum != null && releaseDateConflict(localAlbum.releaseDate(), releaseGroup.releaseDate()));
-                })
-                .toList();
-    }
-
-    private static Album bestLocalAlbum(List<Album> localAlbums, RemoteReleaseGroup releaseGroup) {
-        String providerTitle = Names.normalize(releaseGroup.title());
-        List<Album> titleMatches = localAlbums.stream()
-                .filter(album -> providerTitle.equals(Names.normalize(album.title())))
-                .toList();
-        if (titleMatches.isEmpty()) {
-            return null;
+    private static List<String> providerAliases(ProviderArtistSearchResult result) {
+        if (result.disambiguation() == null || result.disambiguation().isBlank()) {
+            return List.of();
         }
-        String providerYear = releaseYear(releaseGroup.releaseDate());
-        return titleMatches.stream()
-                .filter(album -> providerYear != null && providerYear.equals(releaseYear(album.releaseDate())))
-                .findFirst()
-                .orElse(titleMatches.get(0));
+        String cleaned = result.disambiguation()
+                .replaceFirst("(?i)^a\\.k\\.a\\.\\s*", "")
+                .trim();
+        if (cleaned.isBlank()) {
+            return List.of();
+        }
+        return List.of(cleaned);
     }
 
     static boolean titleMatchesForScoring(Album album, RemoteReleaseGroup releaseGroup) {
-        return Names.normalize(album.title()).equals(Names.normalize(releaseGroup.title()));
-    }
-
-    private static int titleAndCompatibleYearMatches(List<Album> localAlbums, List<RemoteReleaseGroup> releaseGroups) {
-        int matches = 0;
-        for (Album album : localAlbums) {
-            String albumTitle = Names.normalize(album.title());
-            for (RemoteReleaseGroup releaseGroup : releaseGroups) {
-                if (albumTitle.equals(Names.normalize(releaseGroup.title()))
-                        && knownReleaseYearsScoreCompatible(album.releaseDate(), releaseGroup.releaseDate())) {
-                    matches++;
-                    break;
-                }
-            }
-        }
-        return matches;
-    }
-
-    private static int matchScore(String localArtistName, String providerArtistName, int providerScore,
-            int titleMatches, int titleAndYearMatches) {
-        String local = Names.normalize(localArtistName);
-        String remote = Names.normalize(providerArtistName);
-        int nameScore = local.equals(remote) ? 35 : nameSimilarity(local, remote);
-        int score = (int) Math.round(providerScore * 0.35)
-                + nameScore
-                + Math.min(20, titleMatches * 5)
-                + Math.min(10, titleAndYearMatches * 3);
-        return Math.min(100, Math.max(0, score));
-    }
-
-    private static int nameSimilarity(String local, String remote) {
-        if (local.isBlank() || remote.isBlank()) {
-            return 0;
-        }
-        if (local.contains(remote) || remote.contains(local)) {
-            return 25;
-        }
-        Set<String> localTokens = Arrays.stream(local.split(" ")).collect(Collectors.toSet());
-        Set<String> remoteTokens = Arrays.stream(remote.split(" ")).collect(Collectors.toSet());
-        long overlap = localTokens.stream().filter(remoteTokens::contains).count();
-        long total = Math.max(localTokens.size(), remoteTokens.size());
-        return total == 0 ? 0 : (int) Math.round(25.0 * overlap / total);
-    }
-
-    private static String releaseYear(String releaseDate) {
-        if (releaseDate == null || releaseDate.length() < 4) {
-            return null;
-        }
-        return releaseDate.substring(0, 4);
+        return ProviderCandidateEvidenceEvaluator.titleMatch(album.title(), releaseGroup.title()).score() >= 92;
     }
 
     static boolean releaseYearsScoreCompatible(String localReleaseDate, String providerReleaseDate) {
-        Integer localYear = releaseYearValue(localReleaseDate);
-        Integer providerYear = releaseYearValue(providerReleaseDate);
-        return localYear == null || providerYear == null || Math.abs(localYear - providerYear) <= 1;
-    }
-
-    private static boolean knownReleaseYearsScoreCompatible(String localReleaseDate, String providerReleaseDate) {
-        Integer localYear = releaseYearValue(localReleaseDate);
-        Integer providerYear = releaseYearValue(providerReleaseDate);
-        return localYear != null
-                && providerYear != null
-                && releaseYearsScoreCompatible(localReleaseDate, providerReleaseDate);
-    }
-
-    private static Integer releaseYearValue(String releaseDate) {
-        String year = releaseYear(releaseDate);
-        if (year == null) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(year);
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    private static boolean releaseDateConflict(String localReleaseDate, String providerReleaseDate) {
-        String localYear = releaseYear(localReleaseDate);
-        String providerYear = releaseYear(providerReleaseDate);
-        return localYear != null && providerYear != null && !localYear.equals(providerYear);
+        return ProviderCandidateEvidenceEvaluator.releaseYearsScoreCompatible(localReleaseDate, providerReleaseDate);
     }
 }

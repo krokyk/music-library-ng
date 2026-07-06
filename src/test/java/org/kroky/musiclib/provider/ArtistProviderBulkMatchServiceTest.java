@@ -7,43 +7,156 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.kroky.musiclib.model.ArtistProviderCandidate;
+import org.kroky.musiclib.model.RemoteReleaseGroup;
 
 class ArtistProviderBulkMatchServiceTest {
 
     @Test
     void acceptsStrongMatchWithMultipleLocalAlbums() {
+        ArtistProviderCandidate top = candidate(
+                "Dark Tranquillity",
+                100,
+                evidence("Dark Tranquillity",
+                        List.of(
+                                localAlbum(1, "Fiction", "2007"),
+                                localAlbum(2, "Character", "2005")),
+                        "Dark Tranquillity",
+                        100,
+                        List.of(
+                                releaseGroup("Fiction", "2007"),
+                                releaseGroup("Character", "2005"))));
+        ArtistProviderCandidate runnerUp = candidate(
+                "Dark Tranquility",
+                92,
+                evidence("Dark Tranquillity",
+                        List.of(localAlbum(1, "Fiction", "2007")),
+                        "Dark Tranquility",
+                        92,
+                        List.of(releaseGroup("Fiction", "2007"))));
+
         assertTrue(ArtistProviderBulkMatchService.isHighConfidenceMusicBrainzMatch(
                 "Dark Tranquillity",
-                candidate("Dark Tranquillity", 100, 86, List.of("Fiction", "Character")),
-                candidate("Dark Tranquility", 92, 70, List.of("Fiction"))));
+                top,
+                runnerUp));
     }
 
     @Test
     void rejectsNameOnlyMatchWithoutAlbumEvidence() {
+        ArtistProviderCandidate candidate = candidate(
+                "Dark Tranquillity",
+                100,
+                evidence("Dark Tranquillity", List.of(), "Dark Tranquillity", 100, List.of()));
+
         assertFalse(ArtistProviderBulkMatchService.isHighConfidenceMusicBrainzMatch(
                 "Dark Tranquillity",
-                candidate("Dark Tranquillity", 100, 100, List.of()),
+                candidate,
                 null));
     }
 
     @Test
-    void acceptsSingleAlbumOnlyWhenNameAndMarginAreStrong() {
+    void acceptsSingleLocalExactAlbumOnlyWithAdditionalEvidenceAndStrongMargin() {
+        ArtistProviderCandidate top = candidate(
+                "Antti Martikainen",
+                100,
+                evidence("Antti Martikainen",
+                        List.of(
+                                localAlbum(1, "Creation of the World", "2012"),
+                                checkedAlbum(2, "Throne of the North", "2016")),
+                        "Antti Martikainen",
+                        100,
+                        List.of(
+                                releaseGroup("Creation of the World", "2012"),
+                                releaseGroup("Throne of the North", "2016"))));
+        ArtistProviderCandidate runnerUp = candidate(
+                "Antti Martikainen Project",
+                90,
+                evidence("Antti Martikainen",
+                        List.of(localAlbum(1, "Creation of the World", "2012")),
+                        "Antti Martikainen Project",
+                        90,
+                        List.of(releaseGroup("Creation of the World", "2012"))));
+
         assertTrue(ArtistProviderBulkMatchService.isHighConfidenceMusicBrainzMatch(
                 "Antti Martikainen",
-                candidate("Antti Martikainen", 100, 78, List.of("Creation of the World")),
-                candidate("Antti Martikainen Project", 90, 60, List.of("Creation of the World"))));
+                top,
+                runnerUp));
+    }
+
+    @Test
+    void rejectsSingleLocalExactAlbumWithoutEnoughAlbumEvidence() {
+        ArtistProviderCandidate candidate = candidate(
+                "Antti Martikainen",
+                100,
+                evidence("Antti Martikainen",
+                        List.of(localAlbum(1, "Creation of the World", "2012")),
+                        "Antti Martikainen",
+                        100,
+                        List.of(releaseGroup("Creation of the World", "2012"))));
+
+        assertFalse(ArtistProviderBulkMatchService.isHighConfidenceMusicBrainzMatch(
+                "Antti Martikainen",
+                candidate,
+                null));
+    }
+
+    @Test
+    void rejectsSingleFuzzyOnlyLocalAlbum() {
+        ArtistProviderCandidate candidate = candidate(
+                "Ancient Bards",
+                100,
+                evidence("Ancient Bards",
+                        List.of(
+                                localAlbum(1, "Soulless Child", "2011"),
+                                checkedAlbum(2, "A New Religion", "2014"),
+                                checkedAlbum(3, "The Alliance of the Kings", "2010")),
+                        "Ancient Bards",
+                        100,
+                        List.of(
+                                releaseGroup("Soulless Childe", "2011"),
+                                releaseGroup("A New Religion?", "2014"),
+                                releaseGroup("The Alliance of the Kings", "2010"))));
+
+        assertFalse(ArtistProviderBulkMatchService.isHighConfidenceMusicBrainzMatch(
+                "Ancient Bards",
+                candidate,
+                null));
     }
 
     @Test
     void rejectsCandidateWhenRunnerUpIsTooClose() {
+        ArtistProviderCandidate top = candidate(
+                "Antti Martikainen",
+                100,
+                evidence("Antti Martikainen",
+                        List.of(
+                                localAlbum(1, "Creation of the World", "2012"),
+                                localAlbum(2, "Throne of the North", "2016")),
+                        "Antti Martikainen",
+                        100,
+                        List.of(
+                                releaseGroup("Creation of the World", "2012"),
+                                releaseGroup("Throne of the North", "2016"))));
+        ArtistProviderCandidate runnerUp = candidate(
+                "Antti Martikainen",
+                98,
+                evidence("Antti Martikainen",
+                        List.of(
+                                localAlbum(1, "Creation of the World", "2012"),
+                                localAlbum(2, "Throne of the North", "2016")),
+                        "Antti Martikainen",
+                        98,
+                        List.of(
+                                releaseGroup("Creation of the World", "2012"),
+                                releaseGroup("Throne of the North", "2016"))));
+
         assertFalse(ArtistProviderBulkMatchService.isHighConfidenceMusicBrainzMatch(
                 "Antti Martikainen",
-                candidate("Antti Martikainen", 100, 86, List.of("Creation of the World", "Throne of the North")),
-                candidate("Antti Martikainen", 98, 82, List.of("Creation of the World"))));
+                top,
+                runnerUp));
     }
 
-    private static ArtistProviderCandidate candidate(String name, int providerScore, int matchScore,
-            List<String> matchedLocalAlbums) {
+    static ArtistProviderCandidate candidate(String name, int providerScore,
+            ProviderCandidateEvidenceEvaluator.CandidateEvidence evidence) {
         return new ArtistProviderCandidate(
                 "musicbrainz",
                 "36b891ab-5e89-4f17-bb91-f189764de5ff",
@@ -53,9 +166,42 @@ class ArtistProviderBulkMatchServiceTest {
                 null,
                 null,
                 providerScore,
-                matchScore,
-                matchedLocalAlbums,
+                evidence.finalScore(),
+                evidence.finalScore(),
+                evidence.nameScore(),
+                evidence.albumEvidenceScore(),
+                evidence.yearBonus(),
+                evidence.evidenceSummary(),
+                evidence.matchedLocalAlbums(),
+                evidence.albumEvidence(),
                 List.of(),
-                List.of());
+                evidence.albumEvidence());
+    }
+
+    private static ProviderCandidateEvidenceEvaluator.CandidateEvidence evidence(
+            String localArtistName,
+            List<org.kroky.musiclib.model.Album> albums,
+            String providerArtistName,
+            int providerScore,
+            List<RemoteReleaseGroup> releaseGroups) {
+        return ProviderCandidateEvidenceEvaluator.evaluate(
+                localArtistName,
+                albums,
+                providerArtistName,
+                providerScore,
+                List.of(),
+                releaseGroups);
+    }
+
+    private static org.kroky.musiclib.model.Album localAlbum(long id, String title, String releaseDate) {
+        return ArtistProviderMatchServiceTest.album(id, title, releaseDate, true, true);
+    }
+
+    private static org.kroky.musiclib.model.Album checkedAlbum(long id, String title, String releaseDate) {
+        return ArtistProviderMatchServiceTest.album(id, title, releaseDate, true, false);
+    }
+
+    private static RemoteReleaseGroup releaseGroup(String title, String releaseDate) {
+        return ArtistProviderMatchServiceTest.releaseGroup(title, releaseDate);
     }
 }

@@ -2,10 +2,9 @@ package org.kroky.musiclib.provider;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
-import org.kroky.musiclib.db.Names;
 import org.kroky.musiclib.model.Album;
+import org.kroky.musiclib.model.ArtistProviderCandidateAlbum;
 import org.kroky.musiclib.model.ArtistProviderLink;
 import org.kroky.musiclib.model.ProviderRefreshResult;
 import org.kroky.musiclib.model.RemoteReleaseGroup;
@@ -49,6 +48,7 @@ public class ArtistProviderRefreshService {
         int alreadyInLibrary = 0;
         int createdAlbums = 0;
         int releaseDateConflicts = 0;
+        int titleConflicts = 0;
         int ignored = 0;
 
         for (RemoteReleaseGroup releaseGroup : releaseGroups) {
@@ -56,16 +56,11 @@ public class ArtistProviderRefreshService {
             switch (plan.decision()) {
                 case SKIP_ALREADY_LINKED -> {
                     assignToCollectionIfUnassigned(plan.album(), collectionId);
-                    if (plan.album() != null && releaseDateConflict(plan.album().releaseDate(),
-                            releaseGroup.releaseDate())) {
-                        releaseDateConflicts++;
-                        report.releaseDateConflict(releaseDateConflictRow(link.artistName(), "MusicBrainz",
-                                plan.album(), releaseGroup));
-                    } else {
-                        alreadyInLibrary++;
-                        report.alreadyInLibrary(providerAlbumRow(link.artistName(), "MusicBrainz", releaseGroup,
-                                plan.album()));
-                    }
+                    ProviderAlbumOutcome outcome = reportProviderAlbumOutcome(link.artistName(), "MusicBrainz",
+                            plan.album(), releaseGroup, report);
+                    alreadyInLibrary += outcome.existingAlbums();
+                    releaseDateConflicts += outcome.releaseDateConflicts();
+                    titleConflicts += outcome.titleConflicts();
                 }
                 case SKIP_UNSUPPORTED -> {
                     ignored++;
@@ -74,19 +69,14 @@ public class ArtistProviderRefreshService {
                 }
                 case AUTO_MATCH_EXISTING -> {
                     Album album = plan.album();
-                    boolean conflict = releaseDateConflict(album.releaseDate(), releaseGroup.releaseDate());
                     albums.updateReleaseDateIfMissing(album.id(), releaseGroup.releaseDate());
                     linkAlbum(album.id(), releaseGroup);
                     assignToCollectionIfUnassigned(album, collectionId);
-                    if (conflict) {
-                        releaseDateConflicts++;
-                        report.releaseDateConflict(releaseDateConflictRow(link.artistName(), "MusicBrainz", album,
-                                releaseGroup));
-                    } else {
-                        alreadyInLibrary++;
-                        report.alreadyInLibrary(providerAlbumRow(link.artistName(), "MusicBrainz", releaseGroup,
-                                album));
-                    }
+                    ProviderAlbumOutcome outcome = reportProviderAlbumOutcome(link.artistName(), "MusicBrainz",
+                            album, releaseGroup, report);
+                    alreadyInLibrary += outcome.existingAlbums();
+                    releaseDateConflicts += outcome.releaseDateConflicts();
+                    titleConflicts += outcome.titleConflicts();
                 }
                 case AUTO_CREATE -> {
                     Album album = albums.create(link.artistId(), releaseGroup.title(), releaseGroup.releaseDate(),
@@ -99,12 +89,13 @@ public class ArtistProviderRefreshService {
             }
         }
 
-        if (createdAlbums == 0 && releaseDateConflicts == 0 && ignored == 0) {
+        if (createdAlbums == 0 && releaseDateConflicts == 0 && titleConflicts == 0 && ignored == 0) {
             report.noChange(link.artistName() + " (MusicBrainz)");
         }
         String message = "MusicBrainz refresh for " + link.artistName() + " read " + releaseGroups.size()
                 + " albums, already in library " + alreadyInLibrary
                 + ", release date conflicts " + releaseDateConflicts
+                + ", title conflicts " + titleConflicts
                 + ", added " + createdAlbums + " unchecked albums"
                 + ", ignored " + ignored + ".";
         return new ProviderRefreshResult(
@@ -115,13 +106,14 @@ public class ArtistProviderRefreshService {
                 alreadyInLibrary,
                 createdAlbums,
                 releaseDateConflicts,
+                titleConflicts,
                 ignored,
                 List.of(message),
                 List.of());
     }
 
     private AlbumImportPlan classify(RemoteReleaseGroup releaseGroup, List<Album> localAlbums) {
-        Optional<Long> linkedAlbumId = albumProviderLinks.findAlbumId(
+        var linkedAlbumId = albumProviderLinks.findAlbumId(
                 releaseGroup.providerId(), releaseGroup.providerReleaseGroupId());
         if (linkedAlbumId.isPresent()) {
             Album album = albums.find(linkedAlbumId.get()).orElse(null);
@@ -139,12 +131,17 @@ public class ArtistProviderRefreshService {
                     "Secondary type: " + String.join(", ", releaseGroup.secondaryTypes()));
         }
 
-        // Keep provider import deterministic: exact title matches are existing albums; everything else is a new unchecked full album.
-        return localAlbums.stream()
-                .filter(album -> Names.normalize(album.title()).equals(Names.normalize(releaseGroup.title())))
-                .findFirst()
-                .map(album -> new AlbumImportPlan(AlbumImportDecision.AUTO_MATCH_EXISTING, album, "Exact title match"))
-                .orElseGet(() -> new AlbumImportPlan(AlbumImportDecision.AUTO_CREATE, null, "New full album"));
+        ArtistProviderCandidateAlbum evidence = ProviderCandidateEvidenceEvaluator.albumEvidence(localAlbums, releaseGroup);
+        if (ProviderCandidateEvidenceEvaluator.canAutoLinkAlbum(evidence)) {
+            return localAlbums.stream()
+                    .filter(album -> evidence.localAlbumId().equals(album.id()))
+                    .findFirst()
+                    .map(album -> new AlbumImportPlan(AlbumImportDecision.AUTO_MATCH_EXISTING, album,
+                            evidence.matchType() + " title match"))
+                    .orElseGet(() -> new AlbumImportPlan(AlbumImportDecision.SKIP_UNSUPPORTED, null,
+                            "Matched local album is no longer available"));
+        }
+        return new AlbumImportPlan(AlbumImportDecision.AUTO_CREATE, null, "New full album");
     }
 
     private void assignToCollectionIfUnassigned(Album album, String collectionId) {
@@ -202,6 +199,36 @@ public class ArtistProviderRefreshService {
                 + " | provider title: " + blankValue(releaseGroup.title());
     }
 
+    private static String titleConflictRow(String artistName, String providerName, Album album,
+            RemoteReleaseGroup releaseGroup) {
+        return artistName + " (" + providerName + "): " + album.title()
+                + " | provider title: " + blankValue(releaseGroup.title())
+                + " | release: " + blankValue(releaseGroup.releaseDate());
+    }
+
+    private static ProviderAlbumOutcome reportProviderAlbumOutcome(String artistName, String providerName, Album album,
+            RemoteReleaseGroup releaseGroup, ProviderCheckReport report) {
+        if (album == null) {
+            report.alreadyInLibrary(providerAlbumRow(artistName, providerName, releaseGroup, null));
+            return new ProviderAlbumOutcome(1, 0, 0);
+        }
+        boolean releaseDateConflict = releaseDateConflict(album.releaseDate(), releaseGroup.releaseDate());
+        boolean titleConflict = ProviderTitles.titleConflict(album.title(), releaseGroup.title());
+        if (releaseDateConflict) {
+            report.releaseDateConflict(releaseDateConflictRow(artistName, providerName, album, releaseGroup));
+        }
+        if (titleConflict) {
+            report.titleConflict(titleConflictRow(artistName, providerName, album, releaseGroup));
+        }
+        if (!releaseDateConflict && !titleConflict) {
+            report.alreadyInLibrary(providerAlbumRow(artistName, providerName, releaseGroup, album));
+        }
+        return new ProviderAlbumOutcome(
+                releaseDateConflict || titleConflict ? 0 : 1,
+                releaseDateConflict ? 1 : 0,
+                titleConflict ? 1 : 0);
+    }
+
     private static String providerAlbumRow(String artistName, String providerName, RemoteReleaseGroup releaseGroup,
             Album album) {
         return artistName + " (" + providerName + "): " + blankValue(releaseGroup.title())
@@ -221,5 +248,8 @@ public class ArtistProviderRefreshService {
     }
 
     private record AlbumImportPlan(AlbumImportDecision decision, Album album, String reason) {
+    }
+
+    private record ProviderAlbumOutcome(int existingAlbums, int releaseDateConflicts, int titleConflicts) {
     }
 }

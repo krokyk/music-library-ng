@@ -47,6 +47,12 @@ public class ArtistProviderResource {
     }
 
     @GET
+    @Path("/providers")
+    public List<ArtistProviderLink> providers(@PathParam("artistId") long artistId) {
+        return providerLinks.listByArtist(artistId);
+    }
+
+    @GET
     @Path("/provider-candidates/{providerId}")
     public List<ArtistProviderCandidate> providerCandidates(@PathParam("artistId") long artistId,
             @PathParam("providerId") String providerId) {
@@ -90,6 +96,13 @@ public class ArtistProviderResource {
         return Response.noContent().build();
     }
 
+    @DELETE
+    @Path("/providers/{providerId}")
+    public Response clearProvider(@PathParam("artistId") long artistId, @PathParam("providerId") String providerId) {
+        providerLinks.deleteByArtistAndProvider(artistId, providerId);
+        return Response.noContent().build();
+    }
+
     private String validateProviderRequest(ProviderRequest request) {
         if (request == null) {
             throw new BadRequestException("Provider request is required");
@@ -105,7 +118,9 @@ public class ArtistProviderResource {
         }
         String normalizedProviderUrl;
         try {
-            normalizedProviderUrl = ProviderUrlNormalizer.normalize(request.providerId(), request.providerUrl());
+            normalizedProviderUrl = "metal_archives".equals(request.providerId())
+                    ? ProviderUrlNormalizer.normalizeMetalArchives(request.providerUrl(), request.providerArtistName())
+                    : ProviderUrlNormalizer.normalize(request.providerId(), request.providerUrl());
             providerRegistry.find(request.providerId(), normalizedProviderUrl);
         } catch (ProviderException | IllegalArgumentException e) {
             throw new BadRequestException(e.getMessage(), e);

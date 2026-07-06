@@ -18,6 +18,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Shared defaults live in `src/main/resources/application.properties`.
 - Private or machine-specific overrides live in ignored `config/application.properties` or JVM `-D...` properties.
 - The SQLite path defaults to `data/music-library-ng.sqlite`.
+- SQLite connections use WAL mode, `synchronous=NORMAL`, foreign keys, and a 30 second busy timeout so UI reads can continue during background scan writes.
 - Logs default to console output plus `data/logs/music-library-ng.log`.
 - Generated reports default to `data/reports`.
 - The music root is startup configuration, not a runtime UI preference.
@@ -40,8 +41,8 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - `album_local_paths` stores local folder evidence for an album within a collection.
 - `artist_collections` stores collection-scoped artist scan state and local scan failures.
 - `providers` stores supported provider kinds.
-- `artist_provider_links` stores one provider identity per artist plus provider country, active-status, and disambiguation evidence.
-- `album_provider_links` stores provider release-group mappings to local albums and optional release-date conflict resolution.
+- `artist_provider_links` stores provider identities per artist plus provider country, active-status, disambiguation evidence, enabled state, and provider-specific scan status.
+- `album_provider_links` stores provider release-group mappings to local albums and optional release-date and title conflict resolution.
 - `user_preferences` stores runtime preference overrides.
 
 ## Album State
@@ -96,6 +97,8 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - A collection-wide local album scan removes stale local path rows for the whole selected collection.
 - Local scans remove local path evidence that was not seen in the latest relevant scan.
 - Local scans preserve album rows, checked state, and collection membership when a local path disappears.
+- Local artist scans can attach a newly found local folder to an existing same-artist checked or provider-linked DB-only album when exact, normalized, or high-confidence fuzzy title evidence matches and the release year is compatible.
+- Local scan fuzzy merges preserve the existing album identity, checked state, display title, provider links, and collection memberships while adding the new local path evidence.
 - Local scans do not scan tracks.
 - Scan reports are generated as plain text and stored under the configured report directory.
 - Scan report files use a timestamp, collection id, and report kind in their filename, with a numeric suffix only when needed to avoid overwriting an existing file.
@@ -105,26 +108,59 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 ## Providers
 
 - Supported provider IDs are `musicbrainz`, `spirit_of_metal`, and `metal_archives`.
-- Each artist can have at most one provider identity.
+- Each artist can have multiple provider identities, with at most one link per provider.
 - MusicBrainz identities use MBIDs and derive site URLs from those MBIDs.
 - Spirit of Metal and Metal Archives identities use provider URLs validated and normalized by provider-specific code.
+- Metal Archives artist provider links are stored as band-page URLs under `/bands/<band-name>/<id>` or `/bands/_/<id>`.
+- Metal Archives provider checks derive `/band/discography/id/<id>/tab/main` internally for scraping and UI external links append `#band_tab_discography`.
 - Provider metadata stores country as an ISO alpha-2 code, active status as nullable boolean evidence, and disambiguation as provider evidence when available.
 - The app supports `XW` as an `International` pseudo-country for manual artist country overrides.
 - Artist country and active-status overrides live on the artist row and are never overwritten by provider rescans.
-- Effective artist country and status prefer the artist override, then the current provider evidence, then unknown.
+- Effective artist country and status prefer the artist override, then the first linked provider evidence, then unknown.
+- `GET /api/artists/{artistId}/providers` lists all provider links for one artist.
+- `GET /api/artists/{artistId}/provider` returns the first provider link for compatibility with older callers.
+- `PUT /api/artists/{artistId}/provider` upserts the link for the requested provider without replacing other provider links.
+- `DELETE /api/artists/{artistId}/providers/{providerId}` removes one provider link.
+- `DELETE /api/artists/{artistId}/provider` removes every provider link for the artist.
 - Provider candidate search is shared across supported providers through `GET /api/artists/{artistId}/provider-candidates/{providerId}`.
-- Provider candidate scoring counts same normalized on-disk album-title evidence even when the local and provider release years differ.
-- Provider candidate scoring gives an extra title-and-year bonus only when both release years are known and differ by at most one year.
-- Provider candidate dialogs are shared between Collections and Artists and show candidate albums as chips with overflow counts.
+- Manual provider candidate dialogs and bulk provider matching use the same backend candidate-evidence evaluator.
+- Provider candidate confidence combines provider search score, artist-name similarity, album-title evidence, and a small capped release-year bonus.
+- Provider candidate rows sort by final confidence descending, then album evidence score descending, then provider search score descending.
+- Album-title evidence matching tries exact title equality, normalized title equality, then fuzzy scoring on normalized titles.
+- Fuzzy title scoring uses the best Jaro-Winkler, Levenshtein ratio, and token-set or token-sort result.
+- Exact title matches score `100`, normalized title matches score `96`, fuzzy title matches score their computed fuzzy score, and fuzzy scores below `84` are treated as no title match.
+- Fuzzy title scores from `84` through `91` are shown as manual-review evidence but do not contribute auto-match album evidence.
+- Fuzzy title scores of `92` or higher can contribute album evidence.
+- Local on-disk album-title evidence is strong evidence, checked non-local album-title evidence is medium evidence, and unchecked non-local provider-created album evidence is display-only context.
+- Generic album titles contribute half weight and cannot be the only auto-match evidence.
+- Generic album titles are `Greatest Hits`, `Best Of`, `Live`, `Anthology`, `Collection`, `The Collection`, `Essential`, and `The Essential`.
+- Release-year compatibility adds only a capped bonus for album evidence that already matched by title.
+- Release-year compatibility never creates an album-title evidence match by itself.
+- Provider candidates expose `finalScore`, `nameScore`, `albumEvidenceScore`, `yearBonus`, `evidenceSummary`, and per-album evidence with local title, provider title, match type, title score, evidence strength, and local evidence kind.
+- Bulk provider auto-matching requires provider search score at least `80`, artist-name score at least `65`, album evidence score at least `64`, final score at least `82`, and a final-score margin of at least `8` over the runner-up.
+- Bulk provider auto-matching requires local non-generic album-title evidence and never auto-matches from checked non-local, unchecked non-local, provider-only, generic-only, or one fuzzy-only album match.
+- Provider candidate dialogs show candidate albums as chips with overflow counts.
+- The Collections screen provider candidate dialog saves the clicked provider candidate immediately for the selected provider.
+- The Artists screen `Add providers` row action opens a fixed-size multi-provider dialog titled `Match Provider for <artist>`.
+- Artists provider tabs are ordered by provider display name, show a spinner while that provider is being matched, keep loaded results cached while switching tabs, expose `Refresh all`, and keep the active tab selected after refresh.
+- Artists provider tabs show a top-right green badge when a candidate is selected.
+- Existing provider links appear as preselected candidate rows in their provider tabs.
+- Deselecting an existing provider row and clicking `Save` removes that provider link.
+- Selecting a different provider candidate and clicking `Save` adds or updates that provider link.
 - Clicking a provider candidate row applies that candidate, while the row's `Open` button opens the provider artist page as a separate action with a tooltip.
 - Provider candidate rows show one coherent clickable hover highlight, and the `Open` button has its own hover treatment.
-- Provider candidate album chips are dimmed for provider-only albums, outlined with a green check badge for albums found on disk, and outlined with an amber question badge when a found-on-disk album has a provider year mismatch.
-- Provider candidate album chips have bounded widths and expose full album names through tooltips.
+- Provider candidate rows show compact evidence summaries such as `Confidence 91 / Name 70 / Albums 2 local`.
+- Provider candidate album chips show provider album titles without match-type suffixes.
+- Provider candidate album chips use a green check badge only when title and year both fully match local evidence, and use an amber question badge when matched local evidence has a title or year conflict.
+- Provider candidate album chips are dimmed for provider-only albums and keep checked or unchecked non-local evidence visually distinct when there is no title or year conflict.
+- Provider candidate album chips sort stronger evidence first, prioritizing exact title plus matching year, then partial title or year matches, then weaker or unmatched evidence.
+- Provider candidate album chips have bounded widths and expose concise title and year match summaries through multiline tooltips.
 - Bulk provider matching is shared across supported providers through `POST /api/provider-matches/{providerId}/artists`.
 - Bulk provider matching receives exact artist IDs from the frontend visible scope.
-- Bulk provider matching skips artists that already have a provider identity.
+- Bulk provider matching skips artists that already have an identity for the requested provider.
 - Bulk provider matching auto-links only high-confidence matches and leaves ambiguous matches for manual selection.
 - Provider checks run through provider job flows for user-facing scan buttons.
+- One-artist provider checks scan all enabled provider links for that artist.
 - Batch provider jobs skip provider links whose last successful check is inside the configured batch rescan delay.
 - Failed provider checks do not block immediate retry.
 - Individual artist provider checks always run even when the artist was checked recently.
@@ -132,8 +168,11 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Provider checks do not delete local albums or local path evidence because a provider omits a release.
 - Provider checks generate plain text report files under the configured report directory.
 - Provider report files use a timestamp and short report subject in their filename, with a numeric suffix only when needed to avoid overwriting an existing file.
-- HTML provider checks link same-title local albums with mismatched years to the provider release and record unresolved release-date conflicts instead of creating duplicate unchecked albums.
-- Unresolved provider release-date conflicts remain visible after a provider check through the global conflict list.
+- Provider checks use the shared provider candidate album-title evaluator to link exact, normalized, and high-confidence fuzzy provider releases to existing local albums.
+- Provider checks keep the local album path unchanged when provider and local album titles differ.
+- Provider checks record unresolved title conflicts when a provider release links to an existing local album whose title differs from the provider title.
+- Provider checks record unresolved release-date conflicts when a provider release links to an existing local album whose release year differs from the provider year.
+- Unresolved provider release-date and title conflicts remain visible after a provider check through artist row warning indicators and the artist-scoped conflict resolver.
 
 ## Status History And Reports
 
@@ -143,16 +182,29 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Report dialog navigation such as `1/3` is the current report index inside the in-memory status history.
 - Reports omit internal identifiers.
 - Durable audit data comes from the generated plain text files under `data/reports`, not from database job tables.
-- The global conflict list groups multiple provider sources for the same local album and provider year into one conflict row.
+- The artist-scoped provider conflict resolver groups conflicts by local album and conflict type.
+- The provider conflict resolver displays the artist's linked providers above the album groups.
+- Provider chips inside the provider conflict resolver include an external-open icon and open the linked provider page when clicked.
+- The provider conflict resolver uses a constant-height dialog with internal scrolling.
+- The provider conflict resolver shows conflict sections as an accordion with the first section open and only one section open at a time.
+- The provider conflict resolver title shows an artist name plus a conflict-count chip that counts local album and conflict-type sections, not provider variants.
+- Collapsed conflict-section headers show only the album path or title plus a variant-count chip such as `3 Title variants` or `1 Release Date variant`.
+- Expanded conflict sections show one local tile and one provider tile for each distinct provider value.
+- Provider variant tiles group multiple provider sources when they propose the same provider value for the same conflict type.
 - Keeping the local year marks all grouped provider releases as resolved against the local album so future provider checks do not add the provider album again.
 - Kept-local year decisions remain visible in the Artists detail known-album list and can be reset from the year chip to make the mismatch unresolved again.
-- Using the provider year renames every on-disk local album folder for the album, updates the matching album local paths and release date, resolves all grouped provider releases, merges provider-only duplicates, and writes the provider year to supported audio file tags.
-- Provider-year folder renaming supports flat artist-year-album collections and nested artist-album collections.
+- Using the provider year updates the album release date in the library database, resolves all grouped provider releases, and merges provider-only duplicates without renaming folders or writing audio tags.
+- Keeping the local title marks every differing provider title for that album as resolved against the local album.
+- Keeping the local title clears title resolution on provider links that already match the local title.
+- Using a provider title updates the album title in the library database, marks matching provider links as `USE_PROVIDER`, marks other provider titles on that album as `USE_OTHER_PROVIDER`, and merges provider-only duplicates without renaming folders or writing audio tags.
+- Provider conflict choice tiles show compact source provider chips with provider icons and external-open icons.
+- Compact source provider chips open the linked provider artist page and use tooltips such as `Open artist page in Metal Archives`.
+- Provider conflict resolution is metadata-only and never mutates files or folders on disk.
 - Collection-scoped provider checks assign newly created or otherwise unassigned provider albums to the selected collection.
 - Provider checks from the global Artists screen refresh artist-level provider data without assigning collection membership.
 - MusicBrainz imports supported full albums only.
 - MusicBrainz ignores EPs, singles, splits, compilations, live releases, demos, soundtrack secondary types, and malformed provider records as diagnostics.
-- MusicBrainz exact normalized title matches count as already in library and may fill a missing local release date.
+- MusicBrainz exact, normalized, and high-confidence fuzzy title matches count as already in library and may fill a missing local release date.
 - HTML providers import supported album rows from their discography pages and are covered by parser tests for the response shapes the app depends on.
 - HTML provider artist details refresh provider country and active-status evidence from the artist page when the provider exposes those values.
 
@@ -195,11 +247,11 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - The Artists screen supports collection membership filtering.
 - Multiple selected collection filters use OR semantics.
 - Search text is AND-ed with the collection membership filter.
-- The Artists screen bulk provider scope is the currently visible unlinked artist rows after search and collection filters.
-- The displayed bulk count and submitted artist IDs must come from the same filtered list.
-- Provider setup and provider matching controls use provider chips.
+- The Artists screen bulk provider scope is the currently visible artist rows missing the specific provider after search and collection filters.
+- The displayed bulk count for each provider and submitted artist IDs must come from the same filtered list.
+- Provider setup and provider matching controls use provider chips with normal provider display names.
 - Saving or clearing provider identities updates affected rows in place where practical so pane scroll position is preserved.
-- The Artists table shows artist name, country, status, album counts, local counts, provider identity, and row actions.
+- The Artists table shows artist name, country, status, album counts, local counts, provider identities, and row actions.
 - The Artists table does not show provider artist type because providers use incompatible meanings for that field.
 - Country cells use bundled SVG flag assets and country names.
 - Clicking a country cell opens a cell-anchored popover with a search field and country list.
@@ -209,8 +261,10 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Status menu edits write only the artist active-status override.
 - The Artists detail pane is the main artist metadata edit surface for name and sort name.
 - The Artists detail pane shows effective country and status plus provider evidence when an override differs from the provider value.
-- The Artists top tab, artist rows, and known-album year chips show warning indicators while provider release-date conflicts remain unresolved.
-- Clicking an unresolved known-album year chip opens the provider release-date conflict resolution dialog.
+- The Artists top tab and artist rows show warning indicators while provider release-date or title conflicts remain unresolved.
+- Known-album year chips show warning indicators while provider release-date conflicts remain unresolved.
+- Artist rows expose a warning `Conflicts` row action when the artist has unresolved provider title or release-date conflicts.
+- Clicking the `Conflicts` action or an unresolved known-album year chip opens the provider conflict dialog for that artist only.
 - Known-album year chips show an outlined kept-local state with an undo action when a provider year mismatch was resolved by keeping the local year.
 - The Artists detail pane shows known albums with the same local, checked non-local, and unchecked non-local color treatment used by collection album rows.
 
@@ -239,13 +293,15 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Artists use `GET`, `POST`, `PUT`, and `DELETE` routes under `/api/artists`.
 - Artist removal from a collection uses `DELETE /api/artists/{id}/collections/{collectionId}`.
 - Albums use `GET`, `POST`, and `PUT` routes under `/api/albums`.
-- One-artist provider identity uses `GET`, `PUT`, and `DELETE /api/artists/{artistId}/provider`.
+- One-artist provider identities use `GET /api/artists/{artistId}/providers`, `GET /api/artists/{artistId}/provider`, `PUT /api/artists/{artistId}/provider`, `DELETE /api/artists/{artistId}/providers/{providerId}`, and `DELETE /api/artists/{artistId}/provider`.
 - Provider candidate search uses `GET /api/artists/{artistId}/provider-candidates/{providerId}`.
 - Provider bulk matching uses `POST /api/provider-matches/{providerId}/artists`.
 - Provider bulk matching requires an explicit `artistIds` array and never falls back to all artists.
 - Scan jobs use `/api/scan`.
 - Provider check jobs use `/api/provider-checks`.
 - Unresolved provider release-date conflicts use `GET /api/provider-conflicts/release-dates`.
+- Unresolved provider title conflicts use `GET /api/provider-conflicts/titles`.
+- Provider title conflict actions use `/api/albums/{albumId}/provider-links/{providerLinkId}/title-conflict/...`.
 - Provider release-date conflict actions use `/api/albums/{albumId}/provider-links/{providerLinkId}/release-date-conflict`.
 - Resetting a kept-local release-date decision uses `POST /api/albums/{albumId}/provider-links/{providerLinkId}/release-date-conflict/reset-keep-local`.
 - Settings use `/api/settings/music-root` and `/api/settings/ui`.
@@ -261,7 +317,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Track file scanning and audio tag parsing are not part of normal collection scans.
 - Cover art is not implemented.
 - Provider refresh has no track, release, cover-art, or MusicBrainz edit submission flow.
-- Provider-year folder renaming is not implemented for title-pipeline collections.
+- Provider conflict resolution does not rename folders or edit audio tags.
 - HTML provider search pages are not stable public APIs, so parser tests are required when their parsing changes.
 - Title provider scans are not a default title-collection workflow.
 - Multi-user sync conflict handling is not implemented.

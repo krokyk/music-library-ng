@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
+import ProviderChip from '@/components/ProviderChip.vue'
 import ProviderMatchDialog from '@/components/ProviderMatchDialog.vue'
 import { countryName } from '@/countries'
 import { formatDateWithJavaPattern } from '@/dateFormat'
@@ -540,6 +541,9 @@ function artistFailureTooltip(artist: Artist) {
 }
 
 function providerForArtist(artist: Artist) {
+  if (artist.providerLinks?.length) {
+    return artist.providerLinks[0]
+  }
   if (!artist.providerId) {
     return null
   }
@@ -558,27 +562,6 @@ function providerForArtist(artist: Artist) {
 function providerChipText(artist: Artist) {
   const provider = providerForArtist(artist)
   return provider ? providerDefinition(provider.providerId).label : 'Add provider'
-}
-
-function providerChipClasses(artist: Artist) {
-  const provider = providerForArtist(artist)
-  if (!provider) {
-    return []
-  }
-  return [
-    'artists-provider-chip',
-    'collections-provider-chip',
-    providerDefinition(provider.providerId).chipClass,
-    {
-      'artists-provider-chip--error': Boolean(provider.lastErrorMessage),
-      'collections-provider-chip--compact': !showArtistProviderLabel(artist),
-    },
-  ]
-}
-
-function providerChipIconSrc(artist: Artist) {
-  const provider = providerForArtist(artist)
-  return provider ? providerDefinition(provider.providerId).iconSrc : ''
 }
 
 function showArtistProviderLabel(artist: Artist) {
@@ -2511,7 +2494,7 @@ async function clearArtistProvider(artist: Artist) {
     return
   }
   try {
-    await store.clearArtistProvider(artist.id)
+    await store.clearArtistProvider(artist.id, providerForArtist(artist)?.providerId)
   } catch (error) {
     store.showErrorStatus(error, 'Unable to remove provider')
   }
@@ -3538,26 +3521,20 @@ watch(sortedCollectionTitleItems, (items) => {
                       location="top"
                     >
                       <template #activator="{ props }">
-                        <v-chip
+                        <ProviderChip
                           v-bind="props"
-                          :class="providerChipClasses(artist)"
-                          size="small"
-                          variant="flat"
+                          class="collections-provider-chip"
+                          :class="{ 'collections-provider-chip--compact': !showArtistProviderLabel(artist) }"
+                          :provider-id="providerForArtist(artist)?.providerId"
+                          :label="providerChipText(artist)"
+                          :show-label="showArtistProviderLabel(artist)"
+                          :error="Boolean(providerForArtist(artist)?.lastErrorMessage)"
                           closable
                           close-icon="mdi-trash-can-outline"
                           :disabled="scanActionsDisabled"
                           @click.stop="scanArtistProvider(artist)"
                           @click:close.stop="clearArtistProvider(artist)"
-                        >
-                          <img
-                            v-if="providerChipIconSrc(artist)"
-                            class="artists-provider-chip__icon"
-                            :src="providerChipIconSrc(artist)"
-                            alt=""
-                            aria-hidden="true"
-                          >
-                          <span v-if="showArtistProviderLabel(artist)" class="artists-provider-chip__text">{{ providerChipText(artist) }}</span>
-                        </v-chip>
+                        ></ProviderChip>
                       </template>
                     </v-tooltip>
                     <v-tooltip v-else text="Add provider" location="top">
@@ -3687,26 +3664,19 @@ watch(sortedCollectionTitleItems, (items) => {
               location="top"
             >
               <template #activator="{ props }">
-                <v-chip
+                <ProviderChip
                   v-bind="props"
-                  :class="[...providerChipClasses(selectedArtist), 'pane-empty-provider-chip']"
+                  class="collections-provider-chip pane-empty-provider-chip"
+                  :provider-id="providerForArtist(selectedArtist)?.providerId"
+                  :label="providerChipText(selectedArtist)"
+                  :error="Boolean(providerForArtist(selectedArtist)?.lastErrorMessage)"
                   size="large"
-                  variant="flat"
                   closable
                   close-icon="mdi-trash-can-outline"
                   :disabled="scanActionsDisabled"
                   @click="scanArtistProvider(selectedArtist)"
                   @click:close.stop="clearArtistProvider(selectedArtist)"
-                >
-                  <img
-                    v-if="providerChipIconSrc(selectedArtist)"
-                    class="artists-provider-chip__icon"
-                    :src="providerChipIconSrc(selectedArtist)"
-                    alt=""
-                    aria-hidden="true"
-                  >
-                  <span class="artists-provider-chip__text">{{ providerChipText(selectedArtist) }}</span>
-                </v-chip>
+                ></ProviderChip>
               </template>
             </v-tooltip>
           </div>

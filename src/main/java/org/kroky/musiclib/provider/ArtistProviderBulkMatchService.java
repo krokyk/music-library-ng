@@ -5,7 +5,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-import org.kroky.musiclib.db.Names;
 import org.kroky.musiclib.model.Artist;
 import org.kroky.musiclib.model.ArtistProviderBulkMatchItem;
 import org.kroky.musiclib.model.ArtistProviderBulkMatchResult;
@@ -77,11 +76,11 @@ public class ArtistProviderBulkMatchService {
         try {
             Artist artist = artists.find(artistId)
                     .orElseThrow(() -> new IllegalArgumentException("Unknown artist: " + artistId));
-            var existing = providerLinks.findByArtist(artist.id());
+            var existing = providerLinks.findByArtistAndProvider(artist.id(), providerId);
             if (existing.isPresent()) {
                 ArtistProviderLink link = existing.get();
                 return item(artist, STATUS_SKIPPED_EXISTING,
-                        "Existing provider configured: " + link.providerId(),
+                        "Existing " + providerLabel(providerId) + " provider configured.",
                         link,
                         null,
                         List.of());
@@ -96,18 +95,20 @@ public class ArtistProviderBulkMatchService {
             ArtistProviderCandidate top = candidates.get(0);
             ArtistProviderCandidate runnerUp = candidates.size() > 1 ? candidates.get(1) : null;
             if (isHighConfidenceProviderMatch(artist.name(), top, runnerUp)) {
+                String providerUrl = canonicalProviderUrl(top);
                 ArtistProviderLink link = providerLinks.upsertForArtist(
                         artist.id(),
                         top.providerId(),
                         top.providerArtistId(),
                         top.providerArtistName(),
-                        top.providerUrl(),
+                        providerUrl,
                         top.country(),
                         top.disambiguation(),
                         top.active(),
                         true);
                 return item(artist, STATUS_MATCHED,
-                        "Auto-linked " + label + " provider: " + top.providerArtistName(),
+                        "Auto-linked " + label + " provider: " + top.providerArtistName()
+                                + " (" + top.evidenceSummary() + ")",
                         link,
                         top,
                         candidates);
@@ -136,26 +137,7 @@ public class ArtistProviderBulkMatchService {
 
     static boolean isHighConfidenceProviderMatch(String artistName, ArtistProviderCandidate candidate,
             ArtistProviderCandidate runnerUp) {
-        if (candidate == null) {
-            return false;
-        }
-        int matchedAlbumCount = candidate.matchedLocalAlbums() == null ? 0 : candidate.matchedLocalAlbums().size();
-        if (matchedAlbumCount == 0 || candidate.providerScore() < 80) {
-            return false;
-        }
-        int margin = runnerUp == null ? 100 : candidate.matchScore() - runnerUp.matchScore();
-        if (margin < 8) {
-            return false;
-        }
-        if (matchedAlbumCount >= 2 && candidate.matchScore() >= 85) {
-            return true;
-        }
-        boolean exactName = Names.normalize(artistName).equals(Names.normalize(candidate.providerArtistName()));
-        return exactName
-                && matchedAlbumCount >= 1
-                && candidate.providerScore() >= 95
-                && candidate.matchScore() >= 75
-                && margin >= 12;
+        return ProviderCandidateEvidenceEvaluator.isHighConfidenceMatch(candidate, runnerUp);
     }
 
     private static String providerLabel(String providerId) {
@@ -165,6 +147,13 @@ public class ArtistProviderBulkMatchService {
             case ProviderUrlNormalizer.METAL_ARCHIVES -> "Metal Archives";
             default -> providerId == null || providerId.isBlank() ? "Provider" : providerId;
         };
+    }
+
+    private static String canonicalProviderUrl(ArtistProviderCandidate candidate) {
+        if (ProviderUrlNormalizer.METAL_ARCHIVES.equals(candidate.providerId())) {
+            return ProviderUrlNormalizer.normalizeMetalArchives(candidate.providerUrl(), candidate.providerArtistName());
+        }
+        return candidate.providerUrl();
     }
 
     private List<Long> artistIds(List<Long> requestedArtistIds) {

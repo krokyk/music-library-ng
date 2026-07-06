@@ -138,7 +138,7 @@ CREATE TABLE artist_provider_links (
     FOREIGN KEY (provider_id) REFERENCES providers(id),
     CHECK (enabled IN (0, 1)),
     CHECK (active IN (0, 1)),
-    UNIQUE (artist_id),
+    UNIQUE (artist_id, provider_id),
     UNIQUE (provider_id, provider_artist_id)
 );
 
@@ -153,10 +153,12 @@ CREATE TABLE album_provider_links (
     provider_release_date TEXT,
     provider_url TEXT,
     release_date_resolution TEXT,
+    title_resolution TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
     CHECK (release_date_resolution IN ('KEEP_LOCAL', 'USE_PROVIDER')),
+    CHECK (title_resolution IN ('KEEP_LOCAL', 'USE_PROVIDER', 'USE_OTHER_PROVIDER')),
     UNIQUE (provider_id, provider_release_group_id),
     UNIQUE (album_id, provider_id, provider_release_group_id)
 );

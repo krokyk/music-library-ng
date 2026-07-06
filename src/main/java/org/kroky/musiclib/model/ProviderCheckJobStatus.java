@@ -18,6 +18,7 @@ public record ProviderCheckJobStatus(
         int newAlbumCount,
         int existingAlbumCount,
         int releaseDateConflictCount,
+        int titleConflictCount,
         int errorCount,
         boolean cancelRequested,
         String message,

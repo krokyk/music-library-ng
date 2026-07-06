@@ -24,6 +24,7 @@ import org.kroky.musiclib.model.AlbumLocalPath;
 import org.kroky.musiclib.model.AlbumProviderLink;
 import org.kroky.musiclib.model.MetadataSource;
 import org.kroky.musiclib.model.UpsertResult;
+import org.kroky.musiclib.provider.ProviderTitles;
 import org.kroky.musiclib.scan.MusicRootService;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -95,13 +96,17 @@ public class AlbumRepository {
             statement.setString(10, normalizedSearch);
             statement.setString(11, normalizedSearch);
             statement.setString(12, normalizedSearch);
+            List<AlbumRow> rows = new ArrayList<>();
             try (ResultSet rs = statement.executeQuery()) {
-                List<Album> albums = new ArrayList<>();
                 while (rs.next()) {
-                    albums.add(mapAlbum(connection, rs));
+                    rows.add(AlbumRow.from(rs));
                 }
-                return albums;
             }
+            List<Album> albums = new ArrayList<>();
+            for (AlbumRow row : rows) {
+                albums.add(mapAlbum(connection, row));
+            }
+            return albums;
         } catch (Exception e) {
             throw new IllegalStateException("Unable to list albums", e);
         }
@@ -113,9 +118,13 @@ public class AlbumRepository {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, id);
+            AlbumRow row = null;
             try (ResultSet rs = statement.executeQuery()) {
-                return rs.next() ? Optional.of(mapAlbum(connection, rs)) : Optional.empty();
+                if (rs.next()) {
+                    row = AlbumRow.from(rs);
+                }
             }
+            return row == null ? Optional.empty() : Optional.of(mapAlbum(connection, row));
         } catch (Exception e) {
             throw new IllegalStateException("Unable to find album " + id, e);
         }
@@ -307,8 +316,16 @@ public class AlbumRepository {
                         albumId = duplicateAlbumId.get();
                         markScannedAlbumChecked(connection, albumId);
                     } else {
-                        albumId = insertAlbum(connection, title, releaseDate, sortName, true, null);
-                        created = true;
+                        Optional<Long> fuzzyDuplicateAlbumId = normalizedArtistIds.isEmpty()
+                                ? Optional.empty()
+                                : findScannedFuzzyDuplicateId(connection, normalizedArtistIds, title, releaseDate);
+                        if (fuzzyDuplicateAlbumId.isPresent()) {
+                            albumId = fuzzyDuplicateAlbumId.get();
+                            markScannedAlbumChecked(connection, albumId);
+                        } else {
+                            albumId = insertAlbum(connection, title, releaseDate, sortName, true, null);
+                            created = true;
+                        }
                     }
                 }
                 if (!normalizedArtistIds.isEmpty()) {
@@ -476,16 +493,17 @@ public class AlbumRepository {
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, normalizedCollectionId);
             statement.setLong(2, albumId);
+            List<LocalPathProbe> paths = new ArrayList<>();
             try (ResultSet rs = statement.executeQuery()) {
                 while (rs.next()) {
-                    if (isOnDiskPath(
+                    paths.add(new LocalPathProbe(null,
                             rs.getString("collection_relative_path"),
-                            rs.getString("relative_path"))) {
-                        return true;
-                    }
+                            rs.getString("relative_path")));
                 }
-                return false;
             }
+            return paths.stream().anyMatch(path -> isOnDiskPath(
+                    path.collectionRelativePath(),
+                    path.albumRelativePath()));
         } catch (Exception e) {
             throw new IllegalStateException("Unable to check album local paths", e);
         }
@@ -512,16 +530,17 @@ public class AlbumRepository {
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, normalizedCollectionId);
             statement.setLong(2, artistId);
+            List<LocalPathProbe> paths = new ArrayList<>();
             try (ResultSet rs = statement.executeQuery()) {
                 while (rs.next()) {
-                    if (isOnDiskPath(
+                    paths.add(new LocalPathProbe(null,
                             rs.getString("collection_relative_path"),
-                            rs.getString("relative_path"))) {
-                        return true;
-                    }
+                            rs.getString("relative_path")));
                 }
-                return false;
             }
+            return paths.stream().anyMatch(path -> isOnDiskPath(
+                    path.collectionRelativePath(),
+                    path.albumRelativePath()));
         } catch (Exception e) {
             throw new IllegalStateException("Unable to check artist local paths", e);
         }
@@ -546,17 +565,22 @@ public class AlbumRepository {
             statement.setString(1, normalizedCollectionId);
             statement.setString(2, normalizedCollectionId);
             statement.setLong(3, artistId);
-            Set<Long> albumIds = new HashSet<>();
+            List<LocalPathProbe> paths = new ArrayList<>();
             try (ResultSet rs = statement.executeQuery()) {
                 while (rs.next()) {
-                    if (isOnDiskPath(
+                    paths.add(new LocalPathProbe(
+                            rs.getLong("album_id"),
                             rs.getString("collection_relative_path"),
-                            rs.getString("relative_path"))) {
-                        albumIds.add(rs.getLong("album_id"));
-                    }
+                            rs.getString("relative_path")));
                 }
-                return albumIds.size();
             }
+            Set<Long> albumIds = new HashSet<>();
+            for (LocalPathProbe path : paths) {
+                if (isOnDiskPath(path.collectionRelativePath(), path.albumRelativePath())) {
+                    albumIds.add(path.albumId());
+                }
+            }
+            return albumIds.size();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to count artist local albums", e);
         }
@@ -583,21 +607,33 @@ public class AlbumRepository {
         String delete = "DELETE FROM album_local_paths WHERE id = ?";
         int removed = 0;
         try (Connection connection = dataSource.getConnection();
-                PreparedStatement selectStatement = connection.prepareStatement(select);
-                PreparedStatement deleteStatement = connection.prepareStatement(delete)) {
+                PreparedStatement selectStatement = connection.prepareStatement(select)) {
             selectStatement.setString(1, normalizedCollectionId);
             setNullableLong(selectStatement, 2, albumId);
             setNullableLong(selectStatement, 3, albumId);
             setNullableLong(selectStatement, 4, artistId);
             setNullableLong(selectStatement, 5, artistId);
+            List<StaleLocalPathCandidate> candidates = new ArrayList<>();
             try (ResultSet rs = selectStatement.executeQuery()) {
                 while (rs.next()) {
-                    if (isOnDiskPath(
+                    candidates.add(new StaleLocalPathCandidate(
+                            rs.getLong("id"),
                             rs.getString("collection_relative_path"),
-                            rs.getString("relative_path"))) {
-                        continue;
-                    }
-                    deleteStatement.setLong(1, rs.getLong("id"));
+                            rs.getString("relative_path")));
+                }
+            }
+            List<Long> staleIds = new ArrayList<>();
+            for (StaleLocalPathCandidate candidate : candidates) {
+                if (!isOnDiskPath(candidate.collectionRelativePath(), candidate.albumRelativePath())) {
+                    staleIds.add(candidate.id());
+                }
+            }
+            if (staleIds.isEmpty()) {
+                return 0;
+            }
+            try (PreparedStatement deleteStatement = connection.prepareStatement(delete)) {
+                for (long staleId : staleIds) {
+                    deleteStatement.setLong(1, staleId);
                     removed += deleteStatement.executeUpdate();
                 }
             }
@@ -815,6 +851,18 @@ public class AlbumRepository {
         return Optional.empty();
     }
 
+    private Optional<Long> findScannedFuzzyDuplicateId(Connection connection, List<Long> artistIds, String title,
+            String releaseDate) throws Exception {
+        ScannedAlbumMatch best = null;
+        for (long artistId : artistIds) {
+            Optional<ScannedAlbumMatch> match = findScannedFuzzyDuplicateId(connection, artistId, title, releaseDate);
+            if (match.isPresent() && (best == null || match.get().compareTo(best) < 0)) {
+                best = match.get();
+            }
+        }
+        return best == null ? Optional.empty() : Optional.of(best.albumId());
+    }
+
     private Optional<Long> findDuplicateId(Connection connection, long artistId, String title, String releaseDate)
             throws Exception {
         String sql = """
@@ -884,6 +932,58 @@ public class AlbumRepository {
         }
     }
 
+    private Optional<ScannedAlbumMatch> findScannedFuzzyDuplicateId(Connection connection, long artistId, String title,
+            String releaseDate) throws Exception {
+        String sql = """
+                SELECT a.id, a.title,
+                       CASE WHEN EXISTS (
+                           SELECT 1 FROM album_provider_links apl
+                           WHERE apl.album_id = a.id
+                       ) THEN 0 ELSE 1 END AS provider_rank
+                FROM albums a
+                JOIN album_artists aa ON aa.album_id = a.id
+                WHERE aa.artist_id = ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM album_local_paths lp
+                      WHERE lp.album_id = a.id
+                  )
+                  AND (
+                      a.checked = 1
+                      OR EXISTS (
+                          SELECT 1 FROM album_provider_links apl
+                          WHERE apl.album_id = a.id
+                      )
+                  )
+                  AND %s
+                ORDER BY provider_rank, a.id
+        """.formatted(compatibleReleaseDatePredicate());
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, artistId);
+            setCompatibleReleaseDatePredicateParameters(statement, 2, releaseDate);
+            try (ResultSet rs = statement.executeQuery()) {
+                ScannedAlbumMatch best = null;
+                while (rs.next()) {
+                    var match = ProviderTitles.titleMatch(title, rs.getString("title"));
+                    boolean accepted = ProviderTitles.MATCH_EXACT.equals(match.type())
+                            || ProviderTitles.MATCH_NORMALIZED.equals(match.type())
+                            || (ProviderTitles.MATCH_FUZZY.equals(match.type())
+                                    && match.score() >= ProviderTitles.FUZZY_HIGH_CONFIDENCE_THRESHOLD);
+                    if (!accepted) {
+                        continue;
+                    }
+                    ScannedAlbumMatch candidate = new ScannedAlbumMatch(
+                            rs.getLong("id"),
+                            match.score(),
+                            rs.getInt("provider_rank"));
+                    if (best == null || candidate.compareTo(best) < 0) {
+                        best = candidate;
+                    }
+                }
+                return Optional.ofNullable(best);
+            }
+        }
+    }
+
     private Optional<Long> findDuplicateIdByTitle(Connection connection, String title, String releaseDate)
             throws Exception {
         String sql = """
@@ -938,6 +1038,14 @@ public class AlbumRepository {
             String releaseDate) throws Exception {
         String normalizedReleaseDate = blankToNull(releaseDate);
         for (int i = 0; i < 8; i++) {
+            statement.setString(startIndex + i, normalizedReleaseDate);
+        }
+    }
+
+    private static void setCompatibleReleaseDatePredicateParameters(PreparedStatement statement, int startIndex,
+            String releaseDate) throws Exception {
+        String normalizedReleaseDate = blankToNull(releaseDate);
+        for (int i = 0; i < 4; i++) {
             statement.setString(startIndex + i, normalizedReleaseDate);
         }
     }
@@ -1092,28 +1200,28 @@ public class AlbumRepository {
         }
     }
 
-    private Album mapAlbum(Connection connection, ResultSet rs) throws Exception {
-        long albumId = rs.getLong("id");
+    private Album mapAlbum(Connection connection, AlbumRow row) throws Exception {
+        long albumId = row.id();
         List<AlbumLocalPath> localPaths = listPaths(connection, albumId);
         boolean hasLocalPath = !localPaths.isEmpty();
         boolean onDisk = localPaths.stream().anyMatch(AlbumLocalPath::onDisk);
         return new Album(
                 albumId,
-                parseArtistIds(rs.getString("artist_ids")),
+                parseArtistIds(row.artistIds()),
                 listCollections(connection, albumId),
-                rs.getString("artist_name"),
-                rs.getString("title"),
-                rs.getString("release_date"),
-                rs.getString("sort_name"),
-                MetadataSource.valueOf(rs.getString("sort_name_source")),
-                rs.getInt("checked") == 1,
+                row.artistName(),
+                row.title(),
+                row.releaseDate(),
+                row.sortName(),
+                MetadataSource.valueOf(row.sortNameSource()),
+                row.checked(),
                 hasLocalPath,
                 onDisk,
                 localPaths,
-                listProviderLinks(connection, albumId, rs.getString("release_date")),
-                rs.getString("notes"),
-                rs.getString("created_at"),
-                rs.getString("updated_at"));
+                listProviderLinks(connection, albumId, row.title(), row.releaseDate()),
+                row.notes(),
+                row.createdAt(),
+                row.updatedAt());
     }
 
     private List<AlbumCollection> listCollections(Connection connection, long albumId) {
@@ -1151,35 +1259,46 @@ public class AlbumRepository {
                 """;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, albumId);
+            List<LocalPathRow> rows = new ArrayList<>();
             try (ResultSet rs = statement.executeQuery()) {
-                List<AlbumLocalPath> paths = new ArrayList<>();
                 while (rs.next()) {
-                    String resolvedPath = resolvedPath(
-                            rs.getString("collection_relative_path"),
-                            rs.getString("relative_path"));
-                    paths.add(new AlbumLocalPath(
+                    rows.add(new LocalPathRow(
                             rs.getLong("id"),
                             rs.getLong("album_id"),
                             rs.getString("collection_id"),
                             rs.getString("collection_name"),
+                            rs.getString("collection_relative_path"),
                             rs.getString("relative_path"),
-                            resolvedPath,
-                            resolvedPath != null && Files.isDirectory(Path.of(resolvedPath)),
                             rs.getString("first_seen_at"),
                             rs.getString("last_seen_at")));
                 }
-                return paths;
             }
+            List<AlbumLocalPath> paths = new ArrayList<>();
+            for (LocalPathRow row : rows) {
+                String resolvedPath = resolvedPath(row.collectionRelativePath(), row.relativePath());
+                paths.add(new AlbumLocalPath(
+                        row.id(),
+                        row.albumId(),
+                        row.collectionId(),
+                        row.collectionName(),
+                        row.relativePath(),
+                        resolvedPath,
+                        resolvedPath != null && Files.isDirectory(Path.of(resolvedPath)),
+                        row.firstSeenAt(),
+                        row.lastSeenAt()));
+            }
+            return paths;
         } catch (Exception e) {
             throw new IllegalStateException("Unable to list album local paths", e);
         }
     }
 
-    private List<AlbumProviderLink> listProviderLinks(Connection connection, long albumId, String localReleaseDate) {
+    private List<AlbumProviderLink> listProviderLinks(Connection connection, long albumId, String localTitle,
+            String localReleaseDate) {
         String sql = """
                 SELECT id, album_id, provider_id, provider_release_group_id,
                        provider_title, provider_release_date, provider_url,
-                       release_date_resolution, created_at, updated_at
+                       release_date_resolution, title_resolution, created_at, updated_at
                 FROM album_provider_links
                 WHERE album_id = ?
                 ORDER BY provider_id, provider_title
@@ -1190,17 +1309,21 @@ public class AlbumRepository {
                 List<AlbumProviderLink> links = new ArrayList<>();
                 while (rs.next()) {
                     String providerReleaseDate = rs.getString("provider_release_date");
-                    String resolution = rs.getString("release_date_resolution");
+                    String releaseDateResolution = rs.getString("release_date_resolution");
+                    String titleResolution = rs.getString("title_resolution");
+                    String providerTitle = rs.getString("provider_title");
                     links.add(new AlbumProviderLink(
                             rs.getLong("id"),
                             rs.getLong("album_id"),
                             rs.getString("provider_id"),
                             rs.getString("provider_release_group_id"),
-                            rs.getString("provider_title"),
+                            providerTitle,
                             providerReleaseDate,
                             rs.getString("provider_url"),
-                            resolution,
-                            resolution == null && releaseDateConflict(localReleaseDate, providerReleaseDate),
+                            releaseDateResolution,
+                            titleResolution,
+                            releaseDateResolution == null && releaseDateConflict(localReleaseDate, providerReleaseDate),
+                            titleResolution == null && ProviderTitles.titleConflict(localTitle, providerTitle),
                             rs.getString("created_at"),
                             rs.getString("updated_at")));
                 }
@@ -1227,6 +1350,69 @@ public class AlbumRepository {
     private boolean isOnDiskPath(String collectionRelativePath, String albumRelativePath) {
         String resolved = resolvedPath(collectionRelativePath, albumRelativePath);
         return resolved != null && Files.isDirectory(Path.of(resolved));
+    }
+
+    private record AlbumRow(
+            long id,
+            String artistIds,
+            String artistName,
+            String title,
+            String releaseDate,
+            String sortName,
+            String sortNameSource,
+            boolean checked,
+            String notes,
+            String createdAt,
+            String updatedAt) {
+
+        static AlbumRow from(ResultSet rs) throws Exception {
+            return new AlbumRow(
+                    rs.getLong("id"),
+                    rs.getString("artist_ids"),
+                    rs.getString("artist_name"),
+                    rs.getString("title"),
+                    rs.getString("release_date"),
+                    rs.getString("sort_name"),
+                    rs.getString("sort_name_source"),
+                    rs.getInt("checked") == 1,
+                    rs.getString("notes"),
+                    rs.getString("created_at"),
+                    rs.getString("updated_at"));
+        }
+    }
+
+    private record LocalPathProbe(Long albumId, String collectionRelativePath, String albumRelativePath) {
+    }
+
+    private record StaleLocalPathCandidate(long id, String collectionRelativePath, String albumRelativePath) {
+    }
+
+    private record LocalPathRow(
+            long id,
+            long albumId,
+            String collectionId,
+            String collectionName,
+            String collectionRelativePath,
+            String relativePath,
+            String firstSeenAt,
+            String lastSeenAt) {
+    }
+
+    private record ScannedAlbumMatch(long albumId, int titleScore, int providerRank)
+            implements Comparable<ScannedAlbumMatch> {
+
+        @Override
+        public int compareTo(ScannedAlbumMatch other) {
+            int byScore = Integer.compare(other.titleScore, titleScore);
+            if (byScore != 0) {
+                return byScore;
+            }
+            int byProvider = Integer.compare(providerRank, other.providerRank);
+            if (byProvider != 0) {
+                return byProvider;
+            }
+            return Long.compare(albumId, other.albumId);
+        }
     }
 
     private static List<Long> parseArtistIds(String value) {

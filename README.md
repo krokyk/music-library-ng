@@ -182,18 +182,26 @@ Artist-centric collection scans discover local artists and local albums in the s
 Title-centric collection scans discover title rows, contributor artists, shared albums, and local paths in the same pass.
 Local album scans remain explicit rescan actions for one artist or a whole artist-centric collection.
 Provider scans from Collections add new or otherwise unassigned provider albums to the active collection and leave existing album memberships unchanged.
-Provider scans link same-title local albums with mismatched years to provider releases as unresolved release-date conflicts instead of adding duplicate unchecked albums.
-Unresolved release-date conflicts are shown after provider scans and remain indicated in the Artists view until resolved.
+Artists can keep multiple provider links, such as MusicBrainz, Spirit of Metal, and Metal Archives at the same time.
+Provider scans link exact, normalized, and high-confidence fuzzy provider album-title matches to existing local albums instead of adding duplicate unchecked albums.
+Local album scans can attach a newly discovered local folder to a same-artist checked or provider-linked DB-only album when fuzzy title evidence is strong and the release year is compatible.
+Provider scans keep local paths unchanged and record unresolved title conflicts when the linked provider title differs from the local album title.
+Provider scans record unresolved release-date conflicts when a linked provider release year differs from the local album release year.
+Unresolved release-date and title conflicts are shown after provider scans and remain indicated in the Artists view until resolved.
 Release-date conflicts from multiple providers are grouped by local album and provider year.
+Title conflicts from multiple providers are grouped by local album and provider title.
 Keeping the local year preserves the local folder metadata while preventing future provider scans from adding the grouped provider albums again.
 Kept-local year decisions can be reset from the Artists detail year chip so the mismatch becomes unresolved again.
-Using the provider year renames every on-disk local folder for the album, updates the database local paths and release date, resolves grouped provider links, merges provider-only duplicates, and updates supported audio file year tags.
+Using the provider year updates the library release date metadata, resolves grouped provider links, and merges provider-only duplicates without renaming folders or writing audio tags.
+Using the provider title updates the library album title metadata, resolves grouped provider links, and merges provider-only duplicates without renaming folders or writing audio tags.
 Local album scans and provider scans run in background jobs so the workspace remains navigable while status updates continue.
 Local and provider scans write plaintext reports under `data/reports`, and clickable status-history reports are kept only for the current window session.
 Scan buttons and write actions such as add, edit, delete, and provider-link changes are disabled while a local or provider scan is running.
 Batch provider scans skip provider links checked within the configured batch rescan delay, while individual artist provider scans always run.
-The Artists view can bulk-match visible unlinked artists against MusicBrainz, Spirit of Metal, or Metal Archives after search and collection filters are applied.
-Provider candidate dialogs are shared between Collections and Artists, use provider chips, show local album evidence on album chips, and keep ambiguous provider search results as manual choices.
+The Artists view can bulk-match visible artists missing the selected provider against MusicBrainz, Spirit of Metal, or Metal Archives after search and collection filters are applied.
+The Artists view `Add providers` action opens a multi-provider candidate dialog, starts matching missing providers immediately, preselects existing provider links, and saves only changed selections.
+Provider candidate dialogs are shared between Collections and Artists, use provider chips, show confidence and fuzzy album evidence on album chips, and keep ambiguous provider search results as manual choices.
+Manual provider matching and bulk provider matching use the same fuzzy artist-name and album-title evidence scoring.
 
 Artist-centric album folder shapes:
 
@@ -212,9 +220,11 @@ title - release date
 title
 ```
 
-MusicBrainz refresh imports supported full albums only, matches exact existing album titles, and creates missing albums as unchecked.
+MusicBrainz refresh imports supported full albums only, links exact, normalized, and high-confidence fuzzy title matches to existing albums, and creates missing albums as unchecked.
 
 ## SQLite Usage
+
+The default SQLite connection uses WAL mode, `synchronous=NORMAL`, foreign keys, and a 30 second busy timeout so UI reads can continue during background scan writes.
 
 This is safe for the intended workflow:
 

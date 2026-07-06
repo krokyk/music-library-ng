@@ -2,16 +2,20 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
+import ProviderChip from '@/components/ProviderChip.vue'
 import ProviderMatchDialog from '@/components/ProviderMatchDialog.vue'
 import { countryFlagSrc, countryName, countryOptions, normalizeCountryCode } from '@/countries'
-import { providerDefinition, providerDefinitions, type ProviderId } from '@/providers'
+import { providerDefinition, providerDefinitions, providerExternalArtistUrl, type ProviderId } from '@/providers'
 import type {
   Album,
   Artist,
   ArtistProviderBulkMatchItem,
   ArtistProviderBulkMatchResult,
   ArtistProviderCandidate,
+  ArtistProviderLink,
   MusicCollection,
+  ProviderReleaseDateConflict,
+  ProviderTitleConflict,
 } from '@/types'
 import type { CSSProperties } from 'vue'
 
@@ -19,6 +23,23 @@ type SortDirection = 'asc' | 'desc'
 type ArtistSortKey = 'name' | 'country' | 'status' | 'albumCount' | 'uncheckedAlbumCount' | 'localAlbumCount' | 'provider'
 type ArtistScreenColumnKey = 'name' | 'country' | 'status' | 'albums' | 'unchecked' | 'local' | 'provider' | 'action'
 type ArtistsPaneKey = 'artists' | 'details'
+type ProviderConflictKind = 'title' | 'release-date'
+
+interface ProviderConflictVariant {
+  key: string
+  conflict: ProviderReleaseDateConflict | ProviderTitleConflict
+  providerValue: string
+  providers: ProviderId[]
+}
+
+interface ProviderConflictSection {
+  key: string
+  kind: ProviderConflictKind
+  albumId: number
+  localAlbum: string
+  localValue: string
+  variants: ProviderConflictVariant[]
+}
 
 const store = useLibraryStore()
 const {
@@ -28,6 +49,7 @@ const {
   providerJob,
   providerLinks,
   providerReleaseDateConflicts,
+  providerTitleConflicts,
   providerStatus,
   scanJob,
   uiSettings,
@@ -46,13 +68,25 @@ const savingArtistDetails = ref(false)
 const countryEditorArtistId = ref<number | null>(null)
 const countryEditorSearch = ref('')
 const matchDialog = ref(false)
-const matchLoading = ref(false)
 const matchProviderId = ref<ProviderId>('musicbrainz')
-const providerCandidates = ref<ArtistProviderCandidate[]>([])
+const providerCandidatesById = reactive<Record<ProviderId, ArtistProviderCandidate[]>>({
+  musicbrainz: [],
+  spirit_of_metal: [],
+  metal_archives: [],
+})
+const providerLoadingIds = ref<ProviderId[]>([])
+const providerLoadedIds = ref<ProviderId[]>([])
+const selectedProviderCandidateIds = reactive<Partial<Record<ProviderId, string | null>>>({})
+const originalProviderCandidateIds = reactive<Partial<Record<ProviderId, string | null>>>({})
 const matchingArtistId = ref<number | null>(null)
+const assigningProviders = ref(false)
 const bulkMatchLoadingProviderId = ref<ProviderId | null>(null)
 const bulkMatchDialog = ref(false)
 const bulkMatchResult = ref<ArtistProviderBulkMatchResult | null>(null)
+const providerConflictDialog = ref(false)
+const providerConflictArtistId = ref<number | null>(null)
+const providerConflictActionKey = ref('')
+const openProviderConflictSectionKey = ref<string | null>(null)
 const resettingKeepLocalReleaseDateKey = ref('')
 const collectionFilterMenu = ref(false)
 const artistCollectionFilterIds = ref<string[]>([])
@@ -90,13 +124,11 @@ const artistsScreenSortableColumnMinimumWidth = 62
 const artistsScreenIconActionButtonWidth = 30
 const artistsScreenRowActionGap = 2
 const artistsScreenActionColumnWidths = {
-  icon: (providerDefinitions.length + 1) * artistsScreenIconActionButtonWidth
-    + providerDefinitions.length * artistsScreenRowActionGap,
-  labeled: 390,
+  icon: 3 * artistsScreenIconActionButtonWidth + 2 * artistsScreenRowActionGap,
+  labeled: 360,
 }
-const artistsSearchControlsMinimumWidth = 390
-const artistsBulkExpandedMinimumWidth = 950
-const artistsBulkFullLabelMinimumWidth = 820
+const artistsSearchControlsMinimumWidth = 260
+const artistsBulkExpandedMinimumWidth = 900
 const artistsScreenColumnWidths = reactive<Record<ArtistScreenColumnKey, number>>({
   name: 250,
   country: 190,
@@ -199,16 +231,6 @@ const artistStats = computed(() => ({
   unchecked: artists.value.reduce((sum, artist) => sum + artist.uncheckedAlbumCount, 0),
   providers: artists.value.reduce((sum, artist) => sum + artist.providerLinkCount, 0),
 }))
-const unlinkedVisibleArtists = computed(() =>
-  sortedArtists.value.filter((artist) => !providerForArtist(artist)),
-)
-const bulkMatchLabel = computed(() => {
-  const count = unlinkedVisibleArtists.value.length
-  if (artistsPaneWidths.artists > 0 && artistsPaneWidths.artists < artistsBulkFullLabelMinimumWidth) {
-    return `(${count})`
-  }
-  return `Bulk match ${count} unlinked artists:`
-})
 const bulkProviderChipLabelsVisible = computed(() =>
   artistsPaneWidths.artists === 0 || artistsPaneWidths.artists >= artistsBulkExpandedMinimumWidth,
 )
@@ -226,6 +248,11 @@ const allCollectionsFilterSelected = computed(() => artistCollectionFilterIds.va
 
 const selectedArtist = computed(() => artists.value.find((artist) => artist.id === selectedArtistId.value) ?? null)
 const selectedProvider = computed(() => selectedArtist.value ? providerForArtist(selectedArtist.value) : null)
+const providerSelectionDirty = computed(() =>
+  providerDefinitions.some((provider) =>
+    providerSelectionId(selectedProviderCandidateIds, provider.id) !== providerSelectionId(originalProviderCandidateIds, provider.id),
+  ),
+)
 const artistDetailsDirty = computed(() => {
   const artist = selectedArtist.value
   if (!artist) {
@@ -247,9 +274,48 @@ const selectedAlbums = computed(() => {
       || left.title.localeCompare(right.title),
     )
 })
-const providerReleaseDateConflictArtistIds = computed(() =>
-  new Set(providerReleaseDateConflicts.value.map((conflict) => conflict.artistId)),
+const providerConflictArtistIds = computed(() =>
+  new Set([
+    ...providerReleaseDateConflicts.value.map((conflict) => conflict.artistId),
+    ...providerTitleConflicts.value.map((conflict) => conflict.artistId),
+  ]),
 )
+const providerConflictArtist = computed(() =>
+  artists.value.find((artist) => artist.id === providerConflictArtistId.value)
+    ?? selectedArtist.value
+    ?? null,
+)
+const providerConflictLinkedProviders = computed(() => {
+  const artist = providerConflictArtist.value
+  return artist ? providersForArtist(artist) : []
+})
+const providerConflictLinkedProviderIds = computed(() =>
+  new Set(providerConflictLinkedProviders.value.map((provider) => provider.providerId)),
+)
+const providerConflictSections = computed(() => {
+  const artistId = providerConflictArtist.value?.id ?? null
+  if (!artistId) {
+    return []
+  }
+  const sections = new Map<string, ProviderConflictSection>()
+  providerTitleConflicts.value
+    .filter((conflict) => conflict.artistId === artistId)
+    .forEach((conflict) => addProviderConflictVariant(sections, 'title', conflict))
+  providerReleaseDateConflicts.value
+    .filter((conflict) => conflict.artistId === artistId)
+    .forEach((conflict) => addProviderConflictVariant(sections, 'release-date', conflict))
+  return [...sections.values()]
+    .map((section) => ({
+      ...section,
+      variants: section.variants
+        .map((variant) => ({
+          ...variant,
+          providers: variant.providers.filter((providerId) => providerConflictLinkedProviderIds.value.has(providerId)),
+        }))
+        .filter((variant) => variant.providers.length > 0),
+    }))
+    .filter((section) => section.variants.length > 0)
+})
 function compareArtistRows(left: Artist, right: Artist) {
   const leftValue = artistSortValue(left, artistSort.key)
   const rightValue = artistSortValue(right, artistSort.key)
@@ -451,14 +517,195 @@ function releaseDateYearLabel(releaseDate: string | null | undefined) {
   return ''
 }
 
+function providerConflictDisplayYear(releaseDate: string | null | undefined) {
+  return releaseDateYearLabel(releaseDate) || 'No year'
+}
+
+function addProviderConflictVariant(
+  sections: Map<string, ProviderConflictSection>,
+  kind: ProviderConflictKind,
+  conflict: ProviderReleaseDateConflict | ProviderTitleConflict,
+) {
+  const providerValue = kind === 'title'
+    ? conflict.providerTitle
+    : providerConflictDisplayYear(conflict.providerReleaseDate)
+  const localValue = kind === 'title'
+    ? providerConflictLocalTitle(conflict)
+    : providerConflictDisplayYear(conflict.localReleaseDate)
+  const sectionKey = `${kind}:${conflict.albumId}`
+  const section = sections.get(sectionKey) ?? {
+    key: sectionKey,
+    kind,
+    albumId: conflict.albumId,
+    localAlbum: conflict.localRelativePath || conflict.albumTitle,
+    localValue,
+    variants: [],
+  }
+  const variantKey = `${sectionKey}:${normalizeConflictValue(providerValue)}`
+  const current = section.variants.find((variant) => variant.key === variantKey)
+  const providers = providerConflictProviders(conflict)
+  if (current) {
+    current.providers = mergeProviderIds(current.providers, providers)
+    sections.set(sectionKey, section)
+    return
+  }
+  section.variants.push({
+    key: variantKey,
+    conflict,
+    providerValue,
+    providers,
+  })
+  sections.set(sectionKey, section)
+}
+
+function providerConflictLocalTitle(conflict: ProviderReleaseDateConflict | ProviderTitleConflict) {
+  if (conflict.albumTitle) {
+    return conflict.albumTitle
+  }
+  return providerConflictTitleFromPath(conflict.localRelativePath) || 'No title'
+}
+
+function providerConflictTitleFromPath(path: string | null | undefined) {
+  const value = path?.trim()
+  if (!value) {
+    return ''
+  }
+  const parts = value.split(/[\\/]/).filter(Boolean)
+  const leaf = parts[parts.length - 1] ?? value
+  const match = leaf.match(/^\s*.+?\s+-\s+\d{4}(?:-\d{2}(?:-\d{2})?)?\s+-\s+(.+?)\s*$/)
+  return match?.[1]?.trim() ?? leaf
+}
+
+function normalizeConflictValue(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function providerConflictProviders(conflict: ProviderReleaseDateConflict | ProviderTitleConflict) {
+  const sources = conflict.sources?.length
+    ? conflict.sources
+    : [{ providerId: conflict.providerId }]
+  return mergeProviderIds([], sources.map((source) => source.providerId as ProviderId))
+}
+
+function mergeProviderIds(left: ProviderId[], right: ProviderId[]) {
+  const order = new Map(providerDefinitions.map((provider, index) => [provider.id, index]))
+  return [...new Set([...left, ...right])]
+    .sort((a, b) => (order.get(a) ?? 99) - (order.get(b) ?? 99))
+}
+
+function visibleConflictProviders(variant: ProviderConflictVariant) {
+  return variant.providers.slice(0, 3)
+}
+
+function hiddenConflictProviderCount(variant: ProviderConflictVariant) {
+  return Math.max(0, variant.providers.length - visibleConflictProviders(variant).length)
+}
+
+function providerConflictProviderUrl(providerId: ProviderId) {
+  return providerConflictLinkedProviders.value
+    .find((provider) => provider.providerId === providerId)
+    ?.providerUrl
+}
+
+function providerConflictChipTooltip(providerId: ProviderId) {
+  return `Open artist page in ${providerDefinition(providerId).label}`
+}
+
+function providerConflictTypeLabel(kind: ProviderConflictKind) {
+  return kind === 'title' ? 'Title' : 'Release Date'
+}
+
+function providerConflictTotalLabel() {
+  const count = providerConflictSections.value.length
+  return `${count} conflict${count === 1 ? '' : 's'}`
+}
+
+function providerConflictSectionVariantLabel(section: ProviderConflictSection) {
+  const count = section.variants.length
+  return `${count} ${providerConflictTypeLabel(section.kind)} variant${count === 1 ? '' : 's'}`
+}
+
+function providerConflictSectionOpen(section: ProviderConflictSection) {
+  return openProviderConflictSectionKey.value === section.key
+}
+
+function openProviderConflictSection(section: ProviderConflictSection) {
+  openProviderConflictSectionKey.value = section.key
+}
+
+function syncOpenProviderConflictAlbum() {
+  const sections = providerConflictSections.value
+  if (sections.length === 0) {
+    openProviderConflictSectionKey.value = null
+    return
+  }
+  if (!sections.some((section) => section.key === openProviderConflictSectionKey.value)) {
+    openProviderConflictSectionKey.value = sections[0].key
+  }
+}
+
+async function openArtistProviderConflicts(artist: Artist) {
+  selectedArtistId.value = artist.id
+  providerConflictArtistId.value = artist.id
+  openProviderConflictSectionKey.value = null
+  try {
+    await Promise.all([
+      store.loadProviderConflicts(),
+      store.loadArtistProvider(artist.id),
+    ])
+    syncOpenProviderConflictAlbum()
+    providerConflictDialog.value = true
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to load provider conflicts')
+  }
+}
+
+async function chooseProviderConflict(section: ProviderConflictSection, variant: ProviderConflictVariant | null) {
+  if (providerConflictActionKey.value) {
+    return
+  }
+  const side = variant ? 'provider' : 'local'
+  providerConflictActionKey.value = variant ? `${side}:${variant.key}` : `${side}:${section.key}`
+  try {
+    if (section.kind === 'title') {
+      const conflict = (variant?.conflict ?? section.variants[0]?.conflict) as ProviderTitleConflict | undefined
+      if (!conflict) {
+        return
+      }
+      if (variant) {
+        await store.useProviderTitle(conflict)
+      } else {
+        await store.keepLocalTitle(conflict)
+      }
+    } else {
+      if (variant) {
+        await store.useProviderReleaseDate(variant.conflict as ProviderReleaseDateConflict)
+      } else {
+        for (const currentVariant of section.variants) {
+          await store.keepLocalReleaseDate(currentVariant.conflict as ProviderReleaseDateConflict)
+        }
+      }
+    }
+    const artistName = providerConflictArtist.value?.name ?? section.variants[0]?.conflict.artistName ?? 'artist'
+    store.showStatus(`Resolved provider conflict for ${artistName}.`, 'done')
+    if (providerConflictSections.value.length === 0) {
+      providerConflictDialog.value = false
+    }
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to resolve provider conflict')
+  } finally {
+    providerConflictActionKey.value = ''
+  }
+}
+
 function releaseDateYearsDiffer(localReleaseDate: string | null | undefined, providerReleaseDate: string | null | undefined) {
   const localYear = releaseDateYearLabel(localReleaseDate)
   const providerYear = releaseDateYearLabel(providerReleaseDate)
   return localYear !== '' && providerYear !== '' && localYear !== providerYear
 }
 
-function artistHasReleaseDateConflict(artist: Artist) {
-  return providerReleaseDateConflictArtistIds.value.has(artist.id)
+function artistHasProviderConflict(artist: Artist) {
+  return providerConflictArtistIds.value.has(artist.id)
 }
 
 function albumReleaseDateConflictLinks(album: Album) {
@@ -543,8 +790,9 @@ function openAlbumReleaseDateConflict(album: Album, event?: MouseEvent | Keyboar
   }
   event?.preventDefault()
   event?.stopPropagation()
-  const providerLinkId = albumReleaseDateConflictLinks(album)[0]?.id ?? null
-  store.requestProviderReleaseDateConflictDialog(album.id, providerLinkId)
+  if (selectedArtist.value) {
+    void openArtistProviderConflicts(selectedArtist.value)
+  }
 }
 
 function keptLocalReleaseDateKey(album: Album) {
@@ -947,18 +1195,49 @@ async function saveSelectedArtistDetails() {
   }
 }
 
-async function openProviderMatch(artist: Artist, providerId: ProviderId) {
+async function openProviderMatch(artist: Artist) {
   if (writeActionsDisabled.value) {
     return
   }
   selectedArtistId.value = artist.id
-  matchProviderId.value = providerId
+  const missing = providerActionsForArtist(artist)
+  matchProviderId.value = missing[0]?.id ?? 'musicbrainz'
   matchingArtistId.value = artist.id
+  resetProviderMatchState()
+  primeProviderMatchState(artist)
   matchDialog.value = true
-  await loadProviderCandidatesForMatch(providerId)
+  try {
+    await Promise.all(missing.map((provider) => loadProviderCandidatesForMatch(provider.id, false, false)))
+  } finally {
+    matchingArtistId.value = null
+  }
 }
 
-async function loadProviderCandidatesForMatch(providerId = matchProviderId.value) {
+function resetProviderMatchState() {
+  providerDefinitions.forEach((provider) => {
+    providerCandidatesById[provider.id] = []
+    selectedProviderCandidateIds[provider.id] = null
+    originalProviderCandidateIds[provider.id] = null
+  })
+  providerLoadingIds.value = []
+  providerLoadedIds.value = []
+}
+
+function primeProviderMatchState(artist: Artist) {
+  providerDefinitions.forEach((provider) => {
+    const link = providerForArtist(artist, provider.id)
+    if (!link?.providerArtistId) {
+      return
+    }
+    const candidate = providerLinkCandidate(link)
+    providerCandidatesById[provider.id] = [candidate]
+    selectedProviderCandidateIds[provider.id] = candidate.providerArtistId
+    originalProviderCandidateIds[provider.id] = candidate.providerArtistId
+    addProviderLoadedId(provider.id)
+  })
+}
+
+async function loadProviderCandidatesForMatch(providerId = matchProviderId.value, force = false, activate = true) {
   if (writeActionsDisabled.value) {
     return
   }
@@ -966,58 +1245,209 @@ async function loadProviderCandidatesForMatch(providerId = matchProviderId.value
   if (!artistId) {
     return
   }
-  matchProviderId.value = providerId
-  matchLoading.value = true
-  providerCandidates.value = []
+  const artist = artists.value.find((item) => item.id === artistId)
+  if (activate) {
+    matchProviderId.value = providerId
+  }
+  if (!artist) {
+    return
+  }
+  if (!force && providerLoadedIds.value.includes(providerId)) {
+    return
+  }
+  addProviderLoadingId(providerId)
   try {
-    providerCandidates.value = await store.searchProviderCandidates(artistId, providerId)
+    providerCandidatesById[providerId] = withAssociatedProviderCandidate(
+      artist,
+      providerId,
+      await store.searchProviderCandidates(artistId, providerId),
+    )
+    clearMissingProviderSelection(providerId)
+    addProviderLoadedId(providerId)
   } catch (error) {
     store.showErrorStatus(error, `Unable to search ${providerDefinition(providerId).label}`)
   } finally {
-    matchLoading.value = false
+    removeProviderLoadingId(providerId)
+  }
+}
+
+function addProviderLoadingId(providerId: ProviderId) {
+  if (!providerLoadingIds.value.includes(providerId)) {
+    providerLoadingIds.value = [...providerLoadingIds.value, providerId]
+  }
+}
+
+function removeProviderLoadingId(providerId: ProviderId) {
+  providerLoadingIds.value = providerLoadingIds.value.filter((id) => id !== providerId)
+}
+
+function addProviderLoadedId(providerId: ProviderId) {
+  if (!providerLoadedIds.value.includes(providerId)) {
+    providerLoadedIds.value = [...providerLoadedIds.value, providerId]
+  }
+}
+
+function providerSelectionId(source: Partial<Record<ProviderId, string | null>>, providerId: ProviderId) {
+  return source[providerId] ?? null
+}
+
+function providerLinkCandidate(link: ArtistProviderLink): ArtistProviderCandidate {
+  return {
+    providerId: link.providerId,
+    providerArtistId: link.providerArtistId ?? link.providerUrl ?? String(link.id),
+    providerArtistName: link.providerArtistName ?? link.artistName,
+    providerUrl: link.providerUrl ?? '',
+    country: link.providerCountry ?? null,
+    disambiguation: link.providerDisambiguation ?? null,
+    active: link.providerActive ?? null,
+    providerScore: 100,
+    matchScore: 100,
+    finalScore: 100,
+    nameScore: 100,
+    albumEvidenceScore: 0,
+    yearBonus: 0,
+    evidenceSummary: 'Already associated',
+    matchedLocalAlbums: [],
+    albumEvidence: [],
+    releaseGroups: [],
+    albums: [],
+  }
+}
+
+function withAssociatedProviderCandidate(
+  artist: Artist,
+  providerId: ProviderId,
+  candidates: ArtistProviderCandidate[],
+) {
+  const link = providerForArtist(artist, providerId)
+  if (!link?.providerArtistId) {
+    return candidates
+  }
+  if (candidates.some((candidate) => candidate.providerArtistId === link.providerArtistId)) {
+    return candidates
+  }
+  return [providerLinkCandidate(link), ...candidates]
+}
+
+function clearMissingProviderSelection(providerId: ProviderId) {
+  const selectedId = providerSelectionId(selectedProviderCandidateIds, providerId)
+  if (!selectedId) {
+    return
+  }
+  if (!providerCandidatesById[providerId].some((candidate) => candidate.providerArtistId === selectedId)) {
+    selectedProviderCandidateIds[providerId] = null
+  }
+}
+
+function providerSelectionSaveMessage(savedCount: number, removedCount: number) {
+  const artistName = selectedArtist.value?.name ?? 'artist'
+  const parts = [
+    savedCount > 0 ? `${savedCount} provider${savedCount === 1 ? '' : 's'} saved` : null,
+    removedCount > 0 ? `${removedCount} provider${removedCount === 1 ? '' : 's'} removed` : null,
+  ].filter(Boolean)
+  return `Provider selections for ${artistName}: ${parts.join(', ')}.`
+}
+
+function toggleProviderCandidate(candidate: ArtistProviderCandidate) {
+  const providerId = candidate.providerId as ProviderId
+  selectedProviderCandidateIds[providerId] = selectedProviderCandidateIds[providerId] === candidate.providerArtistId
+    ? null
+    : candidate.providerArtistId
+}
+
+function selectedProviderCandidate(providerId: ProviderId) {
+  const selectedId = providerSelectionId(selectedProviderCandidateIds, providerId)
+  if (!selectedId) {
+    return null
+  }
+  return providerCandidatesById[providerId]
+    .find((candidate) => candidate.providerArtistId === selectedId) ?? null
+}
+
+async function saveProviderSelections() {
+  if (writeActionsDisabled.value || assigningProviders.value) {
+    return
+  }
+  const artistId = selectedArtistId.value
+  if (!artistId || !providerSelectionDirty.value) {
+    return
+  }
+  assigningProviders.value = true
+  let savedCount = 0
+  let removedCount = 0
+  let shouldScan = false
+  try {
+    for (const provider of providerDefinitions) {
+      const originalId = providerSelectionId(originalProviderCandidateIds, provider.id)
+      const selectedId = providerSelectionId(selectedProviderCandidateIds, provider.id)
+      if (originalId === selectedId) {
+        continue
+      }
+      if (!selectedId) {
+        if (originalId) {
+          await store.clearArtistProvider(artistId, provider.id)
+          removedCount += 1
+        }
+        continue
+      }
+      const candidate = selectedProviderCandidate(provider.id)
+      if (!candidate) {
+        continue
+      }
+      await store.saveArtistProvider(artistId, {
+        providerId: candidate.providerId,
+        providerArtistId: candidate.providerArtistId,
+        providerArtistName: candidate.providerArtistName,
+        providerCountry: candidate.country,
+        providerDisambiguation: candidate.disambiguation,
+        providerActive: candidate.active,
+        providerUrl: candidate.providerUrl,
+        enabled: true,
+      })
+      savedCount += 1
+      shouldScan = true
+    }
+    matchDialog.value = false
+    store.showStatus(providerSelectionSaveMessage(savedCount, removedCount), 'done')
+    if (shouldScan) {
+      await scanArtistProviderById(artistId)
+    }
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to save provider selections')
+  } finally {
+    assigningProviders.value = false
+  }
+}
+
+async function refreshAllProviderCandidates() {
+  const artist = selectedArtist.value
+  if (!artist) {
+    return
+  }
+  matchingArtistId.value = artist.id
+  const activeProviderId = matchProviderId.value
+  try {
+    await Promise.all(providerDefinitions.map((provider) => loadProviderCandidatesForMatch(provider.id, true, false)))
+  } finally {
+    matchProviderId.value = activeProviderId
     matchingArtistId.value = null
   }
 }
 
-async function useCandidate(candidate: ArtistProviderCandidate) {
-  if (writeActionsDisabled.value) {
-    return
-  }
-  const artistId = selectedArtistId.value
-  if (!artistId) return
-  const provider = providerDefinition(candidate.providerId)
-  try {
-    await store.saveArtistProvider(artistId, {
-      providerId: candidate.providerId,
-      providerArtistId: candidate.providerArtistId,
-      providerArtistName: candidate.providerArtistName,
-      providerCountry: candidate.country,
-      providerDisambiguation: candidate.disambiguation,
-      providerActive: candidate.active,
-      providerUrl: candidate.providerUrl,
-      enabled: true,
-    })
-    matchDialog.value = false
-    store.showStatus(`${provider.label} provider saved for ${candidate.providerArtistName}.`, 'done')
-    await scanArtistProviderById(artistId)
-  } catch (error) {
-    store.showErrorStatus(error, `Unable to save ${provider.label} provider`)
-  }
-}
-
-async function startProviderSetup(artist: Artist, providerId: ProviderId) {
+async function startProviderSetup(artist: Artist) {
   if (writeActionsDisabled.value) {
     return
   }
   await selectArtist(artist)
-  await openProviderMatch(artist, providerId)
+  await openProviderMatch(artist)
 }
 
 async function runBulkProviderMatch(providerId: ProviderId) {
-  if (writeActionsDisabled.value || bulkMatchLoadingProviderId.value || unlinkedVisibleArtists.value.length === 0) {
+  const missing = visibleArtistsMissingProvider(providerId)
+  if (writeActionsDisabled.value || bulkMatchLoadingProviderId.value || missing.length === 0) {
     return
   }
-  const artistIds = unlinkedVisibleArtists.value.map((artist) => artist.id)
+  const artistIds = missing.map((artist) => artist.id)
   bulkMatchLoadingProviderId.value = providerId
   bulkMatchResult.value = null
   try {
@@ -1089,9 +1519,7 @@ function bulkEvidenceText(item: ArtistProviderBulkMatchItem) {
     return ''
   }
   const provider = providerDefinition(candidate.providerId)
-  const albumMatches = candidate.matchedLocalAlbums.length
-  const albumText = albumMatches === 1 ? '1 local album' : `${albumMatches} local albums`
-  return `${candidate.matchScore} match / ${candidate.providerScore} ${provider.label}${albumMatches > 0 ? ` / ${albumText}` : ''}`
+  return `${candidate.evidenceSummary} / ${candidate.providerScore} ${provider.label}`
 }
 
 function bulkStatusText(status: ArtistProviderBulkMatchItem['status']) {
@@ -1126,13 +1554,13 @@ function bulkStatusColor(status: ArtistProviderBulkMatchItem['status']) {
   }
 }
 
-async function clearArtistProvider(artist: Artist) {
+async function clearArtistProvider(artist: Artist, providerId?: string | null) {
   selectedArtistId.value = artist.id
   if (writeActionsDisabled.value) {
     return
   }
   try {
-    await store.clearArtistProvider(artist.id)
+    await store.clearArtistProvider(artist.id, providerId)
     store.showStatus(`Provider cleared for ${artist.name}.`, 'done')
   } catch (error) {
     store.showErrorStatus(error, 'Unable to clear provider')
@@ -1235,71 +1663,69 @@ async function saveArtistActiveOverride(artist: Artist, active: boolean | null) 
   }
 }
 
-function providerForArtist(artist: Artist) {
-  const cached = providerLinks.value[artist.id]?.[0]
+function providersForArtist(artist: Artist) {
+  const cached = providerLinks.value[artist.id]
   if (cached) {
     return cached
   }
-  if (!artist.providerId) {
-    return null
+  if (artist.providerLinks?.length) {
+    return artist.providerLinks
   }
+  if (!artist.providerId) {
+    return []
+  }
+  return [legacyProviderLink(artist)]
+}
+
+function providerForArtist(artist: Artist, providerId?: string | null) {
+  const providers = providersForArtist(artist)
+  if (providerId) {
+    return providers.find((provider) => provider.providerId === providerId) ?? null
+  }
+  return providers[0] ?? null
+}
+
+function legacyProviderLink(artist: Artist): ArtistProviderLink {
   return {
-    providerId: artist.providerId,
+    id: 0,
+    artistId: artist.id,
+    artistName: artist.name,
+    providerId: artist.providerId ?? 'musicbrainz',
     providerArtistId: artist.providerArtistId,
     providerArtistName: artist.providerArtistName,
     providerCountry: artist.providerCountry,
     providerDisambiguation: artist.providerDisambiguation,
     providerActive: artist.providerActive,
     providerUrl: artist.providerUrl,
+    enabled: true,
     lastErrorMessage: artist.providerLastErrorMessage ?? null,
+    createdAt: artist.createdAt,
+    updatedAt: artist.updatedAt,
   }
+}
+
+function visibleArtistsMissingProvider(providerId: ProviderId) {
+  return sortedArtists.value.filter((artist) => !providerForArtist(artist, providerId))
+}
+
+function missingProviderCount(providerId: ProviderId) {
+  return visibleArtistsMissingProvider(providerId).length
 }
 
 function providerActionsForArtist(artist: Artist) {
-  const selectedProviderId = providerForArtist(artist)?.providerId
-  return providerDefinitions.filter((provider) => provider.id !== selectedProviderId)
+  const linked = new Set(providersForArtist(artist).map((provider) => provider.providerId))
+  return providerDefinitions.filter((provider) => !linked.has(provider.id))
 }
 
 function providerChipText(artist: Artist) {
-  const provider = providerForArtist(artist)
-  return provider ? providerDefinition(provider.providerId).label : 'None'
+  const providers = providersForArtist(artist)
+  return providers.length
+    ? providers.map((provider) => providerDefinition(provider.providerId).label).join(', ')
+    : 'None'
 }
 
-function providerChipClasses(artist: Artist) {
-  const provider = providerForArtist(artist)
-  if (!provider) {
-    return []
-  }
-  return [
-    'artists-provider-chip',
-    providerDefinition(provider.providerId).chipClass,
-    { 'artists-provider-chip--error': Boolean(provider.lastErrorMessage) },
-  ]
-}
-
-function providerChipIconSrc(artist: Artist) {
-  const provider = providerForArtist(artist)
-  return provider ? providerDefinition(provider.providerId).iconSrc : ''
-}
-
-function providerActionChipClasses(providerId: ProviderId, selected = false, compact = false) {
-  return [
-    'artists-provider-chip',
-    'provider-action-chip',
-    providerDefinition(providerId).chipClass,
-    {
-      'provider-action-chip--selected': selected,
-      'provider-action-chip--compact': compact,
-    },
-  ]
-}
-
-function providerActionChipLabel(providerId: ProviderId) {
-  return providerDefinition(providerId).label
-}
-
-function providerActionChipIconSrc(providerId: ProviderId) {
-  return providerDefinition(providerId).iconSrc
+function providerLinkChipText(provider: ArtistProviderLink) {
+  return providerDefinition(provider.providerId).label
 }
 
 function providerIdentityLabel() {
@@ -1310,6 +1736,10 @@ function providerIdentityLabel() {
     || selectedProvider.value.providerArtistId
     || selectedProvider.value.providerUrl
     || null
+}
+
+function artistProviderExternalUrl(provider: ArtistProviderLink | null | undefined) {
+  return providerExternalArtistUrl(provider?.providerId, provider?.providerUrl)
 }
 
 function artistCountry(artist: Artist) {
@@ -1515,6 +1945,10 @@ watch(sortedArtists, (currentArtists) => {
 watch(selectedArtist, (artist) => {
   syncArtistDetailsForm(artist)
 }, { immediate: true })
+
+watch(providerConflictSections, () => {
+  syncOpenProviderConflictAlbum()
+})
 </script>
 
 <template>
@@ -1527,6 +1961,47 @@ watch(selectedArtist, (artist) => {
             <span class="pane-header__meta">
               {{ artistStats.total }} artists / {{ artistStats.unchecked }} unchecked / {{ artistStats.providers }} providers
             </span>
+          </div>
+          <div class="pane-header__actions artists-header-actions">
+            <div class="artists-bulk-match-controls artists-bulk-match-controls--header">
+              <span class="artists-bulk-match-label">Bulk match missing providers</span>
+              <v-tooltip
+                v-for="provider in providerDefinitions"
+                :key="provider.id"
+                :text="`Bulk match ${provider.label}`"
+                location="top"
+              >
+                <template #activator="{ props }">
+                  <ProviderChip
+                    v-bind="props"
+                    :provider-id="provider.id"
+                    :show-label="bulkProviderChipLabelsVisible"
+                    :count="missingProviderCount(provider.id)"
+                    action
+                    :compact="!bulkProviderChipLabelsVisible"
+                    :disabled="writeActionsDisabled || missingProviderCount(provider.id) === 0 || Boolean(bulkMatchLoadingProviderId)"
+                    @click="runBulkProviderMatch(provider.id)"
+                  >
+                    <template #prepend>
+                      <v-progress-circular
+                        v-if="bulkMatchLoadingProviderId === provider.id"
+                        indeterminate
+                        size="14"
+                        width="2"
+                        class="provider-action-chip__spinner"
+                      ></v-progress-circular>
+                        <img
+                          v-else-if="provider.iconSrc"
+                          class="provider-chip__icon"
+                          :src="provider.iconSrc"
+                          alt=""
+                        aria-hidden="true"
+                      >
+                    </template>
+                  </ProviderChip>
+                </template>
+              </v-tooltip>
+            </div>
           </div>
         </div>
 
@@ -1555,43 +2030,6 @@ watch(selectedArtist, (artist) => {
               ></v-btn>
             </template>
           </v-text-field>
-
-          <div class="artists-bulk-match-controls">
-            <span class="artists-bulk-match-label">{{ bulkMatchLabel }}</span>
-            <v-tooltip
-              v-for="provider in providerDefinitions"
-              :key="provider.id"
-              :text="`Bulk match ${provider.label}`"
-              location="top"
-            >
-              <template #activator="{ props }">
-                <v-chip
-                  v-bind="props"
-                  :class="providerActionChipClasses(provider.id, false, !bulkProviderChipLabelsVisible)"
-                  size="small"
-                  variant="flat"
-                  :disabled="writeActionsDisabled || unlinkedVisibleArtists.length === 0 || Boolean(bulkMatchLoadingProviderId)"
-                  @click="runBulkProviderMatch(provider.id)"
-                >
-                  <v-progress-circular
-                    v-if="bulkMatchLoadingProviderId === provider.id"
-                    indeterminate
-                    size="14"
-                    width="2"
-                    class="provider-action-chip__spinner"
-                  ></v-progress-circular>
-                  <img
-                    v-else-if="providerActionChipIconSrc(provider.id)"
-                    class="artists-provider-chip__icon"
-                    :src="providerActionChipIconSrc(provider.id)"
-                    alt=""
-                    aria-hidden="true"
-                  >
-                  <span v-if="bulkProviderChipLabelsVisible" class="artists-provider-chip__text">{{ provider.label }}</span>
-                </v-chip>
-              </template>
-            </v-tooltip>
-          </div>
         </div>
 
         <div class="artists-collection-filter-row">
@@ -1722,8 +2160,8 @@ watch(selectedArtist, (artist) => {
                   class="artist-cell__spinner"
                 ></v-progress-circular>
                 <v-tooltip
-                  v-if="artistHasReleaseDateConflict(artist)"
-                  text="Unresolved provider release date conflict"
+                  v-if="artistHasProviderConflict(artist)"
+                  text="Unresolved provider conflict"
                   location="top"
                 >
                   <template #activator="{ props }">
@@ -1880,49 +2318,68 @@ watch(selectedArtist, (artist) => {
               <span>{{ artist.localAlbumCount }}</span>
             </div>
             <div data-column="artists.provider" class="workspace-grid__cell truncate-cell">
-              <v-chip
-                v-if="providerForArtist(artist)"
-                :class="providerChipClasses(artist)"
-                size="small"
-                variant="flat"
-                closable
-                close-icon="mdi-trash-can-outline"
-                :disabled="writeActionsDisabled"
-                @click.stop="scanArtistProvider(artist)"
-                @click:close.stop="clearArtistProvider(artist)"
-              >
-                <img
-                  v-if="providerChipIconSrc(artist)"
-                  class="artists-provider-chip__icon"
-                  :src="providerChipIconSrc(artist)"
-                  alt=""
-                  aria-hidden="true"
+              <div v-if="providersForArtist(artist).length" class="artists-provider-list">
+                <v-tooltip
+                  v-for="provider in providersForArtist(artist)"
+                  :key="provider.providerId"
+                  :text="providerLinkChipText(provider)"
+                  location="top"
                 >
-                <span class="artists-provider-chip__text">{{ providerChipText(artist) }}</span>
-              </v-chip>
+                  <template #activator="{ props }">
+                    <ProviderChip
+                      v-bind="props"
+                      :provider-id="provider.providerId"
+                      :label="providerLinkChipText(provider)"
+                      :show-label="providersForArtist(artist).length === 1"
+                      :compact-row="providersForArtist(artist).length > 1"
+                      :error="Boolean(provider.lastErrorMessage)"
+                      closable
+                      close-icon="mdi-trash-can-outline"
+                      :disabled="writeActionsDisabled"
+                      @click.stop="scanArtistProvider(artist)"
+                      @click:close.stop="clearArtistProvider(artist, provider.providerId)"
+                    ></ProviderChip>
+                  </template>
+                </v-tooltip>
+              </div>
               <span v-else class="cell-muted">None</span>
             </div>
             <div data-column="artists.action" class="workspace-grid__cell row-action-cell">
               <div class="row-actions">
                 <v-tooltip
-                  v-for="provider in providerActionsForArtist(artist)"
-                  :key="provider.id"
-                  :text="provider.label"
+                  v-if="artistHasProviderConflict(artist)"
+                  :text="`Resolve conflicts for ${artist.name}`"
                   location="top"
                 >
                   <template #activator="{ props }">
                     <v-btn
                       v-bind="props"
-                      :prepend-icon="provider.actionIcon"
+                      prepend-icon="mdi-alert-outline"
+                      size="x-small"
+                      variant="text"
+                      color="warning"
+                      :class="artistScreenRowActionClass()"
+                      :disabled="writeActionsDisabled || deletingArtistId === artist.id"
+                      @click.stop="openArtistProviderConflicts(artist)"
+                    >
+                      <span v-if="showArtistsScreenActionLabels()">Conflicts</span>
+                    </v-btn>
+                  </template>
+                </v-tooltip>
+                <v-tooltip :text="`Add providers for ${artist.name}`" location="top">
+                  <template #activator="{ props }">
+                    <v-btn
+                      v-bind="props"
+                      prepend-icon="mdi-link-plus"
                       size="x-small"
                       variant="text"
                       color="primary"
                       :class="artistScreenRowActionClass()"
-                      :loading="provider.id === matchProviderId && matchingArtistId === artist.id"
+                      :loading="matchingArtistId === artist.id && providerLoadingIds.length > 0"
                       :disabled="writeActionsDisabled || deletingArtistId === artist.id"
-                      @click.stop="startProviderSetup(artist, provider.id)"
+                      @click.stop="startProviderSetup(artist)"
                     >
-                      <span v-if="showArtistsScreenActionLabels()">{{ provider.label }}</span>
+                      <span v-if="showArtistsScreenActionLabels()">Add providers</span>
                     </v-btn>
                   </template>
                 </v-tooltip>
@@ -1964,8 +2421,8 @@ watch(selectedArtist, (artist) => {
             <span v-if="selectedArtist" class="pane-header__meta artist-details-conflict-name">
               <span>{{ selectedArtist.name }}</span>
               <v-tooltip
-                v-if="artistHasReleaseDateConflict(selectedArtist)"
-                text="Unresolved provider release date conflict"
+                v-if="artistHasProviderConflict(selectedArtist)"
+                text="Unresolved provider conflict"
                 location="top"
               >
                 <template #activator="{ props }">
@@ -2095,23 +2552,17 @@ watch(selectedArtist, (artist) => {
               </div>
               <div class="cell-muted">Albums</div>
               <div>{{ selectedArtist.albumCount }} total, {{ selectedArtist.uncheckedAlbumCount }} unchecked</div>
-              <div class="cell-muted">Provider</div>
+              <div class="cell-muted">Providers</div>
               <div>
-                <v-chip
-                  v-if="selectedProvider"
-                  size="small"
-                  variant="flat"
-                  :class="providerChipClasses(selectedArtist)"
-                >
-                  <img
-                    v-if="providerChipIconSrc(selectedArtist)"
-                    class="artists-provider-chip__icon"
-                    :src="providerChipIconSrc(selectedArtist)"
-                    alt=""
-                    aria-hidden="true"
-                  >
-                  <span class="artists-provider-chip__text">{{ providerChipText(selectedArtist) }}</span>
-                </v-chip>
+                <div v-if="providersForArtist(selectedArtist).length" class="dialog-chip-row">
+                  <ProviderChip
+                    v-for="provider in providersForArtist(selectedArtist)"
+                    :key="provider.providerId"
+                    :provider-id="provider.providerId"
+                    :label="providerLinkChipText(provider)"
+                    :error="Boolean(provider.lastErrorMessage)"
+                  ></ProviderChip>
+                </div>
                 <span v-else class="cell-muted">None</span>
               </div>
             </div>
@@ -2121,7 +2572,7 @@ watch(selectedArtist, (artist) => {
             <a
               v-if="selectedProvider.providerUrl && providerIdentityLabel()"
               class="artist-link artist-link--name"
-              :href="selectedProvider.providerUrl"
+              :href="artistProviderExternalUrl(selectedProvider)"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -2131,7 +2582,7 @@ watch(selectedArtist, (artist) => {
             <a
               v-if="selectedProvider.providerUrl"
               class="mono-path artist-link artist-link--url"
-              :href="selectedProvider.providerUrl"
+              :href="artistProviderExternalUrl(selectedProvider)"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -2143,7 +2594,7 @@ watch(selectedArtist, (artist) => {
               variant="text"
               prepend-icon="mdi-open-in-new"
               :disabled="!selectedProvider.providerUrl"
-              @click="openExternal(selectedProvider.providerUrl)"
+              @click="openExternal(artistProviderExternalUrl(selectedProvider))"
             >
               Open
             </v-btn>
@@ -2225,17 +2676,134 @@ watch(selectedArtist, (artist) => {
     <ProviderMatchDialog
       v-model="matchDialog"
       v-model:provider-id="matchProviderId"
-      :candidates="providerCandidates"
-      :loading="matchLoading"
-      :saving="false"
+      multi-provider
+      :candidates="[]"
+      :candidates-by-provider="providerCandidatesById"
+      :loading-provider-ids="providerLoadingIds"
+      :loaded-provider-ids="providerLoadedIds"
+      :selected-provider-candidate-ids="selectedProviderCandidateIds"
+      :artist-name="selectedArtist?.name ?? null"
+      :loading="providerLoadingIds.length > 0"
+      :saving="assigningProviders"
       :disabled="writeActionsDisabled"
+      :save-disabled="!providerSelectionDirty"
       :show-url="false"
       url=""
       url-validation=""
+      empty-text="No candidates found."
+      assign-label="Save"
       @select-provider="loadProviderCandidatesForMatch"
-      @use-candidate="useCandidate"
+      @toggle-candidate="toggleProviderCandidate"
+      @refresh-all="refreshAllProviderCandidates"
+      @assign-selected="saveProviderSelections"
       @open-external="openExternal"
+      @close="resetProviderMatchState"
     />
+
+    <v-dialog
+      v-model="providerConflictDialog"
+      max-width="none"
+      :content-props="{ class: 'provider-conflict-overlay' }"
+    >
+      <v-card class="dialog-card provider-conflict-dialog">
+        <v-card-title class="provider-conflict-dialog__title">
+          <span>{{ providerConflictArtist?.name ?? 'Artist' }}</span>
+          <span class="provider-conflict-count-chip provider-conflict-count-chip--title">{{ providerConflictTotalLabel() }}</span>
+        </v-card-title>
+        <v-card-text>
+          <div
+            v-if="providerConflictLinkedProviders.length"
+            class="provider-conflict-linked-providers dialog-chip-row"
+          >
+            <ProviderChip
+              v-for="provider in providerConflictLinkedProviders"
+              :key="provider.providerId"
+              :provider-id="provider.providerId"
+              :external-url="provider.providerUrl"
+              open-external
+            ></ProviderChip>
+          </div>
+          <div v-if="providerConflictSections.length === 0" class="pane-empty pane-empty--compact">
+            No unresolved provider conflicts.
+          </div>
+          <div v-else class="provider-conflict-dialog__body">
+            <section
+              v-for="section in providerConflictSections"
+              :key="section.key"
+              class="provider-conflict-album-group"
+              :class="{ 'provider-conflict-album-group--open': providerConflictSectionOpen(section) }"
+            >
+              <button
+                type="button"
+                class="provider-conflict-album-group__header"
+                @click="openProviderConflictSection(section)"
+              >
+                <span class="provider-conflict-album-group__name mono-path">{{ section.localAlbum }}</span>
+                <span class="provider-conflict-count-chip">{{ providerConflictSectionVariantLabel(section) }}</span>
+              </button>
+
+              <div
+                v-if="providerConflictSectionOpen(section)"
+                class="provider-conflict-album-group__body"
+              >
+                <div class="provider-conflict-choice-grid">
+                  <button
+                    type="button"
+                    class="provider-conflict-choice provider-conflict-choice--local"
+                    :disabled="Boolean(providerConflictActionKey)"
+                    @click="chooseProviderConflict(section, null)"
+                  >
+                    <span class="provider-conflict-choice__label">Local</span>
+                    <span class="provider-conflict-choice__value">{{ section.localValue }}</span>
+                  </button>
+                  <button
+                    v-for="variant in section.variants"
+                    :key="variant.key"
+                    type="button"
+                    class="provider-conflict-choice provider-conflict-choice--provider"
+                    :disabled="Boolean(providerConflictActionKey)"
+                    @click="chooseProviderConflict(section, variant)"
+                  >
+                    <span class="provider-conflict-choice__source-row">
+                      <v-tooltip
+                        v-for="providerId in visibleConflictProviders(variant)"
+                        :key="providerId"
+                        :text="providerConflictChipTooltip(providerId)"
+                        location="top"
+                      >
+                        <template #activator="{ props }">
+                          <ProviderChip
+                            v-bind="props"
+                            :provider-id="providerId"
+                            :external-url="providerConflictProviderUrl(providerId)"
+                            :show-label="false"
+                            class="provider-conflict-source-chip"
+                            open-external
+                            @click.stop
+                          ></ProviderChip>
+                        </template>
+                      </v-tooltip>
+                      <v-chip
+                        v-if="hiddenConflictProviderCount(variant) > 0"
+                        size="small"
+                        variant="tonal"
+                      >
+                        +{{ hiddenConflictProviderCount(variant) }}
+                      </v-chip>
+                    </span>
+                    <span class="provider-conflict-choice__value">{{ variant.providerValue }}</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="providerConflictDialog = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <v-dialog v-model="bulkMatchDialog" max-width="1100">
       <v-card class="dialog-card">
@@ -2284,7 +2852,7 @@ watch(selectedArtist, (artist) => {
                       variant="text"
                       icon="mdi-open-in-new"
                       :disabled="!bulkCandidate(item)?.providerUrl"
-                      @click="openExternal(bulkCandidate(item)?.providerUrl)"
+                      @click="openExternal(providerExternalArtistUrl(bulkCandidate(item)?.providerId, bulkCandidate(item)?.providerUrl))"
                     ></v-btn>
                     <v-btn
                       v-if="item.status === 'NEEDS_MANUAL'"

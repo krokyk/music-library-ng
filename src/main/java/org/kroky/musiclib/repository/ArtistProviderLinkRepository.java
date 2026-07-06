@@ -5,7 +5,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import javax.sql.DataSource;
@@ -40,6 +42,32 @@ public class ArtistProviderLinkRepository {
         }
     }
 
+    public Map<Long, List<ArtistProviderLink>> listByArtistIds(List<Long> artistIds) {
+        if (artistIds == null || artistIds.isEmpty()) {
+            return Map.of();
+        }
+        String placeholders = String.join(", ", artistIds.stream().map(id -> "?").toList());
+        String sql = baseSelect()
+                + " WHERE apl.artist_id IN (" + placeholders + ")"
+                + " ORDER BY apl.artist_id, apl.provider_id, coalesce(apl.provider_artist_name, apl.provider_url, '')";
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            for (int index = 0; index < artistIds.size(); index++) {
+                statement.setLong(index + 1, artistIds.get(index));
+            }
+            try (ResultSet rs = statement.executeQuery()) {
+                Map<Long, List<ArtistProviderLink>> links = new LinkedHashMap<>();
+                while (rs.next()) {
+                    ArtistProviderLink link = map(rs);
+                    links.computeIfAbsent(link.artistId(), ignored -> new ArrayList<>()).add(link);
+                }
+                return links;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to list provider links for artists", e);
+        }
+    }
+
     public Optional<ArtistProviderLink> findByArtist(long artistId) {
         String sql = baseSelect() + " WHERE apl.artist_id = ? ORDER BY apl.id LIMIT 1";
         try (Connection connection = dataSource.getConnection();
@@ -50,6 +78,20 @@ public class ArtistProviderLinkRepository {
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to find provider for artist " + artistId, e);
+        }
+    }
+
+    public Optional<ArtistProviderLink> findByArtistAndProvider(long artistId, String providerId) {
+        String sql = baseSelect() + " WHERE apl.artist_id = ? AND apl.provider_id = ? ORDER BY apl.id LIMIT 1";
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, artistId);
+            statement.setString(2, providerId);
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next() ? Optional.of(map(rs)) : Optional.empty();
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to find " + providerId + " provider for artist " + artistId, e);
         }
     }
 
@@ -124,8 +166,7 @@ public class ArtistProviderLinkRepository {
                     enabled
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(artist_id) DO UPDATE SET
-                    provider_id = excluded.provider_id,
+                ON CONFLICT(artist_id, provider_id) DO UPDATE SET
                     provider_artist_id = excluded.provider_artist_id,
                     provider_artist_name = excluded.provider_artist_name,
                     country = excluded.country,
@@ -148,7 +189,7 @@ public class ArtistProviderLinkRepository {
             statement.setString(8, blankToNull(providerUrl));
             statement.setInt(9, enabled ? 1 : 0);
             statement.executeUpdate();
-            return findByArtist(artistId).orElseThrow();
+            return findByArtistAndProvider(artistId, providerId).orElseThrow();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to upsert provider for artist " + artistId, e);
         }
@@ -180,6 +221,18 @@ public class ArtistProviderLinkRepository {
             statement.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to delete provider for artist " + artistId, e);
+        }
+    }
+
+    public void deleteByArtistAndProvider(long artistId, String providerId) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "DELETE FROM artist_provider_links WHERE artist_id = ? AND provider_id = ?")) {
+            statement.setLong(1, artistId);
+            statement.setString(2, providerId);
+            statement.executeUpdate();
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to delete " + providerId + " provider for artist " + artistId, e);
         }
     }
 

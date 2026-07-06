@@ -82,6 +82,21 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -AppUrl "http://${APP_HOST}:8795/"
 ```
 
+When running Windows browser checks from WSL:
+
+- Prefer `scripts/check-ui-layout.ps1` for layout smoke tests because it owns Chrome or Edge startup, CDP wiring, viewport setup, screenshots, and cleanup.
+- Pass script paths through `wslpath -w` so PowerShell receives Windows paths.
+- Keep the app process in WSL and let Windows Chrome open `http://localhost:<port>/`.
+- If Windows cannot reach the WSL app through `localhost`, pass the WSL IP in `-AppUrl`.
+- For focused DOM checks that the shared script does not cover, create a temporary PowerShell script outside the repo and delete it after the run.
+- Put custom CDP logic inside the PowerShell script so browser startup, `Invoke-RestMethod http://127.0.0.1:<cdp-port>/json/...`, and WebSocket evaluation all run on the Windows side.
+- Do not assume WSL `curl`, Node, or other Linux tools can reach a Windows Chrome CDP listener on `127.0.0.1`.
+- Use the default CDP port `9223` unless there is a concrete reason to use another port.
+- If an alternate CDP port fails while `9223` works, use `9223` instead of spending time debugging Windows browser port binding.
+- If Chrome or Edge does not expose CDP, clean only the temporary CDP browser processes and profile directories that match the test port or profile name.
+- Avoid inline PowerShell one-liners when commands contain `$env:...`, `${env:...}`, script blocks, or nested quotes because Bash expansion often corrupts them.
+- A temporary `.ps1` file is the reliable option for non-trivial Windows browser automation from WSL.
+
 Treat the smoke check as failed when:
 
 - the document height exceeds the browser viewport height
@@ -186,8 +201,14 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   When space gets tight, remove labels first; never allow the pane, row, or action column to shrink below the width required to show all required icons.
 - Main Artists screen bulk provider matching uses visible unlinked artists after search and collection filters.
   Keep the displayed count and submitted artist IDs from the same filtered list.
-- Main Artists screen bulk provider controls use provider chips.
-  Collapse provider chip labels before collapsing the bulk-match text to the count-only form, and shrink the search field only after the count and provider icons are preserved.
+- Main Artists screen bulk provider controls live in the Artists pane title bar with the label `Bulk match missing providers`.
+  Bulk provider controls use provider chips with normal provider display names.
+  Collapse provider chip labels before removing the bulk-match label, and preserve provider icons plus counts before shrinking other title-bar content.
+- Main Artists screen row provider setup uses one `Add providers` action, not one action per provider.
+  The action opens the fixed-size multi-provider dialog, starts matching missing providers immediately, preselects existing provider links, and saves only changed selections.
+  Existing provider links are removed by deselecting their candidate row and clicking `Save`.
+- Main Artists screen conflict resolution uses a warning `Conflicts` row action scoped to the selected artist.
+  Do not automatically open provider conflict dialogs after provider association or provider scans.
 - Main Artists screen country cells show flag icons and country names in the table row.
   Clicking a country cell opens a cell-anchored popover below the cell with a search field and country list.
   Country edits write artist overrides only and provider rescans must not overwrite those overrides.
@@ -217,6 +238,9 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 
 - Use one shared dialog/popover visual language across edit forms.
 - Dialog cards and anchored edit popovers should use the same gap constants: small gap `10px`, large gap `20px`.
+- Dialogs should size to their content, stay centered by default, and cap their height at `75%` of the page height with internal scrolling for overflow.
+- Dialogs should cap their desktop width at `40%` of the page width, while mobile dialogs can expand to the viewport minus safe margins.
+- Anchor a pane to a control only when that is the better workflow fit, such as cell editors, menus, dropdowns, or status history near the status bar.
 - Edit forms should not feel cramped.
   Prefer fewer fields and clear vertical spacing over dense packing.
 - For pane-local edits, anchored overlays are preferred when they do not need a blocking centered decision.

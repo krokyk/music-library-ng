@@ -9,8 +9,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,13 +33,10 @@ import jakarta.enterprise.context.ApplicationScoped;
 public class MetalArchivesProvider implements DiscographyProvider {
 
     private static final String BASE_URL = "https://www.metal-archives.com";
-    private static final String MAIN_DISCOGRAPHY_PATH = "/band/discography/id/%s/tab/main";
     private static final String BAND_SEARCH_PATH = "/search/ajax-band-search/?field=name&query=%s";
     private static final String USER_AGENT = "music-library-ng";
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final int MAX_ATTEMPTS = 3;
-    private static final Pattern BAND_URL_ID = Pattern.compile("/bands/[^/]+/(\\d+)(?:[/?#].*)?$");
-    private static final Pattern DISCOGRAPHY_URL_ID = Pattern.compile("/band/discography/id/(\\d+)(?:/.*)?$");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -94,29 +89,15 @@ public class MetalArchivesProvider implements DiscographyProvider {
     }
 
     static URI discographyUrl(String providerUrl) {
-        return URI.create(ProviderUrlNormalizer.normalizeMetalArchives(providerUrl));
+        return URI.create(ProviderUrlNormalizer.metalArchivesDiscographyUrl(providerUrl));
     }
 
     static URI bandPageUrl(String providerUrl) {
-        URI uri = URI.create(providerUrl.trim());
-        if (BAND_URL_ID.matcher(uri.getPath()).find()) {
-            return uri;
-        }
-        return URI.create(BASE_URL + "/bands/_/" + bandId(providerUrl));
+        return URI.create(ProviderUrlNormalizer.normalizeMetalArchives(providerUrl));
     }
 
     static String bandId(String providerUrl) {
-        URI uri = URI.create(ProviderUrlNormalizer.normalizeMetalArchives(providerUrl));
-        String path = uri.getPath();
-        Matcher bandMatch = BAND_URL_ID.matcher(path);
-        if (bandMatch.find()) {
-            return bandMatch.group(1);
-        }
-        Matcher discographyMatch = DISCOGRAPHY_URL_ID.matcher(path);
-        if (discographyMatch.find()) {
-            return discographyMatch.group(1);
-        }
-        throw new IllegalArgumentException("Metal Archives band URL is not recognized: " + providerUrl);
+        return ProviderUrlNormalizer.metalArchivesBandId(providerUrl);
     }
 
     static List<RemoteAlbum> parseMainDiscography(String html) {

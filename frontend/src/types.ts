@@ -19,6 +19,7 @@ export interface Artist {
   providerDisambiguation?: string | null
   providerActive?: boolean | null
   providerLastErrorMessage?: string | null
+  providerLinks: ArtistProviderLink[]
   collectionAlbumCount: number
   localScanErrorMessage?: string | null
   createdAt: string
@@ -46,7 +47,9 @@ export interface AlbumProviderLink {
   providerReleaseDate?: string | null
   providerUrl?: string | null
   releaseDateResolution?: string | null
+  titleResolution?: string | null
   releaseDateConflict: boolean
+  titleConflict: boolean
   createdAt: string
   updatedAt: string
 }
@@ -257,9 +260,15 @@ export interface ArtistProviderCandidateAlbum {
   providerReleaseDate?: string | null
   providerUrl?: string | null
   localAlbumId?: number | null
+  localTitle?: string | null
   localReleaseDate?: string | null
   localOnDisk: boolean
   releaseDateConflict: boolean
+  matchType: 'exact' | 'normalized' | 'fuzzy' | 'none'
+  titleScore: number
+  evidenceStrength: number
+  localEvidenceKind: 'local' | 'checked' | 'unchecked' | 'provider-only'
+  genericTitle: boolean
 }
 
 export interface ArtistProviderCandidate {
@@ -272,7 +281,13 @@ export interface ArtistProviderCandidate {
   active?: boolean | null
   providerScore: number
   matchScore: number
+  finalScore: number
+  nameScore: number
+  albumEvidenceScore: number
+  yearBonus: number
+  evidenceSummary: string
   matchedLocalAlbums: string[]
+  albumEvidence: ArtistProviderCandidateAlbum[]
   releaseGroups: RemoteReleaseGroup[]
   albums: ArtistProviderCandidateAlbum[]
 }
@@ -322,6 +337,7 @@ export interface ProviderCheckJobStatus {
   newAlbumCount: number
   existingAlbumCount: number
   releaseDateConflictCount: number
+  titleConflictCount: number
   errorCount: number
   cancelRequested: boolean
   message?: string | null
@@ -350,6 +366,29 @@ export interface ProviderReleaseDateConflict {
   providerUrl?: string | null
   localRelativePath?: string | null
   sources: ProviderReleaseDateConflictSource[]
+}
+
+export interface ProviderTitleConflictSource {
+  providerLinkId: number
+  providerId: string
+  providerTitle: string
+  providerReleaseDate?: string | null
+  providerUrl?: string | null
+}
+
+export interface ProviderTitleConflict {
+  albumId: number
+  providerLinkId: number
+  artistId: number
+  artistName: string
+  albumTitle: string
+  localReleaseDate?: string | null
+  providerTitle: string
+  providerReleaseDate?: string | null
+  providerId: string
+  providerUrl?: string | null
+  localRelativePath?: string | null
+  sources: ProviderTitleConflictSource[]
 }
 
 export interface AudioTagFilePlan {
@@ -391,6 +430,36 @@ export interface AlbumReleaseDateConflictPlan {
 }
 
 export interface AlbumReleaseDateConflictResult {
+  album: Album
+  sourcePath: string
+  targetPath: string
+  folderCount: number
+  duplicateAlbumsMerged: number
+  tagFilesUpdated: number
+  files: AudioTagFilePlan[]
+  warnings: string[]
+}
+
+export interface AlbumTitleConflictPlan {
+  albumId: number
+  providerLinkId: number
+  albumTitle: string
+  localReleaseDate?: string | null
+  providerTitle: string
+  providerReleaseDate?: string | null
+  sourcePath: string
+  targetPath: string
+  sourceRelativePath: string
+  targetRelativePath: string
+  folderCount: number
+  audioFileCount: number
+  unsupportedFileCount: number
+  folders: AlbumReleaseDateConflictFolderPlan[]
+  files: AudioTagFilePlan[]
+  warnings: string[]
+}
+
+export interface AlbumTitleConflictResult {
   album: Album
   sourcePath: string
   targetPath: string

@@ -1,6 +1,8 @@
 package org.kroky.musiclib.provider;
 
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -12,7 +14,8 @@ public final class ProviderUrlNormalizer {
 
     private static final String METAL_ARCHIVES_BASE_URL = "https://www.metal-archives.com";
     private static final String METAL_ARCHIVES_DISCOGRAPHY_PATH = "/band/discography/id/%s/tab/main";
-    private static final Pattern METAL_ARCHIVES_BAND_URL_ID = Pattern.compile("/bands/[^/]+/(\\d+)/?$");
+    private static final String METAL_ARCHIVES_BAND_PATH = "/bands/%s/%s";
+    private static final Pattern METAL_ARCHIVES_BAND_URL_ID = Pattern.compile("/bands/([^/]+)/(\\d+)/?$");
     private static final Pattern METAL_ARCHIVES_DISCOGRAPHY_URL_ID =
             Pattern.compile("/band/discography/id/(\\d+)(?:/tab/main)?/?$");
     private static final Pattern SPIRIT_OF_METAL_BAND_PATH = Pattern.compile("/en/band/[^/]+/?$");
@@ -41,26 +44,58 @@ public final class ProviderUrlNormalizer {
     }
 
     public static String normalizeMetalArchives(String providerUrl) {
+        return normalizeMetalArchives(providerUrl, null);
+    }
+
+    public static String normalizeMetalArchives(String providerUrl, String artistName) {
         URI uri = parseRequired(providerUrl, "Metal Archives URL is required");
         requireHttps(uri, "Metal Archives URL must start with https://");
         requireMetalArchivesHost(uri);
         if (uri.getRawQuery() != null || uri.getRawFragment() != null) {
             throw new IllegalArgumentException("Metal Archives URL must not include query or fragment parts");
         }
-        String bandId = metalArchivesBandId(uri.getPath(), providerUrl);
-        return METAL_ARCHIVES_BASE_URL + METAL_ARCHIVES_DISCOGRAPHY_PATH.formatted(bandId);
+        Matcher bandMatch = METAL_ARCHIVES_BAND_URL_ID.matcher(uri.getPath());
+        if (bandMatch.find()) {
+            return METAL_ARCHIVES_BASE_URL + METAL_ARCHIVES_BAND_PATH.formatted(bandMatch.group(1), bandMatch.group(2));
+        }
+        Matcher discographyMatch = METAL_ARCHIVES_DISCOGRAPHY_URL_ID.matcher(uri.getPath());
+        if (discographyMatch.find()) {
+            return METAL_ARCHIVES_BASE_URL
+                    + METAL_ARCHIVES_BAND_PATH.formatted(metalArchivesBandNameSegment(artistName),
+                            discographyMatch.group(1));
+        }
+        throw new IllegalArgumentException("Metal Archives band URL is not recognized: " + providerUrl);
     }
 
-    private static String metalArchivesBandId(String path, String providerUrl) {
-        Matcher bandMatch = METAL_ARCHIVES_BAND_URL_ID.matcher(path);
+    public static String metalArchivesDiscographyUrl(String providerUrl) {
+        return METAL_ARCHIVES_BASE_URL + METAL_ARCHIVES_DISCOGRAPHY_PATH.formatted(metalArchivesBandId(providerUrl));
+    }
+
+    public static String metalArchivesExternalArtistUrl(String providerUrl) {
+        return normalizeMetalArchives(providerUrl) + "#band_tab_discography";
+    }
+
+    public static String metalArchivesBandId(String providerUrl) {
+        URI uri = parseRequired(providerUrl, "Metal Archives URL is required");
+        requireHttps(uri, "Metal Archives URL must start with https://");
+        requireMetalArchivesHost(uri);
+        Matcher bandMatch = METAL_ARCHIVES_BAND_URL_ID.matcher(uri.getPath());
         if (bandMatch.find()) {
-            return bandMatch.group(1);
+            return bandMatch.group(2);
         }
-        Matcher discographyMatch = METAL_ARCHIVES_DISCOGRAPHY_URL_ID.matcher(path);
+        Matcher discographyMatch = METAL_ARCHIVES_DISCOGRAPHY_URL_ID.matcher(uri.getPath());
         if (discographyMatch.find()) {
             return discographyMatch.group(1);
         }
         throw new IllegalArgumentException("Metal Archives band URL is not recognized: " + providerUrl);
+    }
+
+    private static String metalArchivesBandNameSegment(String artistName) {
+        if (artistName == null || artistName.isBlank()) {
+            return "_";
+        }
+        String segment = artistName.trim().replaceAll("[\\s/]+", "_");
+        return URLEncoder.encode(segment, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private static URI parseRequired(String providerUrl, String blankMessage) {

@@ -29,14 +29,33 @@ _mlng_pids_for_port() {
 }
 
 _mlng_pids_for_project_commands() {
-  ps -eo pid=,comm=,args= | awk -v root="$MLNG_ROOT" '
-    $2 ~ /^(awk|bash|dash|sh|ps|sed)$/ {
-      next
-    }
-    index($0, root) && $0 ~ /(quarkusDev|quarkus-run\.jar|npm run dev|node_modules\/\.bin\/vite|vite --host)/ {
-      print $1
-    }
-  '
+  local pid comm args
+  while read -r pid comm args; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    case "$comm" in
+      awk|bash|dash|grep|ps|rg|sed|sh)
+        continue
+        ;;
+    esac
+    if [[ "$args" == *quarkus-run.jar* ]]; then
+      printf '%s\n' "$pid"
+      continue
+    fi
+    case "$args" in
+      *quarkusDev*|*"npm run dev"*|*node_modules/.bin/vite*|*"vite --host"*) ;;
+      *) continue ;;
+    esac
+    if [[ "$args" == *"$MLNG_ROOT"* ]] || _mlng_pid_cwd_is_project "$pid"; then
+      printf '%s\n' "$pid"
+    fi
+  done < <(ps -eo pid=,comm=,args=)
+}
+
+_mlng_pid_cwd_is_project() {
+  local pid="$1"
+  local cwd
+  cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null)" || return 1
+  [[ "$cwd" == "$MLNG_ROOT" || "$cwd" == "$MLNG_ROOT/"* ]]
 }
 
 _mlng_unique_pids() {

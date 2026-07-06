@@ -5,7 +5,13 @@ public record ArtistProviderCandidateAlbum(
         String providerReleaseDate,
         String providerUrl,
         Long localAlbumId,
+        String localTitle,
         String localReleaseDate,
         boolean localOnDisk,
-        boolean releaseDateConflict) {
+        boolean releaseDateConflict,
+        String matchType,
+        int titleScore,
+        int evidenceStrength,
+        String localEvidenceKind,
+        boolean genericTitle) {
 }

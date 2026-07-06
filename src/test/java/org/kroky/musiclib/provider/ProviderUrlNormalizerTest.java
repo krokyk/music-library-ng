@@ -21,19 +21,36 @@ class ProviderUrlNormalizerTest {
     }
 
     @Test
-    void normalizesMetalArchivesBandUrlToDiscographyUrl() {
+    void normalizesMetalArchivesBandUrlToBandUrl() {
         assertEquals(
-                "https://www.metal-archives.com/band/discography/id/3540329211/tab/main",
+                "https://www.metal-archives.com/bands/Asleigh_Stake/3540329211",
                 ProviderUrlNormalizer.normalizeMetalArchives(
                         "https://www.metal-archives.com/bands/Asleigh_Stake/3540329211"));
     }
 
     @Test
-    void acceptsExistingMetalArchivesDiscographyUrl() {
+    void normalizesExistingMetalArchivesDiscographyUrlToBandUrl() {
         assertEquals(
-                "https://www.metal-archives.com/band/discography/id/3540329211/tab/main",
+                "https://www.metal-archives.com/bands/_/3540329211",
                 ProviderUrlNormalizer.normalizeMetalArchives(
                         "https://www.metal-archives.com/band/discography/id/3540329211/tab/main"));
+    }
+
+    @Test
+    void normalizesExistingMetalArchivesDiscographyUrlWithArtistNameToBandUrl() {
+        assertEquals(
+                "https://www.metal-archives.com/bands/Andy_Gillion/3540460064",
+                ProviderUrlNormalizer.normalizeMetalArchives(
+                        "https://www.metal-archives.com/band/discography/id/3540460064/tab/main",
+                        "Andy Gillion"));
+    }
+
+    @Test
+    void buildsMetalArchivesDiscographyUrlFromBandUrl() {
+        assertEquals(
+                "https://www.metal-archives.com/band/discography/id/3540329211/tab/main",
+                ProviderUrlNormalizer.metalArchivesDiscographyUrl(
+                        "https://www.metal-archives.com/bands/Asleigh_Stake/3540329211"));
     }
 
     @Test

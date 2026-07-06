@@ -9,7 +9,9 @@ public record AlbumProviderLink(
         String providerReleaseDate,
         String providerUrl,
         String releaseDateResolution,
+        String titleResolution,
         boolean releaseDateConflict,
+        boolean titleConflict,
         String createdAt,
         String updatedAt) {
 }
