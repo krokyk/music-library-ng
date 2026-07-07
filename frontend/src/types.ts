@@ -139,7 +139,6 @@ export interface ScanJobStatus {
   activeCollectionName?: string | null
   activeArtistId?: number | null
   activeArtistName?: string | null
-  processedArtistIds: number[]
   itemTotal: number
   itemProcessed: number
   artistCount: number
@@ -154,9 +153,7 @@ export interface ScanJobStatus {
 export interface UiSettingsValues {
   statusCompleteVisibleMs: number
   scanPollIntervalMs: number
-  collectionScanSpinnerEnabled: boolean
   artistScanSpinnerEnabled: boolean
-  collectionScanProgressEnabled: boolean
   providerBatchRescanDelayMinutes: number
   statusHistoryDateFormat: string
   releaseDateDisplayFormat: string
@@ -174,9 +171,7 @@ export interface UiSettings extends UiSettingsValues {
 export interface UiSettingOverrides {
   statusCompleteVisibleMs: boolean
   scanPollIntervalMs: boolean
-  collectionScanSpinnerEnabled: boolean
   artistScanSpinnerEnabled: boolean
-  collectionScanProgressEnabled: boolean
   providerBatchRescanDelayMinutes: boolean
   statusHistoryDateFormat: boolean
   releaseDateDisplayFormat: boolean

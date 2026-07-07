@@ -31,6 +31,7 @@ const completedStatusState = ref<'done' | 'warning' | 'failed' | 'info'>('done')
 const completedStatusTimer = ref<number | null>(null)
 const scanStartedAt = ref<number | null>(null)
 const providerStartedAt = ref<number | null>(null)
+const collectionScanCancelPending = ref(false)
 
 const scanCollectionName = computed(() => {
   const collectionId = scanJob.value?.activeCollectionId ?? scanJob.value?.requestedCollectionId
@@ -47,6 +48,11 @@ const scanCollectionType = computed(() => {
 })
 
 const scanIsLocalAlbums = computed(() => scanJob.value?.kind === 'LOCAL_ALBUMS')
+const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
+const collectionScanModalVisible = computed(() =>
+  scanIsRunning.value && scanJob.value?.kind === 'COLLECTION',
+)
+const scanStatusBarRunning = computed(() => scanIsRunning.value && !collectionScanModalVisible.value)
 const scanArtistName = computed(() => {
   const artistId = scanJob.value?.requestedArtistId
   if (!artistId) {
@@ -64,9 +70,26 @@ const scanRunningMessage = computed(() => {
   return `Scanning collection ${scanCollectionName.value}`
 })
 
+const collectionScanTitle = computed(() => `Scanning ${scanCollectionName.value}...`)
+const collectionScanProcessed = computed(() => {
+  const job = scanJob.value
+  if (!job) {
+    return 0
+  }
+  return job.itemTotal > 0 ? Math.min(job.itemProcessed, job.itemTotal) : job.itemProcessed
+})
+const collectionScanProgressText = computed(() =>
+  `${collectionScanProcessed.value} / ${scanJob.value?.itemTotal ?? 0}`,
+)
+const collectionScanProgressPercent = computed(() => {
+  const total = scanJob.value?.itemTotal ?? 0
+  return total > 0 ? Math.min(100, (collectionScanProcessed.value / total) * 100) : 0
+})
+
 const activeStatusMessage = computed(() => {
-  if (scanJob.value?.status === 'RUNNING') {
-    return `${scanRunningMessage.value}: ${scanJob.value.itemProcessed}/${scanJob.value.itemTotal} folders scanned`
+  if (scanStatusBarRunning.value) {
+    const job = scanJob.value
+    return `${scanRunningMessage.value}: ${job?.itemProcessed ?? 0}/${job?.itemTotal ?? 0} folders scanned`
   }
   if (providerJob.value?.status === 'RUNNING' && providerJob.value.message) {
     return providerJob.value.message
@@ -78,7 +101,7 @@ const activeStatusMessage = computed(() => {
 })
 
 const statusState = computed(() => {
-  if (scanJob.value?.status === 'RUNNING' || providerJob.value?.status === 'RUNNING' || providerStatus.value.running) {
+  if (scanStatusBarRunning.value || providerJob.value?.status === 'RUNNING' || providerStatus.value.running) {
     return 'running'
   }
   return completedStatus.value ? completedStatusState.value : 'idle'
@@ -234,10 +257,10 @@ function scanCompletionMessage() {
       + `${countWithLabel(job.parsedCount, 'album')}, ${job.createdCount} new, ${job.skippedCount} skipped`
   }
   if (scanCollectionType.value === 'TITLE') {
-    return `${scanCollectionName.value} scan complete: ${job.itemProcessed}/${job.itemTotal} folders scanned, `
+    return `${scanCollectionName.value} scan complete: ${job.itemProcessed}/${job.itemTotal} titles scanned, `
       + `${countWithLabel(job.parsedCount, 'title')} parsed, ${job.createdCount} new`
   }
-  return `${scanCollectionName.value} scan complete: ${job.itemProcessed}/${job.itemTotal} folders scanned, `
+  return `${scanCollectionName.value} scan complete: ${job.itemProcessed}/${job.itemTotal} albums scanned, `
     + `${countWithLabel(job.artistCount, 'artist')}, ${countWithLabel(job.parsedCount, 'album')} parsed, `
     + `${job.createdCount} new`
 }
@@ -259,12 +282,29 @@ async function copyActiveReport() {
   }
 }
 
+async function cancelCollectionScan() {
+  const job = scanJob.value
+  if (!job || job.cancelRequested || collectionScanCancelPending.value) {
+    return
+  }
+  collectionScanCancelPending.value = true
+  try {
+    await store.cancelScanJob()
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to cancel scan')
+  } finally {
+    collectionScanCancelPending.value = false
+  }
+}
+
 watch(
   () => scanJob.value?.status ?? 'IDLE',
   (status, previousStatus) => {
     if (status === 'RUNNING' && previousStatus !== 'RUNNING') {
       scanStartedAt.value = Date.now()
-      store.addStatusHistory(scanRunningMessage.value, 'running')
+      if (!collectionScanModalVisible.value) {
+        store.addStatusHistory(scanRunningMessage.value, 'running')
+      }
       completedStatus.value = ''
     }
     if (previousStatus === 'RUNNING' && status !== 'RUNNING' && scanJob.value) {
@@ -280,7 +320,12 @@ watch(
         )
       } else if (status === 'FAILED' || status === 'CANCELLED') {
         const message = scanJob.value.message ?? `${scanCollectionName.value} scan ${status.toLowerCase()}`
-        completeStatus(message, 'failed', withElapsed(message, elapsed), scanJob.value.reports)
+        completeStatus(
+          message,
+          status === 'FAILED' ? 'failed' : 'warning',
+          withElapsed(message, elapsed),
+          scanJob.value.reports,
+        )
       }
     }
   },
@@ -416,7 +461,7 @@ onMounted(async () => {
 
     <v-main class="app-main">
       <button
-        v-if="statusBarLocation === 'top'"
+        v-if="statusBarLocation === 'top' && !collectionScanModalVisible"
         class="global-status-bar"
         :class="`global-status-bar--${statusState}`"
         type="button"
@@ -441,7 +486,7 @@ onMounted(async () => {
       </button>
       <router-view />
       <button
-        v-if="statusBarLocation === 'bottom'"
+        v-if="statusBarLocation === 'bottom' && !collectionScanModalVisible"
         class="global-status-bar"
         :class="`global-status-bar--${statusState}`"
         type="button"
@@ -465,6 +510,43 @@ onMounted(async () => {
         </Transition>
       </button>
     </v-main>
+
+    <v-dialog
+      :model-value="collectionScanModalVisible"
+      max-width="none"
+      persistent
+      no-click-animation
+      content-class="collection-scan-dialog-content"
+    >
+      <v-card class="dialog-card collection-scan-dialog">
+        <v-card-title class="collection-scan-dialog__title">
+          {{ collectionScanTitle }}
+        </v-card-title>
+        <v-card-text class="collection-scan-dialog__body">
+          <div class="collection-scan-progress">
+            <v-progress-linear
+              :model-value="collectionScanProgressPercent"
+              color="primary"
+              bg-color="surface-variant"
+              height="30"
+              rounded
+            ></v-progress-linear>
+            <span class="collection-scan-progress__label">{{ collectionScanProgressText }}</span>
+          </div>
+        </v-card-text>
+        <v-card-actions class="collection-scan-dialog__actions">
+          <v-spacer></v-spacer>
+          <v-btn
+            color="warning"
+            variant="text"
+            :disabled="scanJob?.cancelRequested || collectionScanCancelPending"
+            @click="cancelCollectionScan"
+          >
+            {{ scanJob?.cancelRequested ? 'Cancelling' : 'Cancel' }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <v-dialog v-model="historyDialog" max-width="1080" :class="statusHistoryOverlayClasses">
       <v-card class="dialog-card status-history-dialog">

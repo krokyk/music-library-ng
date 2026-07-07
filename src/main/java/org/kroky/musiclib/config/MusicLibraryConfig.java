@@ -61,17 +61,9 @@ public interface MusicLibraryConfig {
         @WithDefault("200")
         int defaultScanPollIntervalMs();
 
-        @WithName("default-collection-scan-spinner-enabled")
-        @WithDefault("true")
-        boolean defaultCollectionScanSpinnerEnabled();
-
         @WithName("default-artist-scan-spinner-enabled")
         @WithDefault("true")
         boolean defaultArtistScanSpinnerEnabled();
-
-        @WithName("default-collection-scan-progress-enabled")
-        @WithDefault("true")
-        boolean defaultCollectionScanProgressEnabled();
 
         @WithName("default-status-history-date-format")
         @WithDefault("yyyy-MM-dd HH:mm:ss.SSS")

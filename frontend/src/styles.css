@@ -431,6 +431,54 @@ body,
   white-space: pre-wrap;
 }
 
+.collection-scan-dialog {
+  height: 154px;
+  max-width: min(40vw, calc(var(--app-vw, 100vw) - 32px)) !important;
+  min-height: 154px;
+  min-width: min(40vw, calc(var(--app-vw, 100vw) - 32px)) !important;
+  width: min(40vw, calc(var(--app-vw, 100vw) - 32px)) !important;
+}
+
+.collection-scan-dialog__title {
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-scan-dialog__body {
+  flex: 0 0 auto;
+  overflow: hidden !important;
+}
+
+.collection-scan-progress {
+  height: 30px;
+  position: relative;
+}
+
+.collection-scan-progress .v-progress-linear {
+  height: 30px !important;
+}
+
+.collection-scan-progress__label {
+  align-items: center;
+  color: #ffffff;
+  display: flex;
+  font-size: 0.86rem;
+  font-weight: 900;
+  inset: 0;
+  justify-content: center;
+  letter-spacing: 0;
+  line-height: 1;
+  pointer-events: none;
+  position: absolute;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.82);
+}
+
+.collection-scan-dialog__actions .v-btn {
+  min-width: 112px;
+}
+
 .app-page {
   margin: 0 auto;
   max-width: 1680px;
@@ -1548,30 +1596,10 @@ body,
   outline-offset: 2px;
 }
 
-.nav-row::before {
-  background: rgba(0, 213, 255, 0.36);
-  border-radius: inherit;
-  content: "";
-  inset: 0 auto 0 0;
-  pointer-events: none;
-  position: absolute;
-  width: var(--scan-progress, 0%);
-  z-index: 0;
-}
-
-.nav-row > * {
-  position: relative;
-  z-index: 1;
-}
-
 .nav-row:hover,
 .nav-row.is-selected {
   background: rgba(0, 213, 255, 0.12);
   color: #ffffff;
-}
-
-.nav-row.is-scanning {
-  cursor: default;
 }
 
 .nav-row__title {
@@ -1591,10 +1619,6 @@ body,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.nav-row__spinner {
-  flex: 0 0 auto;
 }
 
 .collection-type-icon {
@@ -1682,8 +1706,7 @@ body,
 
 .nav-row:hover .nav-row__actions,
 .nav-row:focus-within .nav-row__actions,
-.nav-row.is-selected .nav-row__actions,
-.nav-row.is-scanning .nav-row__actions {
+.nav-row.is-selected .nav-row__actions {
   margin-left: 6px;
   max-width: 240px;
   opacity: 1;
@@ -2611,6 +2634,10 @@ body.is-pane-resizing {
     max-width: calc(var(--app-vw, 100vw) - 32px) !important;
     width: calc(var(--app-vw, 100vw) - 32px) !important;
   }
+}
+
+.v-overlay__content.collection-scan-dialog-content {
+  margin: auto !important;
 }
 
 .collection-edit-overlay__content {

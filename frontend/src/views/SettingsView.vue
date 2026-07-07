@@ -9,25 +9,21 @@ import type {
 type EditableUiSettingKey =
   | 'statusCompleteVisibleMs'
   | 'scanPollIntervalMs'
-  | 'collectionScanSpinnerEnabled'
   | 'artistScanSpinnerEnabled'
-  | 'collectionScanProgressEnabled'
   | 'providerBatchRescanDelayMinutes'
   | 'statusBarLocation'
 
 interface UiForm {
   statusCompleteVisibleMs: number
   scanPollIntervalMs: number
-  collectionScanSpinnerEnabled: boolean
   artistScanSpinnerEnabled: boolean
-  collectionScanProgressEnabled: boolean
   providerBatchRescanDelayMinutes: number
   statusHistoryDateFormat: string
   statusBarLocation: 'top' | 'bottom'
 }
 
 const store = useLibraryStore()
-const { collections, providerJob, providerStatus, scanJob, musicRoot, uiSettings } = storeToRefs(store)
+const { providerJob, providerStatus, scanJob, musicRoot, uiSettings } = storeToRefs(store)
 
 const scanPollMin = 100
 const scanPollMax = 2000
@@ -46,9 +42,7 @@ const providerBatchRescanOptions = [
 const uiForm = reactive<UiForm>({
   statusCompleteVisibleMs: 10000,
   scanPollIntervalMs: 200,
-  collectionScanSpinnerEnabled: true,
   artistScanSpinnerEnabled: true,
-  collectionScanProgressEnabled: true,
   providerBatchRescanDelayMinutes: 60,
   statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
   statusBarLocation: 'top',
@@ -63,9 +57,7 @@ const scanActionsDisabled = computed(() => scanIsRunning.value || providerIsRunn
 function syncUiForm() {
   uiForm.statusCompleteVisibleMs = uiSettings.value.statusCompleteVisibleMs
   uiForm.scanPollIntervalMs = uiSettings.value.scanPollIntervalMs
-  uiForm.collectionScanSpinnerEnabled = uiSettings.value.collectionScanSpinnerEnabled
   uiForm.artistScanSpinnerEnabled = uiSettings.value.artistScanSpinnerEnabled
-  uiForm.collectionScanProgressEnabled = uiSettings.value.collectionScanProgressEnabled
   uiForm.providerBatchRescanDelayMinutes = uiSettings.value.providerBatchRescanDelayMinutes
   uiForm.statusHistoryDateFormat = uiSettings.value.statusHistoryDateFormat
   uiForm.statusBarLocation = uiSettings.value.statusBarLocation
@@ -93,26 +85,6 @@ const providerBatchRescanIndex = computed({
     scheduleUiSettingsSave('providerBatchRescanDelayMinutes')
   },
 })
-
-function collectionTypeIcon(type: string) {
-  return type === 'TITLE' ? 'mdi-album' : 'mdi-account-music'
-}
-
-function collectionTypeIconClass(type: string) {
-  return type === 'TITLE' ? 'collection-type-icon--title' : 'collection-type-icon--artist'
-}
-
-function collectionIsScanning(collectionId: string) {
-  return scanIsRunning.value && scanJob.value?.activeCollectionId === collectionId
-}
-
-async function scanCollection(collectionId: string) {
-  try {
-    await store.runScanJob(collectionId)
-  } catch (scanError) {
-    store.showErrorStatus(scanError, 'Unable to start collection scan')
-  }
-}
 
 function normalizeUiForm() {
   uiForm.statusCompleteVisibleMs = normalizeNumber(
@@ -179,9 +151,7 @@ function uiSettingsPayload(keys: EditableUiSettingKey[]) {
   keys.forEach((key) => {
     if (key === 'statusCompleteVisibleMs') payload.statusCompleteVisibleMs = uiForm.statusCompleteVisibleMs
     if (key === 'scanPollIntervalMs') payload.scanPollIntervalMs = uiForm.scanPollIntervalMs
-    if (key === 'collectionScanSpinnerEnabled') payload.collectionScanSpinnerEnabled = uiForm.collectionScanSpinnerEnabled
     if (key === 'artistScanSpinnerEnabled') payload.artistScanSpinnerEnabled = uiForm.artistScanSpinnerEnabled
-    if (key === 'collectionScanProgressEnabled') payload.collectionScanProgressEnabled = uiForm.collectionScanProgressEnabled
     if (key === 'providerBatchRescanDelayMinutes') payload.providerBatchRescanDelayMinutes = uiForm.providerBatchRescanDelayMinutes
     if (key === 'statusBarLocation') payload.statusBarLocation = uiForm.statusBarLocation
   })
@@ -200,16 +170,8 @@ function statusBarLocationChanged() {
   scheduleUiSettingsSave('statusBarLocation')
 }
 
-function collectionScanSpinnerChanged() {
-  scheduleUiSettingsSave('collectionScanSpinnerEnabled')
-}
-
 function artistScanSpinnerChanged() {
   scheduleUiSettingsSave('artistScanSpinnerEnabled')
-}
-
-function collectionScanProgressChanged() {
-  scheduleUiSettingsSave('collectionScanProgressEnabled')
 }
 
 function normalizeProviderBatchRescanIndex(value: unknown) {
@@ -397,28 +359,11 @@ onBeforeUnmount(() => {
           <div class="settings-section__header">
             <div>
               <h2 class="settings-section__title">Workspace</h2>
-              <div class="settings-section__subtitle">Pane controls and scan indicators</div>
+              <div class="settings-section__subtitle">Pane controls</div>
             </div>
           </div>
 
           <div class="settings-matrix settings-matrix--workspace">
-            <div class="settings-cell settings-cell--label">
-              Collection scan spinner
-              <v-tooltip activator="parent" text="Shows a spinner before a collection while its collection scan is running." location="top"></v-tooltip>
-            </div>
-            <div class="settings-cell settings-cell--control">
-              <v-switch
-                v-model="uiForm.collectionScanSpinnerEnabled"
-                aria-label="Collection scan spinner"
-                class="settings-switch"
-                color="primary"
-                density="compact"
-                :disabled="scanActionsDisabled"
-                hide-details
-                @update:model-value="collectionScanSpinnerChanged"
-              ></v-switch>
-            </div>
-
             <div class="settings-cell settings-cell--label">
               Artist scan spinner
               <v-tooltip activator="parent" text="Shows a spinner before artists covered by a local or provider scan." location="top"></v-tooltip>
@@ -433,22 +378,6 @@ onBeforeUnmount(() => {
                 :disabled="scanActionsDisabled"
                 hide-details
                 @update:model-value="artistScanSpinnerChanged"
-              ></v-switch>
-            </div>
-            <div class="settings-cell settings-cell--label">
-              Collection progress bar
-              <v-tooltip activator="parent" text="Shows the left-to-right scan progress fill behind a collection row." location="top"></v-tooltip>
-            </div>
-            <div class="settings-cell settings-cell--control">
-              <v-switch
-                v-model="uiForm.collectionScanProgressEnabled"
-                aria-label="Collection progress bar"
-                class="settings-switch"
-                color="primary"
-                density="compact"
-                :disabled="scanActionsDisabled"
-                hide-details
-                @update:model-value="collectionScanProgressChanged"
               ></v-switch>
             </div>
           </div>
@@ -490,66 +419,6 @@ onBeforeUnmount(() => {
                     <v-chip :color="candidate.markersFound ? 'success' : 'warning'" size="small">
                       {{ candidate.markersFound ? 'found' : 'missing' }}
                     </v-chip>
-                  </td>
-                </tr>
-              </tbody>
-            </v-table>
-          </div>
-        </section>
-
-        <section class="settings-section">
-          <div class="settings-section__header">
-            <div>
-              <h2 class="settings-section__title">Collections</h2>
-              <div class="settings-section__subtitle">{{ collections.length }} configured</div>
-            </div>
-          </div>
-
-          <div class="settings-table-wrap">
-            <v-table class="music-table" density="compact">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Relative Path</th>
-                  <th>Resolved Path</th>
-                  <th>Last Scan</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="collection in collections" :key="collection.id">
-                  <td class="cell-strong">{{ collection.name }}</td>
-                  <td>
-                    <v-chip size="small" variant="tonal" class="collection-type-chip">
-                      <v-icon
-                        :icon="collectionTypeIcon(collection.type)"
-                        size="15"
-                        class="collection-type-icon"
-                        :class="collectionTypeIconClass(collection.type)"
-                      ></v-icon>
-                      <span>{{ collection.type.toLowerCase() }}</span>
-                    </v-chip>
-                  </td>
-                  <td class="mono-path">{{ collection.relativePath }}</td>
-                  <td>
-                    <v-chip :color="collection.exists ? 'success' : 'warning'" size="small" class="mr-2">
-                      {{ collection.exists ? 'exists' : 'missing' }}
-                    </v-chip>
-                    <span class="mono-path">{{ collection.resolvedPath ?? '' }}</span>
-                  </td>
-                  <td class="cell-muted">{{ collection.lastScanMessage ?? collection.lastScanStatus ?? '' }}</td>
-                  <td class="text-right">
-                    <v-btn
-                      size="small"
-                      variant="text"
-                      prepend-icon="mdi-refresh"
-                      :loading="collectionIsScanning(collection.id)"
-                      :disabled="scanActionsDisabled"
-                      @click="scanCollection(collection.id)"
-                    >
-                      Scan
-                    </v-btn>
                   </td>
                 </tr>
               </tbody>

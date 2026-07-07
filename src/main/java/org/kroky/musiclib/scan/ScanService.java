@@ -104,14 +104,15 @@ public class ScanService {
 
             List<Path> folders;
             try (var stream = Files.list(collectionRoot)) {
-                folders = stream.filter(Files::isDirectory).toList();
+                folders = stream.filter(Files::isDirectory)
+                        .sorted(ScanService::comparePathFileName)
+                        .toList();
             }
             report.totalDirs(folders.size());
 
-            progress.collectionStarted(collection.id(), folders.size());
-
             int processedFolders = 0;
             if (collection.type() == CollectionType.TITLE) {
+                progress.collectionStarted(collection.id(), folders.size());
                 Set<String> seenPaths = new HashSet<>();
                 for (Path folder : folders) {
                     if (progress.isCancelled()) {
@@ -147,7 +148,7 @@ public class ScanService {
                     }
                     processedFolders++;
                     report.scannedDirs(processedFolders);
-                    progress.itemProcessed(collection.id(), processedFolders);
+                    progress.itemProcessed(collection.id(), parsed);
                 }
 
                 missing = albumRepository.removeUnseenLocalPaths(collection.id(), seenPaths);
@@ -163,8 +164,13 @@ public class ScanService {
                         updated, missing, skipped, messages, report);
             }
 
+            List<ArtistScanFolder> artistFolders = artistScanFolders(folders, collection);
+            int itemTotal = artistFolders.stream().mapToInt(ArtistScanFolder::itemCount).sum();
+            progress.collectionStarted(collection.id(), itemTotal);
+
             Set<String> seenPaths = new HashSet<>();
-            for (Path folder : folders) {
+            for (ArtistScanFolder scanFolder : artistFolders) {
+                Path folder = scanFolder.folder();
                 if (progress.isCancelled()) {
                     String message = "Scan cancelled for " + collection.name() + ".";
                     messages.add(message);
@@ -174,7 +180,7 @@ public class ScanService {
                     return scanSummary(collection.id(), "SKIPPED", seenArtistIds.size(), parsed, created,
                             updated, missing, skipped, messages, report);
                 }
-                Optional<ParsedAlbum> parsedAlbum = parser.parse(folder, collection.parser(), collection.id());
+                Optional<ParsedAlbum> parsedAlbum = scanFolder.album();
                 if (parsedAlbum.isPresent()) {
                     String parsedArtistName = parsedAlbum.get().artistName();
                     UpsertResult artistResult = artistRepository.upsertByName(parsedArtistName);
@@ -190,6 +196,7 @@ public class ScanService {
                             relativePath,
                             collection.id());
                     parsed++;
+                    progress.itemProcessed(collection.id(), parsed);
                     if (albumResult.created()) {
                         created++;
                         report.created(albumReportRow(relativePath, parsedArtistName, parsedAlbum.get().title(),
@@ -222,6 +229,15 @@ public class ScanService {
                                     + " | folder: " + folder.getFileName());
                         }
                         for (LocalAlbumCandidate candidate : nestedArtist.get().albums()) {
+                            if (progress.isCancelled()) {
+                                String message = "Scan cancelled for " + collection.name() + ".";
+                                messages.add(message);
+                                report.artistCount(seenArtistIds.size());
+                                report.finish("SKIPPED", parsed, created, existing, missing, skipped, message);
+                                collectionRepository.markScanned(collection.id(), "SKIPPED", message);
+                                return scanSummary(collection.id(), "SKIPPED", seenArtistIds.size(), parsed, created,
+                                        updated, missing, skipped, messages, report);
+                            }
                             seenPaths.add(candidate.relativePath());
                             UpsertResult albumResult = albumRepository.upsertScanned(
                                     artistResult.id(),
@@ -230,6 +246,7 @@ public class ScanService {
                                     candidate.relativePath(),
                                     collection.id());
                             parsed++;
+                            progress.itemProcessed(collection.id(), parsed);
                             if (albumResult.created()) {
                                 created++;
                                 report.created(albumReportRow(candidate.relativePath(), parsedArtistName,
@@ -244,7 +261,6 @@ public class ScanService {
                 }
                 processedFolders++;
                 report.scannedDirs(processedFolders);
-                progress.itemProcessed(collection.id(), processedFolders);
             }
             if (progress.isCancelled()) {
                 String message = "Scan cancelled for " + collection.name() + ".";
@@ -488,6 +504,18 @@ public class ScanService {
         return artistIds;
     }
 
+    private List<ArtistScanFolder> artistScanFolders(List<Path> folders, MusicCollection collection) throws Exception {
+        List<ArtistScanFolder> scanFolders = new ArrayList<>();
+        for (Path folder : folders) {
+            Optional<ParsedAlbum> parsedAlbum = parser.parse(folder, collection.parser(), collection.id());
+            Optional<NestedArtistFolder> nestedArtist = parsedAlbum.isPresent()
+                    ? Optional.empty()
+                    : nestedArtistFolder(folder, collection.id());
+            scanFolders.add(new ArtistScanFolder(folder, parsedAlbum, nestedArtist));
+        }
+        return scanFolders;
+    }
+
     private Optional<NestedArtistFolder> nestedArtistFolder(Path artistFolder, String collectionId) throws Exception {
         List<Path> albumFolders = directChildDirectories(artistFolder);
         List<LocalAlbumCandidate> albums = new ArrayList<>();
@@ -515,7 +543,9 @@ public class ScanService {
 
     private static List<Path> directChildDirectories(Path folder) throws Exception {
         try (var stream = Files.list(folder)) {
-            return stream.filter(Files::isDirectory).toList();
+            return stream.filter(Files::isDirectory)
+                    .sorted(ScanService::comparePathFileName)
+                    .toList();
         }
     }
 
@@ -574,6 +604,25 @@ public class ScanService {
 
     private static String countWithLabel(int count, String singular, String plural) {
         return count + " " + (count == 1 ? singular : plural);
+    }
+
+    private static int comparePathFileName(Path left, Path right) {
+        String leftName = left.getFileName().toString();
+        String rightName = right.getFileName().toString();
+        int result = leftName.compareToIgnoreCase(rightName);
+        return result != 0 ? result : leftName.compareTo(rightName);
+    }
+
+    private record ArtistScanFolder(
+            Path folder,
+            Optional<ParsedAlbum> album,
+            Optional<NestedArtistFolder> nestedArtist) {
+
+        int itemCount() {
+            return album.isPresent()
+                    ? 1
+                    : nestedArtist.map(artist -> artist.albums().size()).orElse(0);
+        }
     }
 
     private record LocalAlbumCandidate(

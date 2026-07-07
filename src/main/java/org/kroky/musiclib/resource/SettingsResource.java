@@ -20,11 +20,11 @@ public class SettingsResource {
     private static final Logger LOG = Logger.getLogger(SettingsResource.class);
     private static final String STATUS_VISIBLE_KEY = "ui.status-message.visible-ms";
     private static final String SCAN_POLL_KEY = "ui.scan-progress.poll-interval-ms";
-    private static final String COLLECTION_SPINNER_KEY = "collections-screen.collections-pane.scan-spinner-enabled";
     private static final String ARTIST_SPINNER_KEY = "collections-screen.artists-pane.scan-spinner-enabled";
-    private static final String COLLECTION_PROGRESS_KEY = "collections-screen.collections-pane.scan-progress-enabled";
     private static final String STATUS_BAR_LOCATION_KEY = "ui.status-bar.location";
-    private static final String[] OBSOLETE_ACTION_LABEL_THRESHOLD_KEYS = {
+    private static final String[] OBSOLETE_UI_KEYS = {
+            "collections-screen.collections-pane.scan-spinner-enabled",
+            "collections-screen.collections-pane.scan-progress-enabled",
             "collections-screen.collections-pane.action-label-threshold",
             "collections-screen.artists-pane.action-label-threshold",
             "collections-screen.albums-pane.action-label-threshold",
@@ -81,23 +81,11 @@ public class SettingsResource {
                     SCAN_POLL_MAX);
             saveOrDelete(SCAN_POLL_KEY, String.valueOf(value), String.valueOf(defaultScanPoll()));
         }
-        if (request.collectionScanSpinnerEnabled() != null) {
-            saveOrDelete(
-                    COLLECTION_SPINNER_KEY,
-                    String.valueOf(request.collectionScanSpinnerEnabled()),
-                    String.valueOf(config.ui().defaultCollectionScanSpinnerEnabled()));
-        }
         if (request.artistScanSpinnerEnabled() != null) {
             saveOrDelete(
                     ARTIST_SPINNER_KEY,
                     String.valueOf(request.artistScanSpinnerEnabled()),
                     String.valueOf(config.ui().defaultArtistScanSpinnerEnabled()));
-        }
-        if (request.collectionScanProgressEnabled() != null) {
-            saveOrDelete(
-                    COLLECTION_PROGRESS_KEY,
-                    String.valueOf(request.collectionScanProgressEnabled()),
-                    String.valueOf(config.ui().defaultCollectionScanProgressEnabled()));
         }
         if (request.providerBatchRescanDelayMinutes() != null) {
             int value = providerSettings.normalizeBatchRescanDelayMinutes(request.providerBatchRescanDelayMinutes());
@@ -120,22 +108,18 @@ public class SettingsResource {
     public UiSettings resetUi() {
         preferences.delete(STATUS_VISIBLE_KEY);
         preferences.delete(SCAN_POLL_KEY);
-        preferences.delete(COLLECTION_SPINNER_KEY);
         preferences.delete(ARTIST_SPINNER_KEY);
-        preferences.delete(COLLECTION_PROGRESS_KEY);
         preferences.delete(ProviderSettingsService.BATCH_RESCAN_DELAY_KEY);
         preferences.delete(STATUS_BAR_LOCATION_KEY);
-        deleteObsoleteActionLabelThresholdPreferences();
+        deleteObsoleteUiPreferences();
         return effectiveUiSettings();
     }
 
     private UiSettings effectiveUiSettings() {
-        deleteObsoleteActionLabelThresholdPreferences();
+        deleteObsoleteUiPreferences();
         int defaultStatusVisible = defaultStatusVisible();
         int defaultScanPoll = defaultScanPoll();
-        boolean defaultCollectionSpinner = config.ui().defaultCollectionScanSpinnerEnabled();
         boolean defaultArtistSpinner = config.ui().defaultArtistScanSpinnerEnabled();
-        boolean defaultProgress = config.ui().defaultCollectionScanProgressEnabled();
         int defaultProviderBatchRescanDelay = providerSettings.defaultBatchRescanDelayMinutes();
         String defaultDateFormat = config.ui().defaultStatusHistoryDateFormat();
         String defaultReleaseDateDisplayFormat = config.release().date().display().format();
@@ -144,9 +128,7 @@ public class SettingsResource {
 
         var statusVisible = preferences.find(STATUS_VISIBLE_KEY);
         var scanPoll = preferences.find(SCAN_POLL_KEY);
-        var collectionSpinner = preferences.find(COLLECTION_SPINNER_KEY);
         var artistSpinner = preferences.find(ARTIST_SPINNER_KEY);
-        var progress = preferences.find(COLLECTION_PROGRESS_KEY);
         var providerBatchRescanDelay = preferences.find(ProviderSettingsService.BATCH_RESCAN_DELAY_KEY);
         var statusBarLocation = preferences.find(STATUS_BAR_LOCATION_KEY);
 
@@ -155,9 +137,7 @@ public class SettingsResource {
                         .orElse(defaultStatusVisible),
                 scanPoll.map(value -> parseInt(value.value(), defaultScanPoll, SCAN_POLL_MIN, SCAN_POLL_MAX))
                         .orElse(defaultScanPoll),
-                collectionSpinner.map(value -> Boolean.parseBoolean(value.value())).orElse(defaultCollectionSpinner),
                 artistSpinner.map(value -> Boolean.parseBoolean(value.value())).orElse(defaultArtistSpinner),
-                progress.map(value -> Boolean.parseBoolean(value.value())).orElse(defaultProgress),
                 providerBatchRescanDelay
                         .map(value -> parseInt(
                                 value.value(),
@@ -175,9 +155,7 @@ public class SettingsResource {
                 new UiSettings.Values(
                         defaultStatusVisible,
                         defaultScanPoll,
-                        defaultCollectionSpinner,
                         defaultArtistSpinner,
-                        defaultProgress,
                         defaultProviderBatchRescanDelay,
                         defaultDateFormat,
                         defaultReleaseDateDisplayFormat,
@@ -200,11 +178,8 @@ public class SettingsResource {
                                         SCAN_POLL_MIN,
                                         SCAN_POLL_MAX) != defaultScanPoll)
                                 .orElse(false),
-                        collectionSpinner.map(value -> Boolean.parseBoolean(value.value()) != defaultCollectionSpinner)
-                                .orElse(false),
                         artistSpinner.map(value -> Boolean.parseBoolean(value.value()) != defaultArtistSpinner)
                                 .orElse(false),
-                        progress.map(value -> Boolean.parseBoolean(value.value()) != defaultProgress).orElse(false),
                         providerBatchRescanDelay
                                 .map(value -> parseInt(
                                         value.value(),
@@ -271,8 +246,8 @@ public class SettingsResource {
         }
     }
 
-    private void deleteObsoleteActionLabelThresholdPreferences() {
-        for (String key : OBSOLETE_ACTION_LABEL_THRESHOLD_KEYS) {
+    private void deleteObsoleteUiPreferences() {
+        for (String key : OBSOLETE_UI_KEYS) {
             preferences.delete(key);
         }
     }
@@ -300,9 +275,7 @@ public class SettingsResource {
     public record UiSettingsRequest(
             Integer statusCompleteVisibleMs,
             Integer scanPollIntervalMs,
-            Boolean collectionScanSpinnerEnabled,
             Boolean artistScanSpinnerEnabled,
-            Boolean collectionScanProgressEnabled,
             Integer providerBatchRescanDelayMinutes,
             String statusBarLocation) {
     }

@@ -13,7 +13,6 @@ public record ScanJobStatus(
         String activeCollectionName,
         Long activeArtistId,
         String activeArtistName,
-        List<Long> processedArtistIds,
         int itemTotal,
         int itemProcessed,
         int artistCount,

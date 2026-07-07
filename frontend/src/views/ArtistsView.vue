@@ -1932,6 +1932,10 @@ watch(artistCollectionFilterIds, () => {
   resetArtistsGridScroll()
 })
 
+watch(collections, () => {
+  pruneArtistCollectionFilter()
+})
+
 watch([() => artistSort.key, () => artistSort.direction], () => {
   resetArtistsGridScroll()
 })

@@ -3,9 +3,7 @@ package org.kroky.musiclib.model;
 public record UiSettings(
         int statusCompleteVisibleMs,
         int scanPollIntervalMs,
-        boolean collectionScanSpinnerEnabled,
         boolean artistScanSpinnerEnabled,
-        boolean collectionScanProgressEnabled,
         int providerBatchRescanDelayMinutes,
         String statusHistoryDateFormat,
         String releaseDateDisplayFormat,
@@ -19,9 +17,7 @@ public record UiSettings(
     public record Values(
             int statusCompleteVisibleMs,
             int scanPollIntervalMs,
-            boolean collectionScanSpinnerEnabled,
             boolean artistScanSpinnerEnabled,
-            boolean collectionScanProgressEnabled,
             int providerBatchRescanDelayMinutes,
             String statusHistoryDateFormat,
             String releaseDateDisplayFormat,
@@ -34,9 +30,7 @@ public record UiSettings(
     public record Overrides(
             boolean statusCompleteVisibleMs,
             boolean scanPollIntervalMs,
-            boolean collectionScanSpinnerEnabled,
             boolean artistScanSpinnerEnabled,
-            boolean collectionScanProgressEnabled,
             boolean providerBatchRescanDelayMinutes,
             boolean statusHistoryDateFormat,
             boolean releaseDateDisplayFormat,

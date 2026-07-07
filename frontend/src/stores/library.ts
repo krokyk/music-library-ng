@@ -125,9 +125,8 @@ const defaultArtistsScreenColumnDefaults = {
 }
 
 let scanJobPoller: number | null = null
+let scanJobPollingActive = false
 let providerJobPoller: number | null = null
-let scanJobRefreshedCollectionId: string | null = null
-let scanJobRefreshedArtistIds = new Set<number>()
 
 export const useLibraryStore = defineStore('library', {
   state: (): State => ({
@@ -157,9 +156,7 @@ export const useLibraryStore = defineStore('library', {
     uiSettings: {
       statusCompleteVisibleMs: 10000,
       scanPollIntervalMs: 200,
-      collectionScanSpinnerEnabled: true,
       artistScanSpinnerEnabled: true,
-      collectionScanProgressEnabled: true,
       providerBatchRescanDelayMinutes: 60,
       statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
       releaseDateDisplayFormat: 'yyyy-MM-dd',
@@ -170,10 +167,8 @@ export const useLibraryStore = defineStore('library', {
       defaults: {
         statusCompleteVisibleMs: 10000,
         scanPollIntervalMs: 200,
-          collectionScanSpinnerEnabled: true,
-          artistScanSpinnerEnabled: true,
-          collectionScanProgressEnabled: true,
-          providerBatchRescanDelayMinutes: 60,
+        artistScanSpinnerEnabled: true,
+        providerBatchRescanDelayMinutes: 60,
         statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
         releaseDateDisplayFormat: 'yyyy-MM-dd',
         statusBarLocation: 'top',
@@ -184,9 +179,7 @@ export const useLibraryStore = defineStore('library', {
       overrides: {
         statusCompleteVisibleMs: false,
         scanPollIntervalMs: false,
-        collectionScanSpinnerEnabled: false,
         artistScanSpinnerEnabled: false,
-        collectionScanProgressEnabled: false,
         providerBatchRescanDelayMinutes: false,
         statusHistoryDateFormat: false,
         releaseDateDisplayFormat: false,
@@ -259,16 +252,20 @@ export const useLibraryStore = defineStore('library', {
       return collection
     },
     async deleteCollection(collectionId: string) {
+      const wasSelected = this.selectedCollectionId === collectionId
       await apiSend(`/api/collections/${encodeURIComponent(collectionId)}`, 'DELETE')
       this.collections = this.collections.filter((collection) => collection.id !== collectionId)
-      this.invalidateCollectionMetadata(collectionId)
-      this.invalidateCollectionContent(collectionId)
-      if (this.selectedCollectionId === collectionId) {
+      this.invalidateCollectionMetadata()
+      this.invalidateCollectionContent()
+      await this.loadArtists()
+      if (wasSelected) {
         this.selectedCollectionId = null
         this.selectedArtistId = null
         this.collectionArtists = []
         this.collectionAlbums = []
         this.collectionTitleItems = []
+      } else {
+        await this.refreshCollectionContext()
       }
     },
     invalidateCollectionContent(collectionId?: string) {
@@ -439,6 +436,7 @@ export const useLibraryStore = defineStore('library', {
         [collectionId]: [created, ...(this.collectionTitleItemsByCollection[collectionId] ?? []).filter((current) => current.id !== created.id)],
       }
       this.invalidateCollectionMetadata(collectionId)
+      await this.refreshArtistsAfterScopedJob(created.artistIds, null)
       return created
     },
     async updateTitleItem(item: Album, payload: { title: string; artistName?: string | null; releaseDate?: string | null; sortName?: string | null }) {
@@ -458,6 +456,7 @@ export const useLibraryStore = defineStore('library', {
       }
       this.replaceCachedAlbum(updated)
       this.invalidateCollectionMetadata(this.selectedCollectionId)
+      await this.refreshArtistsAfterScopedJob([...item.artistIds, ...updated.artistIds], null)
       return updated
     },
     async removeTitleFromSelectedCollection(item: Album) {
@@ -468,6 +467,7 @@ export const useLibraryStore = defineStore('library', {
       const updated = await apiSend<Album>(`/api/collections/${encodeURIComponent(collectionId)}/titles/${item.id}`, 'DELETE')
       this.replaceAlbum(updated)
       this.invalidateCollectionMetadata(collectionId)
+      await this.refreshArtistsAfterScopedJob(updated.artistIds, null)
       await this.loadTitlesForCollection(collectionId, true)
       return updated
     },
@@ -577,7 +577,8 @@ export const useLibraryStore = defineStore('library', {
     async refreshCollectionAfterScan(collectionId?: string | null) {
       this.invalidateCollectionMetadata(collectionId ?? undefined)
       this.invalidateCollectionContent(collectionId ?? undefined)
-      await this.loadSettings()
+      await this.loadCollections()
+      await this.loadArtists()
       if (!collectionId || this.selectedCollectionId !== collectionId) {
         return
       }
@@ -635,6 +636,7 @@ export const useLibraryStore = defineStore('library', {
       const album = await apiSend<Album>('/api/albums', 'POST', { artistId, title, releaseDate, checked })
       this.albums = [album, ...this.albums.filter((item) => item.id !== album.id)]
       this.invalidateAlbumCacheForArtist(artistId)
+      await this.refreshArtistAfterScopedJob(artistId, null)
       await this.refreshCollectionContext()
     },
     async updateAlbum(album: Album) {
@@ -661,6 +663,10 @@ export const useLibraryStore = defineStore('library', {
       )
       updated.forEach((album) => this.replaceAlbum(album))
       this.invalidateCollectionMetadata(collectionId)
+      await this.refreshArtistsAfterScopedJob(
+        updated.flatMap((album) => album.artistIds),
+        collectionId,
+      )
       await this.refreshCollectionContext()
       return updated
     },
@@ -675,6 +681,7 @@ export const useLibraryStore = defineStore('library', {
       )
       this.replaceAlbum(updated)
       this.invalidateCollectionMetadata(collectionId)
+      await this.refreshArtistsAfterScopedJob(updated.artistIds, collectionId)
       await this.refreshCollectionContext()
       return updated
     },
@@ -715,7 +722,7 @@ export const useLibraryStore = defineStore('library', {
         this.selectedArtistId = null
         this.collectionAlbums = []
       }
-      await this.loadArtists()
+      await this.refreshArtistAfterScopedJob(artistId, collectionId)
       this.invalidateCollectionMetadata(collectionId)
     },
     async refreshArtistAfterScopedJob(artistId: number, collectionId?: string | null) {
@@ -953,71 +960,59 @@ export const useLibraryStore = defineStore('library', {
       return this.scanJob
     },
     startScanJobPolling() {
-      if (scanJobPoller !== null) {
+      if (scanJobPollingActive) {
         return
       }
+      scanJobPollingActive = true
       const intervalMs = Math.min(2000, Math.max(100, this.uiSettings.scanPollIntervalMs))
-      const poll = async () => {
+      const schedulePoll = () => {
+        if (!scanJobPollingActive) {
+          return
+        }
+        scanJobPoller = window.setTimeout(() => void poll(), intervalMs)
+      }
+      const poll = async (): Promise<void> => {
+        scanJobPoller = null
         try {
           const status = await this.loadScanJob()
           if (status?.status === 'RUNNING') {
-            await this.refreshProcessedScanArtists(status)
+            schedulePoll()
+            return
           }
-          if (!status || status.status !== 'RUNNING') {
-            this.stopScanJobPolling()
-            const collectionId = status?.requestedCollectionId ?? status?.activeCollectionId ?? undefined
-            const artistId = status?.requestedArtistId ?? undefined
-            if (status?.kind === 'LOCAL_ALBUMS' && artistId) {
-              this.invalidateCollectionMetadata(collectionId)
-              await this.loadSettings()
-              await this.refreshArtistAfterScopedJob(artistId, collectionId)
-            } else {
-              await this.refreshCollectionAfterScan(collectionId)
-            }
+          scanJobPollingActive = false
+          const collectionId = status?.requestedCollectionId ?? status?.activeCollectionId ?? undefined
+          const artistId = status?.requestedArtistId ?? undefined
+          if (status?.kind === 'LOCAL_ALBUMS' && artistId) {
+            this.invalidateCollectionMetadata(collectionId)
+            await this.loadCollections()
+            await this.refreshArtistAfterScopedJob(artistId, collectionId)
+          } else {
+            await this.refreshCollectionAfterScan(collectionId)
           }
         } catch (error) {
           this.stopScanJobPolling()
           this.showErrorStatus(error, 'Unable to poll scan status')
         }
       }
-      scanJobPoller = window.setInterval(() => void poll(), intervalMs)
+      schedulePoll()
     },
     stopScanJobPolling() {
-      if (scanJobPoller === null) {
-        return
+      scanJobPollingActive = false
+      if (scanJobPoller !== null) {
+        window.clearTimeout(scanJobPoller)
+        scanJobPoller = null
       }
-      window.clearInterval(scanJobPoller)
-      scanJobPoller = null
     },
     async startScanJob(collectionId?: string) {
-      resetScanLiveRefresh()
       const query = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : ''
       this.scanJob = await apiSend<ScanJobStatus>(`/api/scan/jobs${query}`, 'POST')
       return this.scanJob
     },
     async runLocalAlbumScanJob(collectionId: string, artistId?: number) {
-      resetScanLiveRefresh()
       const query = withQuery('/api/scan/jobs/local-albums', { collectionId, artistId })
       this.scanJob = await apiSend<ScanJobStatus>(query, 'POST')
       this.startScanJobPolling()
       return this.scanJob
-    },
-    async refreshProcessedScanArtists(status: ScanJobStatus) {
-      const collectionId = status.requestedCollectionId ?? status.activeCollectionId ?? null
-      if (!collectionId || !status.processedArtistIds?.length) {
-        return
-      }
-      if (scanJobRefreshedCollectionId !== collectionId) {
-        scanJobRefreshedCollectionId = collectionId
-        scanJobRefreshedArtistIds = new Set()
-      }
-      const artistIds = uniqueArtistIds(status.processedArtistIds)
-        .filter((artistId) => !scanJobRefreshedArtistIds.has(artistId))
-      if (artistIds.length === 0) {
-        return
-      }
-      artistIds.forEach((artistId) => scanJobRefreshedArtistIds.add(artistId))
-      await this.refreshArtistsAfterScopedJob(artistIds, collectionId)
     },
     async loadScanJob() {
       try {
@@ -1330,11 +1325,6 @@ function uniqueArtistIds(artistIds: Array<number | null | undefined>) {
   return [...new Set(
     artistIds.filter((artistId): artistId is number => typeof artistId === 'number' && artistId > 0),
   )]
-}
-
-function resetScanLiveRefresh() {
-  scanJobRefreshedCollectionId = null
-  scanJobRefreshedArtistIds = new Set()
 }
 
 function artistMap(artists: Artist[]) {

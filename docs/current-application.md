@@ -101,11 +101,16 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Local scan fuzzy merges preserve the existing album identity, checked state, display title, provider links, and collection memberships while adding the new local path evidence.
 - Local scans merge same-artist provider-only duplicate albums into the scanned local album when strong title evidence and compatible release years identify the same album.
 - Local scans do not scan tracks.
+- Full collection scans show a blocking modal with a progress bar while the job runs.
+- Full collection scan progress counts albums for artist collections and titles for title collections.
+- Nested artist collection scans pre-enumerate nested album folders for the full collection scan progress total.
+- Cancelling a full collection scan requests cancellation and keeps the modal open until the backend finishes the current item and returns a terminal job status.
+- Full collection scans refresh the selected collection context once after the modal closes, preserving the selected artist when possible.
 - Scan reports are generated as plain text and stored under the configured report directory.
 - Scan report files use a timestamp, collection id, and report kind in their filename, with a numeric suffix only when needed to avoid overwriting an existing file.
 - Scan reports render structured summary counts and do not duplicate the completion status message.
 - Artist collection scan summaries distinguish artists found from albums parsed.
-- Artist collection scans refresh processed artists into the Collections artist pane while the scan is still running.
+- Artist collection scans do not live-refresh processed artists into the Collections artist pane while the scan is still running.
 
 ## Providers
 
@@ -220,7 +225,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - `Settings` exposes effective runtime configuration and UI preferences.
 - The app shell owns the full viewport height and should not create a browser vertical scrollbar.
 - Workspace panes, tables, dialogs, dropdowns, and history views scroll internally when their own content overflows.
-- The status bar is always visible and shows idle state when no operation is active.
+- The status bar is visible outside blocking full collection scan modals and shows idle state when no operation is active.
 
 ## Collections Screen
 

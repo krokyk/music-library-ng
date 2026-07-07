@@ -266,7 +266,6 @@ const collectionRowInfoActionGap = 6
 const collectionTypeIconWidth = 16
 const collectionTitleItemGap = 6
 const collectionIconActionButtonWidth = 30
-const collectionSpinnerWidth = 14
 const artistReadableNameMinimumWidth = 128
 const artistRowCellHorizontalPadding = 24
 const artistRowNameTrailingGap = 20
@@ -340,7 +339,6 @@ const providerSetupDefinition = computed(() =>
 )
 
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
-const collectionScanIsRunning = computed(() => scanIsRunning.value && scanJob.value?.kind !== 'LOCAL_ALBUMS')
 const localAlbumScanIsRunning = computed(() => scanIsRunning.value && scanJob.value?.kind === 'LOCAL_ALBUMS')
 const providerJobIsRunning = computed(() => providerJob.value?.status === 'RUNNING')
 const providerIsRunning = computed(() => providerJobIsRunning.value || providerStatus.value.running)
@@ -1114,7 +1112,6 @@ function collectionRowActionsVisible(collection: MusicCollection) {
   return collection.id === selectedCollectionId.value
     || collection.id === hoveredCollectionId.value
     || collection.id === focusedCollectionId.value
-    || collectionIsScanning(collection)
 }
 
 function handleCollectionRowFocusOut(collection: MusicCollection, event: FocusEvent) {
@@ -1161,15 +1158,14 @@ function currentCollectionRowMeasurement(collection: MusicCollection) {
   }
   return {
     contentWidth,
-    leadingWidth: collectionRowLeadingWidth(collection),
+    leadingWidth: collectionRowLeadingWidth(),
     nameWidth: measuredCollectionNameWidth(collection.name),
   }
 }
 
-function collectionRowLeadingWidth(collection: MusicCollection) {
+function collectionRowLeadingWidth() {
   return collectionTypeIconWidth
     + collectionTitleItemGap
-    + (uiSettings.value.collectionScanSpinnerEnabled && collectionIsScanning(collection) ? collectionSpinnerWidth + collectionTitleItemGap : 0)
 }
 
 function measuredCollectionNameWidth(name: string) {
@@ -1418,16 +1414,6 @@ function resolveElement(value: unknown) {
   return null
 }
 
-function scanProgress(collection: MusicCollection) {
-  if (!uiSettings.value.collectionScanProgressEnabled || !collectionScanIsRunning.value || scanJob.value?.activeCollectionId !== collection.id) {
-    return 0
-  }
-  if (scanJob.value.itemTotal <= 0) {
-    return 0
-  }
-  return Math.min(100, (scanJob.value.itemProcessed / scanJob.value.itemTotal) * 100)
-}
-
 function askDeleteCollection(collection: MusicCollection) {
   selectCollection(collection)
   if (writeActionsDisabled.value) {
@@ -1541,10 +1527,6 @@ async function startScan(collectionId: string) {
   } catch (error) {
     store.showErrorStatus(error, 'Unable to start collection scan')
   }
-}
-
-function collectionIsScanning(collection: MusicCollection) {
-  return collectionScanIsRunning.value && scanJob.value?.activeCollectionId === collection.id
 }
 
 function selectCollection(collection: MusicCollection) {
@@ -2952,9 +2934,7 @@ watch(sortedCollectionTitleItems, (items) => {
             class="nav-row"
             :class="{
               'is-selected': collection.id === selectedCollectionId,
-              'is-scanning': collectionIsScanning(collection),
             }"
-            :style="{ '--scan-progress': `${scanProgress(collection)}%` }"
             @click.capture="selectCollection(collection)"
             @focusin="focusedCollectionId = collection.id"
             @focusout="handleCollectionRowFocusOut(collection, $event)"
@@ -2962,13 +2942,6 @@ watch(sortedCollectionTitleItems, (items) => {
             @mouseleave="hoveredCollectionId = null"
           >
             <span class="nav-row__title">
-              <v-progress-circular
-                v-if="uiSettings.collectionScanSpinnerEnabled && collectionIsScanning(collection)"
-                indeterminate
-                size="14"
-                width="2"
-                class="nav-row__spinner"
-              ></v-progress-circular>
               <v-tooltip :text="collectionTypeLabel(collection)" location="top">
                 <template #activator="{ props }">
                   <v-icon

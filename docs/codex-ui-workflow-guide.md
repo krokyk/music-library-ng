@@ -217,7 +217,7 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   Clicking that status opens a cell-anchored menu with compact Active, Split-up, and clear chips.
   Status edits write artist overrides only and provider rescans must not overwrite those overrides.
 - Pane-local filters use pane-scoped keys, for example `collections-screen.artists-pane.presence-filter`, `collections-screen.artists-pane.unchecked-filter`, `collections-screen.albums-pane.show-all-filter`, and `collections-screen.titles-pane.presence-filter`.
-- Pane-local scan indicators use pane-scoped keys, for example `collections-screen.collections-pane.scan-spinner-enabled`, `collections-screen.collections-pane.scan-progress-enabled`, and `collections-screen.artists-pane.scan-spinner-enabled`.
+- Pane-local scan indicators use pane-scoped keys only when the indicator remains visible outside the blocking collection scan modal, for example `collections-screen.artists-pane.scan-spinner-enabled`.
 - Use the shared Vuetify tooltip pattern for UI help and hover labels.
   Do not use native `title` attributes for visible app tooltips.
 - Use clear, short labels:
@@ -322,6 +322,12 @@ Nonlocal and other-collection rows use `calc(1em - 1px)`.
 - Artist-centric local album scans remain explicit rescan actions for one artist or a whole collection.
 - Title-centric scans populate title albums plus contributor artists when parsing provides credible artist values.
 - Collection scans and local album scans do not scan track files.
+- Full collection scans use a blocking modal with a fixed-size progress bar and a cancel button.
+- The modal owns running collection scan progress, so the status bar stays silent and collection rows do not show scan spinners or progress fills during full collection scans.
+- Full collection scan progress counts albums for artist collections and titles for title collections.
+- Nested artist collection scans pre-enumerate nested album folders before the modal progress starts.
+- Collection scan cancellation waits for the backend to finish the current item before the modal closes.
+- Full collection scans refresh the selected collection context once after the job reaches a terminal state.
 - Provider scans from Collections add provider albums to the active collection only when the album has no collection memberships yet.
 - Provider scans from the global Artists screen do not assign collection memberships.
 - Row actions stay visible through the normal selected-row or hover behavior while scan actions are disabled during any running scan or provider job.
