@@ -89,21 +89,21 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - User-facing local scan actions run through scan job flows.
 - Scan jobs provide status, progress, cancellation, current-session report artifacts, and post-scan refresh behavior.
 - Collection scans enumerate direct child directories under the selected collection root.
+- Collection scans build per-run DB local-path and disk-folder snapshots before processing folders.
+- Collection scans process only folders whose relative local path is not already known in the selected collection.
+- Existing local paths that are still present on disk are treated as unchanged and are not reparsed or upserted.
 - Title collection scans parse direct child folders into album rows and contributor artist links when artist metadata exists.
 - Title collection scans assign scanned albums to the collection and upsert local path evidence.
 - Artist collection scans discover artists, albums, collection membership, local path evidence, and local artist scan state.
-- Explicit local album scans are available for one artist or for an entire artist collection.
-- A one-artist local album scan removes stale local path rows only for that artist in the selected collection.
-- A collection-wide local album scan removes stale local path rows for the whole selected collection.
-- Local scans remove local path evidence that was not seen in the latest relevant scan.
-- Local scans preserve album rows, checked state, and collection membership when a local path disappears.
-- Local artist scans can attach a newly found local folder to an existing same-artist checked or provider-linked DB-only album when exact, normalized, or high-confidence fuzzy title evidence matches and the release year is compatible.
-- Local scan fuzzy merges preserve the existing album identity, checked state, display title, provider links, and collection memberships while adding the new local path evidence.
-- Local scans merge same-artist provider-only duplicate albums into the scanned local album when strong title evidence and compatible release years identify the same album.
-- Local scans do not scan tracks.
+- Collection scans remove local path evidence that was not seen in the latest collection disk snapshot.
+- Collection scans preserve album rows, checked state, and collection membership when a local path disappears.
+- Collection scans can attach a newly found local folder to an existing same-artist checked or provider-linked DB-only album when exact, normalized, or high-confidence fuzzy title evidence matches and the release year is compatible.
+- Collection scan fuzzy merges preserve the existing album identity, checked state, display title, provider links, and collection memberships while adding the new local path evidence.
+- Collection scans merge same-artist provider-only duplicate albums into the scanned local album when strong title evidence and compatible release years identify the same album.
+- Collection scans do not scan tracks.
 - Full collection scans show a blocking modal with a progress bar while the job runs.
-- Full collection scan progress counts albums for artist collections and titles for title collections.
-- Nested artist collection scans pre-enumerate nested album folders for the full collection scan progress total.
+- Full collection scans first report snapshot comparison, then count only folders that need processing.
+- Nested artist collection scans pre-enumerate nested album folders before the processing progress total is known.
 - Cancelling a full collection scan requests cancellation and keeps the modal open until the backend finishes the current item and returns a terminal job status.
 - Full collection scans refresh the selected collection context once after the modal closes, preserving the selected artist when possible.
 - Scan reports are generated as plain text and stored under the configured report directory.
@@ -225,7 +225,9 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - `Settings` exposes effective runtime configuration and UI preferences.
 - The app shell owns the full viewport height and should not create a browser vertical scrollbar.
 - Workspace panes, tables, dialogs, dropdowns, and history views scroll internally when their own content overflows.
-- The status bar is visible outside blocking full collection scan modals and shows idle state when no operation is active.
+- The status bar always keeps its configured top or bottom layout slot.
+- During blocking full collection scan modals, the status bar remains visible and may show scan start or running text, but detailed progress belongs only in the modal.
+- The status bar shows idle state when no operation is active.
 
 ## Collections Screen
 

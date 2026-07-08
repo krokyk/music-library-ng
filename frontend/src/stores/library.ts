@@ -981,14 +981,7 @@ export const useLibraryStore = defineStore('library', {
           }
           scanJobPollingActive = false
           const collectionId = status?.requestedCollectionId ?? status?.activeCollectionId ?? undefined
-          const artistId = status?.requestedArtistId ?? undefined
-          if (status?.kind === 'LOCAL_ALBUMS' && artistId) {
-            this.invalidateCollectionMetadata(collectionId)
-            await this.loadCollections()
-            await this.refreshArtistAfterScopedJob(artistId, collectionId)
-          } else {
-            await this.refreshCollectionAfterScan(collectionId)
-          }
+          await this.refreshCollectionAfterScan(collectionId)
         } catch (error) {
           this.stopScanJobPolling()
           this.showErrorStatus(error, 'Unable to poll scan status')
@@ -1006,12 +999,6 @@ export const useLibraryStore = defineStore('library', {
     async startScanJob(collectionId?: string) {
       const query = collectionId ? `?collectionId=${encodeURIComponent(collectionId)}` : ''
       this.scanJob = await apiSend<ScanJobStatus>(`/api/scan/jobs${query}`, 'POST')
-      return this.scanJob
-    },
-    async runLocalAlbumScanJob(collectionId: string, artistId?: number) {
-      const query = withQuery('/api/scan/jobs/local-albums', { collectionId, artistId })
-      this.scanJob = await apiSend<ScanJobStatus>(query, 'POST')
-      this.startScanJobPolling()
       return this.scanJob
     },
     async loadScanJob() {

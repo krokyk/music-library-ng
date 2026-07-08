@@ -339,7 +339,6 @@ const providerSetupDefinition = computed(() =>
 )
 
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
-const localAlbumScanIsRunning = computed(() => scanIsRunning.value && scanJob.value?.kind === 'LOCAL_ALBUMS')
 const providerJobIsRunning = computed(() => providerJob.value?.status === 'RUNNING')
 const providerIsRunning = computed(() => providerJobIsRunning.value || providerStatus.value.running)
 const scanActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value)
@@ -2504,22 +2503,6 @@ async function scanArtistProvider(artist: Artist) {
   }
 }
 
-function localAlbumScanIsRunningForArtist(artist: Artist) {
-  if (!localAlbumScanIsRunning.value) {
-    return false
-  }
-  if (scanJob.value?.requestedArtistId != null) {
-    return scanJob.value.requestedArtistId === artist.id
-  }
-  return scanJob.value?.activeArtistId === artist.id
-}
-
-function localAlbumScanIsRunningForCollection() {
-  return localAlbumScanIsRunning.value
-    && scanJob.value?.requestedCollectionId === selectedCollectionId.value
-    && scanJob.value?.requestedArtistId == null
-}
-
 function providerScanIsRunningForArtist(artist: Artist) {
   if (providerJobIsRunning.value) {
     if (providerJob.value?.requestedArtistId != null) {
@@ -2540,37 +2523,7 @@ function artistScanIsRunning(artist: Artist) {
   if (!uiSettings.value.artistScanSpinnerEnabled) {
     return false
   }
-  return localAlbumScanIsRunningForArtist(artist)
-    || providerScanIsRunningForArtist(artist)
-}
-
-async function scanLocalAlbumsForArtist(artist: Artist) {
-  selectArtistRow(artist)
-  if (scanActionsDisabled.value) {
-    return
-  }
-  if (!selectedCollectionId.value) {
-    return
-  }
-  try {
-    await store.runLocalAlbumScanJob(selectedCollectionId.value, artist.id)
-  } catch (error) {
-    store.showErrorStatus(error, 'Unable to start local album scan')
-  }
-}
-
-async function scanLocalAlbumsForCollection() {
-  if (scanActionsDisabled.value) {
-    return
-  }
-  if (!selectedCollectionId.value) {
-    return
-  }
-  try {
-    await store.runLocalAlbumScanJob(selectedCollectionId.value)
-  } catch (error) {
-    store.showErrorStatus(error, 'Unable to start local album scan')
-  }
+  return providerScanIsRunningForArtist(artist)
 }
 
 async function refreshCollectionProviders() {
@@ -3320,23 +3273,6 @@ watch(sortedCollectionTitleItems, (items) => {
             <span class="pane-header__title">Artists</span>
           </div>
           <div class="pane-header__actions">
-            <v-tooltip text="Scan local album folders in this collection" location="top">
-              <template #activator="{ props }">
-                <v-btn
-                  v-bind="props"
-                  size="small"
-                  variant="text"
-                  color="primary"
-                  prepend-icon="mdi-folder-sync-outline"
-                  :class="[actionLabelClass('artists'), 'app-toolbar-button']"
-                  :loading="localAlbumScanIsRunningForCollection()"
-                  :disabled="!selectedCollectionIsArtist || collectionArtists.length === 0 || scanActionsDisabled"
-                  @click="scanLocalAlbumsForCollection"
-                >
-                  <span v-if="showActionLabels('artists')">Local</span>
-                </v-btn>
-              </template>
-            </v-tooltip>
             <v-tooltip text="Scan artist providers in this collection" location="top">
               <template #activator="{ props }">
                 <v-btn
@@ -3471,23 +3407,6 @@ watch(sortedCollectionTitleItems, (items) => {
                     </template>
                   </v-tooltip>
                   <div class="row-actions artist-row-actions">
-                    <v-tooltip text="Scan this artist's local album folders" location="top">
-                      <template #activator="{ props }">
-                        <v-btn
-                          v-bind="props"
-                          prepend-icon="mdi-folder-sync-outline"
-                          size="x-small"
-                          variant="text"
-                          color="primary"
-                          :class="artistRowActionClass(artist)"
-                          :loading="localAlbumScanIsRunningForArtist(artist)"
-                          :disabled="scanActionsDisabled"
-                          @click.stop="scanLocalAlbumsForArtist(artist)"
-                        >
-                          <span v-if="showArtistRowActionLabels(artist)">Local</span>
-                        </v-btn>
-                      </template>
-                    </v-tooltip>
                     <v-tooltip
                       v-if="providerForArtist(artist)"
                       :text="`Scan ${providerChipText(artist)}`"
@@ -3611,16 +3530,6 @@ watch(sortedCollectionTitleItems, (items) => {
         <div v-else-if="sortedCollectionAlbums.length === 0" class="pane-empty pane-empty--action">
           <span>{{ albumPaneEmptyMessage() }}</span>
           <div class="pane-empty__actions">
-            <v-btn
-              color="primary"
-              variant="tonal"
-              prepend-icon="mdi-folder-sync-outline"
-              :loading="localAlbumScanIsRunningForArtist(selectedArtist)"
-              :disabled="scanActionsDisabled"
-              @click="scanLocalAlbumsForArtist(selectedArtist)"
-            >
-              Scan local folders
-            </v-btn>
             <v-btn
               v-if="!providerForArtist(selectedArtist)"
               color="primary"

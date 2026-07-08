@@ -8,8 +8,10 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -431,6 +433,46 @@ public class AlbumRepository {
             assignToCollection(connection, albumId, collectionId);
         } catch (Exception e) {
             throw new IllegalStateException("Unable to assign album " + albumId + " to collection " + collectionId, e);
+        }
+    }
+
+    public Map<String, LocalPathSnapshot> localPathSnapshot(String collectionId) {
+        String normalizedCollectionId = blankToNull(collectionId);
+        if (normalizedCollectionId == null) {
+            return Map.of();
+        }
+        String sql = """
+                SELECT lp.album_id, lp.relative_path, aa.artist_id
+                FROM album_local_paths lp
+                LEFT JOIN album_artists aa ON aa.album_id = lp.album_id
+                WHERE lp.collection_id = ?
+                ORDER BY lp.relative_path, aa.position
+                """;
+        Map<String, MutableLocalPathSnapshot> snapshots = new LinkedHashMap<>();
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, normalizedCollectionId);
+            try (ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    String relativePath = rs.getString("relative_path");
+                    MutableLocalPathSnapshot snapshot = snapshots.get(relativePath);
+                    if (snapshot == null) {
+                        snapshot = new MutableLocalPathSnapshot(rs.getLong("album_id"), relativePath);
+                        snapshots.put(relativePath, snapshot);
+                    }
+                    long artistId = rs.getLong("artist_id");
+                    if (!rs.wasNull()) {
+                        snapshot.artistIds().add(artistId);
+                    }
+                }
+            }
+            Map<String, LocalPathSnapshot> result = new LinkedHashMap<>();
+            for (var entry : snapshots.entrySet()) {
+                result.put(entry.getKey(), entry.getValue().toSnapshot());
+            }
+            return result;
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to load local path snapshot for collection " + collectionId, e);
         }
     }
 
@@ -1527,6 +1569,19 @@ public class AlbumRepository {
     }
 
     private record StaleLocalPathCandidate(long id, String collectionRelativePath, String albumRelativePath) {
+    }
+
+    public record LocalPathSnapshot(long albumId, String relativePath, List<Long> artistIds) {
+    }
+
+    private record MutableLocalPathSnapshot(long albumId, String relativePath, List<Long> artistIds) {
+        MutableLocalPathSnapshot(long albumId, String relativePath) {
+            this(albumId, relativePath, new ArrayList<>());
+        }
+
+        LocalPathSnapshot toSnapshot() {
+            return new LocalPathSnapshot(albumId, relativePath, List.copyOf(artistIds));
+        }
     }
 
     private record LocalPathRow(

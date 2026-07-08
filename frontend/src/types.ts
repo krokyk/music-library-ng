@@ -130,7 +130,7 @@ export interface ReportArtifact {
 
 export interface ScanJobStatus {
   status: string
-  kind: 'COLLECTION' | 'LOCAL_ALBUMS'
+  kind: 'COLLECTION'
   requestedCollectionId?: string | null
   requestedCollectionName?: string | null
   requestedArtistId?: number | null

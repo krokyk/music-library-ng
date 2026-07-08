@@ -114,6 +114,7 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 - Panes, tables, lists, dialogs, dropdowns, and history views scroll internally only when their own content overflows.
 - Status bar placement must not cause content jumps.
   It is always visible and shows idle state when no operation is active.
+  During blocking full collection scan modals, keep the bar's layout slot visible and do not render detailed progress there.
 - If the status bar is configured at the bottom, popups/history should open above it.
   If it is at the top, they should open below it.
 
@@ -319,13 +320,14 @@ Nonlocal and other-collection rows use `calc(1em - 1px)`.
 
 - Same action from different entry points must route through the same store/job path and show the same status, spinners, polling, refresh, and history behavior.
 - Artist-centric collection scans discover local artists and local albums in the same pass for supported flat and nested folder layouts.
-- Artist-centric local album scans remain explicit rescan actions for one artist or a whole collection.
 - Title-centric scans populate title albums plus contributor artists when parsing provides credible artist values.
-- Collection scans and local album scans do not scan track files.
+- Collection scans compare DB local-path and disk-folder snapshots before processing folders.
+- Collection scans process only folders whose relative local path is not already known in the selected collection.
+- Collection scans do not scan track files.
 - Full collection scans use a blocking modal with a fixed-size progress bar and a cancel button.
-- The modal owns running collection scan progress, so the status bar stays silent and collection rows do not show scan spinners or progress fills during full collection scans.
-- Full collection scan progress counts albums for artist collections and titles for title collections.
-- Nested artist collection scans pre-enumerate nested album folders before the modal progress starts.
+- The modal owns running collection scan progress, so the status bar may show scan start or running text but not progress counts, and collection rows do not show scan spinners or progress fills during full collection scans.
+- Full collection scan progress first shows snapshot comparison text, then counts only folders that need processing.
+- Nested artist collection scans pre-enumerate nested album folders before the processing progress total is known.
 - Collection scan cancellation waits for the backend to finish the current item before the modal closes.
 - Full collection scans refresh the selected collection context once after the job reaches a terminal state.
 - Provider scans from Collections add provider albums to the active collection only when the album has no collection memberships yet.

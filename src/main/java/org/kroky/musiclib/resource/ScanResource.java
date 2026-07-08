@@ -25,15 +25,6 @@ public class ScanResource {
         return scanJobs.start(collectionId);
     }
 
-    @POST
-    @Path("/jobs/local-albums")
-    public ScanJobStatus startLocalAlbumJob(
-            @QueryParam("collectionId") String collectionId,
-            @QueryParam("artistId") Long artistId) {
-        LOG.infof("Local album scan job requested collectionId=%s artistId=%s", collectionId, artistId);
-        return scanJobs.startLocalAlbums(collectionId, artistId);
-    }
-
     @GET
     @Path("/jobs/current")
     public ScanJobStatus currentJob() {

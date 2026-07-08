@@ -180,11 +180,11 @@ Artist-centric collections browse collections, artists, and albums.
 Title-centric collections browse collections and titles.
 Artist-centric collection scans discover local artists and local albums in the same pass for supported flat and nested folder layouts.
 Title-centric collection scans discover title rows, contributor artists, shared albums, and local paths in the same pass.
-Local album scans remain explicit rescan actions for one artist or a whole artist-centric collection.
+Collection scans compare DB local-path and disk-folder snapshots, then process only folders whose relative local path is not already known in the selected collection.
 Provider scans from Collections add new or otherwise unassigned provider albums to the active collection and leave existing album memberships unchanged.
 Artists can keep multiple provider links, such as MusicBrainz, Spirit of Metal, and Metal Archives at the same time.
 Provider scans link exact, normalized, and high-confidence fuzzy provider album-title matches to existing local albums instead of adding duplicate unchecked albums.
-Local album scans can attach a newly discovered local folder to a same-artist checked or provider-linked DB-only album when fuzzy title evidence is strong and the release year is compatible.
+Collection scans can attach a newly discovered local folder to a same-artist checked or provider-linked DB-only album when fuzzy title evidence is strong and the release year is compatible.
 Provider scans keep local paths unchanged and record unresolved title conflicts when the linked provider title differs from the local album title.
 Provider scans record unresolved release-date conflicts when a linked provider release year differs from the local album release year.
 Unresolved release-date and title conflicts are shown after provider scans and remain indicated in the Artists view until resolved.

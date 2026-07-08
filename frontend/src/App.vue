@@ -9,7 +9,6 @@ import type {
 
 const store = useLibraryStore()
 const {
-  collectionArtists,
   collections,
   manualStatus,
   providerJob,
@@ -47,26 +46,12 @@ const scanCollectionType = computed(() => {
   return collections.value.find((collection) => collection.id === collectionId)?.type ?? 'ARTIST'
 })
 
-const scanIsLocalAlbums = computed(() => scanJob.value?.kind === 'LOCAL_ALBUMS')
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
 const collectionScanModalVisible = computed(() =>
   scanIsRunning.value && scanJob.value?.kind === 'COLLECTION',
 )
-const scanStatusBarRunning = computed(() => scanIsRunning.value && !collectionScanModalVisible.value)
-const scanArtistName = computed(() => {
-  const artistId = scanJob.value?.requestedArtistId
-  if (!artistId) {
-    return null
-  }
-  return collectionArtists.value.find((artist) => artist.id === artistId)?.name ?? `artist ${artistId}`
-})
 
 const scanRunningMessage = computed(() => {
-  if (scanIsLocalAlbums.value) {
-    return scanArtistName.value
-      ? `Scanning local albums in ${scanCollectionName.value} for ${scanArtistName.value}`
-      : `Scanning local albums for ${scanCollectionName.value}`
-  }
   return `Scanning collection ${scanCollectionName.value}`
 })
 
@@ -78,18 +63,21 @@ const collectionScanProcessed = computed(() => {
   }
   return job.itemTotal > 0 ? Math.min(job.itemProcessed, job.itemTotal) : job.itemProcessed
 })
-const collectionScanProgressText = computed(() =>
-  `${collectionScanProcessed.value} / ${scanJob.value?.itemTotal ?? 0}`,
-)
+const collectionScanProgressText = computed(() => {
+  const job = scanJob.value
+  if (job && job.itemTotal <= 0 && job.message) {
+    return job.message
+  }
+  return `${collectionScanProcessed.value} / ${job?.itemTotal ?? 0}`
+})
 const collectionScanProgressPercent = computed(() => {
   const total = scanJob.value?.itemTotal ?? 0
   return total > 0 ? Math.min(100, (collectionScanProcessed.value / total) * 100) : 0
 })
 
 const activeStatusMessage = computed(() => {
-  if (scanStatusBarRunning.value) {
-    const job = scanJob.value
-    return `${scanRunningMessage.value}: ${job?.itemProcessed ?? 0}/${job?.itemTotal ?? 0} folders scanned`
+  if (scanIsRunning.value) {
+    return scanRunningMessage.value
   }
   if (providerJob.value?.status === 'RUNNING' && providerJob.value.message) {
     return providerJob.value.message
@@ -101,7 +89,7 @@ const activeStatusMessage = computed(() => {
 })
 
 const statusState = computed(() => {
-  if (scanStatusBarRunning.value || providerJob.value?.status === 'RUNNING' || providerStatus.value.running) {
+  if (scanIsRunning.value || providerJob.value?.status === 'RUNNING' || providerStatus.value.running) {
     return 'running'
   }
   return completedStatus.value ? completedStatusState.value : 'idle'
@@ -251,10 +239,8 @@ function scanCompletionMessage() {
   if (!job) {
     return `${scanCollectionName.value} scan complete`
   }
-  if (scanIsLocalAlbums.value) {
-    const artistPrefix = job.requestedArtistId ? '' : `${countWithLabel(job.artistCount, 'artist')}, `
-    return `${scanCollectionName.value} local album scan complete: ${artistPrefix}`
-      + `${countWithLabel(job.parsedCount, 'album')}, ${job.createdCount} new, ${job.skippedCount} skipped`
+  if (job.message) {
+    return job.message
   }
   if (scanCollectionType.value === 'TITLE') {
     return `${scanCollectionName.value} scan complete: ${job.itemProcessed}/${job.itemTotal} titles scanned, `
@@ -461,7 +447,7 @@ onMounted(async () => {
 
     <v-main class="app-main">
       <button
-        v-if="statusBarLocation === 'top' && !collectionScanModalVisible"
+        v-if="statusBarLocation === 'top'"
         class="global-status-bar"
         :class="`global-status-bar--${statusState}`"
         type="button"
@@ -486,7 +472,7 @@ onMounted(async () => {
       </button>
       <router-view />
       <button
-        v-if="statusBarLocation === 'bottom' && !collectionScanModalVisible"
+        v-if="statusBarLocation === 'bottom'"
         class="global-status-bar"
         :class="`global-status-bar--${statusState}`"
         type="button"

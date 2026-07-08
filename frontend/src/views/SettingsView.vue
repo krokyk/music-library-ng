@@ -366,7 +366,7 @@ onBeforeUnmount(() => {
           <div class="settings-matrix settings-matrix--workspace">
             <div class="settings-cell settings-cell--label">
               Artist scan spinner
-              <v-tooltip activator="parent" text="Shows a spinner before artists covered by a local or provider scan." location="top"></v-tooltip>
+              <v-tooltip activator="parent" text="Shows a spinner before artists covered by a provider scan." location="top"></v-tooltip>
             </div>
             <div class="settings-cell settings-cell--control">
               <v-switch
