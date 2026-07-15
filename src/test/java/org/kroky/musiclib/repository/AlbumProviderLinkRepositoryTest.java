@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.kroky.musiclib.scan.MusicRootService;
 import org.sqlite.SQLiteDataSource;
 
 class AlbumProviderLinkRepositoryTest {
@@ -23,6 +24,7 @@ class AlbumProviderLinkRepositoryTest {
         dataSource.setUrl("jdbc:sqlite:" + tempDir.resolve("album-providers.sqlite"));
         repository = new AlbumProviderLinkRepository();
         repository.dataSource = dataSource;
+        repository.musicRootService = new FixedMusicRootService(tempDir);
         try (var connection = dataSource.getConnection();
                 var statement = connection.createStatement()) {
             statement.execute("""
@@ -44,6 +46,13 @@ class AlbumProviderLinkRepositoryTest {
                         artist_id INTEGER NOT NULL,
                         position INTEGER NOT NULL DEFAULT 0,
                         PRIMARY KEY (album_id, artist_id)
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE collections (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        relative_path TEXT NOT NULL
                     )
                     """);
             statement.execute("""
@@ -73,6 +82,10 @@ class AlbumProviderLinkRepositoryTest {
                     """);
             statement.execute("INSERT INTO artists (id, name) VALUES (1, 'Ancient Bards')");
             statement.execute("""
+                    INSERT INTO collections (id, name, relative_path)
+                    VALUES ('power-metal', 'Power Metal', 'Power Metal')
+                    """);
+            statement.execute("""
                     INSERT INTO albums (id, title, release_date)
                     VALUES (1, 'Origine (The Black Crystal Sword Saga, Pt. 2)', '2019'),
                            (2, 'A New Religion?', '2014'),
@@ -93,6 +106,24 @@ class AlbumProviderLinkRepositoryTest {
                            (3, 'power-metal', 'Power Metal/Ancient Bards/2010 - The Alliance of the Kings'),
                            (4, 'power-metal', 'Power Metal/Athena/1998 - A New Religion')
                     """);
+        }
+    }
+
+    private static class FixedMusicRootService extends MusicRootService {
+        private final Path root;
+
+        FixedMusicRootService(Path root) {
+            this.root = root;
+        }
+
+        @Override
+        public Path requireRoot() {
+            return root;
+        }
+
+        @Override
+        public Path resolveCollection(String collectionRelativePath) {
+            return root.resolve(collectionRelativePath);
         }
     }
 

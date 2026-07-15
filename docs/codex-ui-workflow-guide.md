@@ -215,8 +215,11 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
   Country edits write artist overrides only and provider rescans must not overwrite those overrides.
   Manual country and status overrides must be visually distinguishable from provider-derived values without using loud link-like text color.
 - Main Artists screen status cells show only the effective status in the table row.
-  Clicking that status opens a cell-anchored menu with compact Active, Split-up, and clear chips.
+  Clicking that status opens a cell-anchored menu with compact Active, Inactive, and clear chips.
   Status edits write artist overrides only and provider rescans must not overwrite those overrides.
+- Known-album title conflict and kept-local chips must share the same height, outline, warning, and overlay-control geometry as known-album year chips in the Artists detail pane.
+- Kept-local album titles use yellow outlined chips with visible undo controls in the Artists detail known-albums list.
+  Provider-resolved album titles remain plain text.
 - Pane-local filters use pane-scoped keys, for example `collections-screen.artists-pane.presence-filter`, `collections-screen.artists-pane.unchecked-filter`, `collections-screen.albums-pane.show-all-filter`, and `collections-screen.titles-pane.presence-filter`.
 - Pane-local scan indicators use pane-scoped keys only when the indicator remains visible outside the blocking collection scan modal, for example `collections-screen.artists-pane.scan-spinner-enabled`.
 - Use the shared Vuetify tooltip pattern for UI help and hover labels.

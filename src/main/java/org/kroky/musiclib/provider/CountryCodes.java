@@ -48,6 +48,7 @@ public final class CountryCodes {
         alias(codes, "Kosovo", "XK");
         alias(codes, "International", "XW");
         alias(codes, "Multinational", "XW");
+        alias(codes, "Other", "XW");
         return Map.copyOf(codes);
     }
 

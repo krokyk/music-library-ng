@@ -1156,7 +1156,7 @@ body,
 
 .artist-country-cell--override {
   border-radius: 4px;
-  box-shadow: inset 0 0 0 1px rgba(var(--v-theme-primary), 0.45);
+  box-shadow: inset 0 0 0 1px rgba(255, 190, 80, 0.42);
   padding-left: 4px;
 }
 
@@ -1249,8 +1249,22 @@ body,
 }
 
 .artist-status-chip--override.v-chip {
-  box-shadow:
-    inset 0 0 0 1px rgba(var(--v-theme-primary), 0.55);
+  box-shadow: inset 0 0 0 1px rgba(255, 190, 80, 0.42);
+}
+
+.metadata-protected-outline {
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(255, 190, 80, 0.42);
+}
+
+.metadata-protected-outline--text {
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  padding-inline: 3px;
+}
+
+.artist-source-value.metadata-protected-outline {
+  padding: 2px 4px;
 }
 
 .artist-status-menu {
@@ -1348,7 +1362,7 @@ body,
   display: grid;
   gap: 14px;
   grid-template-columns: max-content minmax(0, 1fr);
-  min-height: 24px;
+  min-height: 26px;
 }
 
 .artist-known-album__year {
@@ -1370,6 +1384,39 @@ body,
   font-size: 0.84rem !important;
 }
 
+.artist-known-album__title-badge.release-date-chip-badge {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  padding-right: 24px;
+  width: fit-content;
+}
+
+.release-date-chip.artist-known-album__title-chip.v-chip {
+  max-width: 100%;
+  min-width: 0 !important;
+  padding-inline: 8px !important;
+  width: auto !important;
+}
+
+.release-date-chip.artist-known-album__title-chip.v-chip .v-chip__content {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: auto;
+}
+
+.artist-known-album__year-text {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .release-date-chip-badge {
   display: inline-flex;
   position: relative;
@@ -1377,9 +1424,14 @@ body,
 }
 
 .release-date-chip-badge__icon {
+  align-items: center;
+  display: inline-flex;
+  height: 20px !important;
+  justify-content: center;
   position: absolute;
-  right: 8px;
-  top: -7px;
+  right: 4px;
+  top: -8px;
+  width: 20px !important;
 }
 
 .release-date-chip-badge__reset.v-btn {
@@ -2847,12 +2899,11 @@ body.is-pane-resizing {
   border-radius: 6px;
   color: inherit;
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-height: 76px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: 76px;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 8px 10px 7px 12px;
   text-align: left;
   transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
@@ -2867,6 +2918,16 @@ body.is-pane-resizing {
   opacity: 0.66;
 }
 
+.provider-conflict-choice--manual {
+  background: rgba(var(--v-theme-primary), 0.07);
+  border-color: rgba(var(--v-theme-primary), 0.28);
+}
+
+.provider-conflict-choice--manual:hover:not(:disabled) {
+  background: rgba(var(--v-theme-primary), 0.13);
+  border-color: rgba(var(--v-theme-primary), 0.52);
+}
+
 .provider-conflict-choice--provider {
   background: rgba(248, 193, 74, 0.075);
   border-color: rgba(248, 193, 74, 0.24);
@@ -2877,22 +2938,54 @@ body.is-pane-resizing {
   border-color: rgba(248, 193, 74, 0.52);
 }
 
+.provider-conflict-choice--disabled {
+  cursor: default;
+}
+
 .provider-conflict-choice__source-row {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  min-height: 20px;
+  gap: 3px;
+  justify-content: flex-end;
+  justify-self: end;
+  min-height: 17px;
+  opacity: 0.72;
 }
 
 .provider-conflict-source-chip.v-chip {
-  height: 22px !important;
-  min-height: 22px !important;
-  padding-inline: 4px;
+  height: 17px !important;
+  min-height: 17px !important;
+  padding-inline: 2px;
 }
 
 .provider-conflict-source-chip.v-chip .provider-chip__open-icon {
   margin-inline-start: 0;
+  width: 10px;
+}
+
+.provider-conflict-source-more-chip.v-chip {
+  font-size: 0.58rem;
+  height: 17px !important;
+  min-height: 17px !important;
+  padding-inline: 5px;
+}
+
+.provider-conflict-choice__source-label,
+.provider-conflict-choice__source-text {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.provider-conflict-choice__source-label {
+  text-transform: none;
+}
+
+.provider-conflict-choice__source-text {
+  text-transform: uppercase;
 }
 
 .provider-conflict-choice__label {
@@ -2905,11 +2998,58 @@ body.is-pane-resizing {
 }
 
 .provider-conflict-choice__value {
+  align-self: center;
   color: rgba(255, 255, 255, 0.93);
-  font-size: 0.92rem;
+  display: flex;
+  font-size: 1rem;
   font-weight: 900;
+  justify-content: center;
   line-height: 1.25;
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+}
+
+.provider-conflict-choice__value > span:not(.provider-conflict-choice__country) {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.provider-conflict-choice__value--status-options {
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-conflict-choice__country {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.provider-conflict-choice__country span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-conflict-choice__country-flag {
+  height: 15px;
+  width: 20px;
+}
+
+.provider-conflict-choice__status-chip.v-chip {
+  font-size: 0.82rem;
+  font-weight: 900;
+  height: 24px !important;
+  min-height: 24px !important;
+}
+
+.provider-conflict-country-menu {
+  width: 280px;
 }
 
 .release-date-chip--warning.v-chip {

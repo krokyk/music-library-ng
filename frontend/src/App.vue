@@ -10,6 +10,8 @@ import type {
 const store = useLibraryStore()
 const {
   collections,
+  artistCountryConflicts,
+  artistStatusConflicts,
   manualStatus,
   providerJob,
   providerReleaseDateConflicts,
@@ -114,7 +116,12 @@ const statusHistoryOverlayClasses = computed(() => [
   'status-history-overlay',
   `status-history-overlay--${statusBarLocation.value}`,
 ])
-const providerConflictCount = computed(() => providerReleaseDateConflicts.value.length + providerTitleConflicts.value.length)
+const providerConflictCount = computed(() =>
+  artistCountryConflicts.value.length
+  + artistStatusConflicts.value.length
+  + providerReleaseDateConflicts.value.length
+  + providerTitleConflicts.value.length,
+)
 const hasProviderConflicts = computed(() => providerConflictCount.value > 0)
 
 const reportEntries = computed(() => statusHistory.value.flatMap((entry) =>

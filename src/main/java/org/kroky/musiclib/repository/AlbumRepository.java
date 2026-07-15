@@ -524,11 +524,21 @@ public class AlbumRepository {
     }
 
     public int removeStaleLocalPaths(String collectionId, long albumId) {
-        return removeStaleLocalPaths(collectionId, albumId, null);
+        String normalizedCollectionId = blankToNull(collectionId);
+        return normalizedCollectionId == null ? 0 : removeStaleLocalPaths(normalizedCollectionId, albumId, null);
+    }
+
+    public int removeStaleLocalPaths(long albumId) {
+        return removeStaleLocalPaths(null, albumId, null);
     }
 
     public int removeStaleLocalPathsForArtist(String collectionId, long artistId) {
-        return removeStaleLocalPaths(collectionId, null, artistId);
+        String normalizedCollectionId = blankToNull(collectionId);
+        return normalizedCollectionId == null ? 0 : removeStaleLocalPaths(normalizedCollectionId, null, artistId);
+    }
+
+    public int removeStaleLocalPathsForArtist(long artistId) {
+        return removeStaleLocalPaths(null, null, artistId);
     }
 
     public boolean hasOnDiskLocalPath(String collectionId, long albumId) {
@@ -640,15 +650,14 @@ public class AlbumRepository {
     }
 
     private int removeStaleLocalPaths(String collectionId, Long albumId, Long artistId) {
-        String normalizedCollectionId = blankToNull(collectionId);
-        if (normalizedCollectionId == null) {
+        if (collectionId == null && albumId == null && artistId == null) {
             return 0;
         }
         String select = """
                 SELECT lp.id, c.relative_path AS collection_relative_path, lp.relative_path
                 FROM album_local_paths lp
                 JOIN collections c ON c.id = lp.collection_id
-                WHERE lp.collection_id = ?
+                WHERE (? IS NULL OR lp.collection_id = ?)
                   AND (? IS NULL OR lp.album_id = ?)
                   AND (? IS NULL OR EXISTS (
                       SELECT 1
@@ -661,11 +670,12 @@ public class AlbumRepository {
         int removed = 0;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement selectStatement = connection.prepareStatement(select)) {
-            selectStatement.setString(1, normalizedCollectionId);
-            setNullableLong(selectStatement, 2, albumId);
+            selectStatement.setString(1, collectionId);
+            selectStatement.setString(2, collectionId);
             setNullableLong(selectStatement, 3, albumId);
-            setNullableLong(selectStatement, 4, artistId);
+            setNullableLong(selectStatement, 4, albumId);
             setNullableLong(selectStatement, 5, artistId);
+            setNullableLong(selectStatement, 6, artistId);
             List<StaleLocalPathCandidate> candidates = new ArrayList<>();
             try (ResultSet rs = selectStatement.executeQuery()) {
                 while (rs.next()) {

@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.jboss.logging.Logger;
 import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.tag.FieldKey;
@@ -39,9 +40,14 @@ public class AlbumProviderConflictService {
             Pattern.compile("^(.+?) - (\\d{4}(?:-\\d{2}(?:-\\d{2})?)?) - (.+)$");
     private static final Pattern NESTED_ALBUM_FOLDER =
             Pattern.compile("^(\\d{4}(?:-\\d{2}(?:-\\d{2})?)?) - (.+)$");
-    private static final Pattern UNSAFE_FOLDER_NAME = Pattern.compile("[<>:\"/\\\\|?*\\p{Cntrl}]");
+    private static final Pattern UNSAFE_WINDOWS_FOLDER_CHARS = Pattern.compile("[<>:\"/\\\\|?*\\p{Cntrl}]");
+    private static final Pattern COLLAPSED_SPACES = Pattern.compile(" +");
+    private static final Pattern WINDOWS_TRAILING_DOTS_OR_SPACES = Pattern.compile("[ .]+$");
+    private static final Pattern WINDOWS_RESERVED_FOLDER_NAME =
+            Pattern.compile("(?i)^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\\..*)?$");
     private static final Set<String> AUDIO_EXTENSIONS = Set.of(
             "mp3", "flac", "m4a", "mp4", "ogg", "oga", "wav", "aif", "aiff", "wma", "dsf");
+    private static final Logger LOG = Logger.getLogger(AlbumProviderConflictService.class);
 
     @Inject
     AlbumRepository albums;
@@ -89,21 +95,25 @@ public class AlbumProviderConflictService {
     }
 
     public AlbumReleaseDateConflictResult useProviderReleaseDate(long albumId, long providerLinkId) {
-        ConflictContext context = releaseDateContext(albumId, providerLinkId);
-        Album updated = albums.update(albumId, context.album().title(),
-                context.providerLink().providerReleaseDate(), true, context.album().notes()).orElseThrow();
+        ConflictContext context = releaseDateContext(albumId, providerLinkId, true);
+        AudioTagUpdate tagUpdate = yearUpdate(context.providerLink());
+        AlbumReleaseDateConflictPlan preview = releaseDatePlan(context, plan(context, tagUpdate));
+        renameFolders(albumId, context);
+        Album updated = albums.update(albumId, context.providerLink().providerTitle(),
+                context.providerLink().providerReleaseDate(), context.album().checked(), context.album().notes()).orElseThrow();
         providerLinks.resolveMatchingReleaseDateConflicts(albumId, context.providerLink().providerReleaseDate(), "USE_PROVIDER");
         int merged = mergeProviderOnlyDuplicates(updated, context.providerLink());
+        TagUpdateResult tagResult = updateAudioTags(context, tagUpdate, preview.warnings());
 
         return new AlbumReleaseDateConflictResult(
                 albums.find(albumId).orElseThrow(),
-                firstSourcePath(context),
-                firstSourcePath(context),
-                0,
+                preview.sourcePath(),
+                preview.targetPath(),
+                context.folders().size(),
                 merged,
-                0,
-                List.of(),
-                List.of("Updated library release date metadata only. Files and folders were not renamed."));
+                tagResult.updatedTags(),
+                tagResult.files(),
+                tagResult.warnings());
     }
 
     public AlbumTitleConflictPlan planUseProviderTitle(long albumId, long providerLinkId) {
@@ -141,21 +151,25 @@ public class AlbumProviderConflictService {
     }
 
     public AlbumTitleConflictResult useProviderTitle(long albumId, long providerLinkId) {
-        ConflictContext context = titleContext(albumId, providerLinkId);
+        ConflictContext context = titleContext(albumId, providerLinkId, false, true);
+        AudioTagUpdate tagUpdate = titleUpdate(context.providerLink());
+        AlbumTitleConflictPlan preview = titlePlan(context, plan(context, tagUpdate));
+        renameFolders(albumId, context);
         Album updated = albums.update(albumId, context.providerLink().providerTitle(),
-                context.album().releaseDate(), true, context.album().notes()).orElseThrow();
+                context.album().releaseDate(), context.album().checked(), context.album().notes()).orElseThrow();
         providerLinks.resolveAlbumTitleUsingProvider(albumId, context.providerLink().providerTitle());
         int merged = mergeProviderOnlyDuplicates(updated, context.providerLink());
+        TagUpdateResult tagResult = updateAudioTags(context, tagUpdate, preview.warnings());
 
         return new AlbumTitleConflictResult(
                 albums.find(albumId).orElseThrow(),
-                firstSourcePath(context),
-                firstSourcePath(context),
-                0,
+                preview.sourcePath(),
+                preview.targetPath(),
+                context.folders().size(),
                 merged,
-                0,
-                List.of(),
-                List.of("Updated library title metadata only. Files and folders were not renamed."));
+                tagResult.updatedTags(),
+                tagResult.files(),
+                tagResult.warnings());
     }
 
     private PlanData plan(ConflictContext context, AudioTagUpdate tagUpdate) {
@@ -246,8 +260,12 @@ public class AlbumProviderConflictService {
         if (!Files.isDirectory(folder.source())) {
             warnings.add("Source folder does not exist: " + folder.source());
         }
-        if (Files.exists(folder.target())) {
+        if (!folder.source().equals(folder.target()) && Files.exists(folder.target())) {
             warnings.add("Target folder already exists: " + folder.target());
+        }
+        if (folder.sanitizedTargetFolderName()) {
+            warnings.add("Provider metadata was adjusted for the Windows folder name; "
+                    + "folder will use: " + folder.targetRelativePath());
         }
         if (!safeDirectFolderName(folder.targetFolderName())) {
             warnings.add("Target folder name contains characters that are not safe on Windows: "
@@ -270,6 +288,10 @@ public class AlbumProviderConflictService {
     }
 
     private ConflictContext releaseDateContext(long albumId, long providerLinkId) {
+        return releaseDateContext(albumId, providerLinkId, false);
+    }
+
+    private ConflictContext releaseDateContext(long albumId, long providerLinkId, boolean allowCurrentValue) {
         Album album = albums.find(albumId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown album: " + albumId));
         AlbumProviderLink providerLink = providerLinks.find(providerLinkId)
@@ -277,17 +299,22 @@ public class AlbumProviderConflictService {
         if (providerLink.albumId() != album.id()) {
             throw new IllegalArgumentException("Provider link " + providerLinkId + " does not belong to album " + albumId);
         }
-        if (!releaseDateConflict(album.releaseDate(), providerLink.providerReleaseDate())) {
+        if (!releaseDateConflict(album.releaseDate(), providerLink.providerReleaseDate()) && !allowCurrentValue) {
             throw new IllegalArgumentException("Album does not have a provider release date conflict.");
         }
         return context(album, providerLink, ConflictTarget.useProviderReleaseDate(providerLink));
     }
 
     private ConflictContext titleContext(long albumId, long providerLinkId) {
-        return titleContext(albumId, providerLinkId, false);
+        return titleContext(albumId, providerLinkId, false, false);
     }
 
     private ConflictContext titleContext(long albumId, long providerLinkId, boolean allowKeptLocal) {
+        return titleContext(albumId, providerLinkId, allowKeptLocal, false);
+    }
+
+    private ConflictContext titleContext(long albumId, long providerLinkId, boolean allowKeptLocal,
+            boolean allowCurrentValue) {
         Album album = albums.find(albumId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown album: " + albumId));
         AlbumProviderLink providerLink = providerLinks.find(providerLinkId)
@@ -296,18 +323,41 @@ public class AlbumProviderConflictService {
             throw new IllegalArgumentException("Provider link " + providerLinkId + " does not belong to album " + albumId);
         }
         if (!ProviderTitles.titleConflict(album.title(), providerLink.providerTitle())
-                && !(allowKeptLocal && "KEEP_LOCAL".equals(providerLink.titleResolution()))) {
+                && !(allowKeptLocal && "KEEP_LOCAL".equals(providerLink.titleResolution()))
+                && !allowCurrentValue) {
             throw new IllegalArgumentException("Album does not have a provider title conflict.");
         }
         return context(album, providerLink, ConflictTarget.keepLocalReleaseDate(providerLink));
     }
 
     private ConflictContext context(Album album, AlbumProviderLink providerLink, ConflictTarget target) {
+        album = removeStaleLocalPaths(album);
         List<ConflictPath> folders = album.localPaths().stream()
                 .filter(AlbumLocalPath::onDisk)
                 .map(localPath -> conflictPath(localPath, providerLink, target))
                 .toList();
         return new ConflictContext(album, providerLink, folders);
+    }
+
+    private Album removeStaleLocalPaths(Album album) {
+        List<String> stalePaths = album.localPaths().stream()
+                .filter(localPath -> !localPath.onDisk())
+                .map(AlbumLocalPath::resolvedPath)
+                .toList();
+        if (stalePaths.isEmpty()) {
+            return album;
+        }
+        int removed = albums.removeStaleLocalPaths(album.id());
+        if (removed > 0) {
+            LOG.warnf("Removed %d stale local path row%s for album id=%d because %s not on disk: %s",
+                    removed,
+                    removed == 1 ? "" : "s",
+                    album.id(),
+                    removed == 1 ? "the folder is" : "the folders are",
+                    String.join(", ", stalePaths));
+        }
+        return albums.find(album.id())
+                .orElseThrow(() -> new IllegalArgumentException("Unknown album: " + album.id()));
     }
 
     private ConflictPath conflictPath(AlbumLocalPath localPath, AlbumProviderLink providerLink,
@@ -334,10 +384,13 @@ public class AlbumProviderConflictService {
             throw new IllegalArgumentException("Local folder does not match artist - release date - album layout.");
         }
         String dateSegment = target.useProviderReleaseDate() ? providerDateSegment(providerLink) : matcher.group(2);
-        String targetRelativePath = matcher.group(1) + " - " + dateSegment + " - " + target.title();
+        String rawTargetRelativePath = matcher.group(1) + " - " + dateSegment + " - " + target.title();
+        String targetRelativePath = windowsSafeFolderSegment(matcher.group(1), "Artist")
+                + " - " + windowsSafeFolderSegment(dateSegment, "Release Date")
+                + " - " + windowsSafeFolderSegment(target.title(), "Album");
         Path source = Path.of(localPath.resolvedPath());
         return new ConflictPath(localPath, targetRelativePath, targetRelativePath, source,
-                source.resolveSibling(targetRelativePath));
+                source.resolveSibling(targetRelativePath), !targetRelativePath.equals(rawTargetRelativePath));
     }
 
     private ConflictPath nestedConflictPath(AlbumLocalPath localPath, AlbumProviderLink providerLink,
@@ -354,11 +407,13 @@ public class AlbumProviderConflictService {
             throw new IllegalArgumentException("Local folder does not match artist/release date - album layout.");
         }
         String dateSegment = target.useProviderReleaseDate() ? providerDateSegment(providerLink) : matcher.group(1);
-        String targetAlbumFolder = dateSegment + " - " + target.title();
+        String rawTargetAlbumFolder = dateSegment + " - " + target.title();
+        String targetAlbumFolder = windowsSafeFolderSegment(dateSegment, "Release Date")
+                + " - " + windowsSafeFolderSegment(target.title(), "Album");
         String targetRelativePath = artistFolder + "/" + targetAlbumFolder;
         Path source = Path.of(localPath.resolvedPath());
         return new ConflictPath(localPath, targetRelativePath, targetAlbumFolder, source,
-                source.resolveSibling(targetAlbumFolder));
+                source.resolveSibling(targetAlbumFolder), !targetAlbumFolder.equals(rawTargetAlbumFolder));
     }
 
     private int mergeProviderOnlyDuplicates(Album album, AlbumProviderLink providerLink) {
@@ -378,6 +433,9 @@ public class AlbumProviderConflictService {
             if (!Files.isDirectory(folder.source())) {
                 throw new IllegalStateException("Source folder does not exist: " + folder.source());
             }
+            if (folder.source().equals(folder.target())) {
+                continue;
+            }
             if (Files.exists(folder.target())) {
                 throw new IllegalStateException("Target folder already exists: " + folder.target());
             }
@@ -389,6 +447,9 @@ public class AlbumProviderConflictService {
 
         List<MovedFolder> movedFolders = new ArrayList<>();
         for (ConflictPath folder : context.folders()) {
+            if (folder.source().equals(folder.target())) {
+                continue;
+            }
             try {
                 moveFolder(folder.source(), folder.target());
                 movedFolders.add(new MovedFolder(folder.source(), folder.target()));
@@ -514,7 +575,41 @@ public class AlbumProviderConflictService {
     }
 
     private static boolean safeDirectFolderName(String value) {
-        return value != null && !value.isBlank() && !UNSAFE_FOLDER_NAME.matcher(value).find();
+        return value != null
+                && !value.isBlank()
+                && !UNSAFE_WINDOWS_FOLDER_CHARS.matcher(value).find()
+                && !WINDOWS_TRAILING_DOTS_OR_SPACES.matcher(value).find()
+                && !WINDOWS_RESERVED_FOLDER_NAME.matcher(value).matches();
+    }
+
+    static String windowsSafeFolderSegment(String value, String fallback) {
+        StringBuilder rendered = new StringBuilder();
+        if (value != null) {
+            value.codePoints().forEach(codePoint -> appendWindowsSafeFolderCharacter(rendered, codePoint));
+        }
+        String sanitized = COLLAPSED_SPACES.matcher(rendered).replaceAll(" ").trim();
+        sanitized = WINDOWS_TRAILING_DOTS_OR_SPACES.matcher(sanitized).replaceAll("");
+        if (sanitized.isBlank()) {
+            sanitized = fallback;
+        }
+        return sanitized;
+    }
+
+    private static void appendWindowsSafeFolderCharacter(StringBuilder rendered, int codePoint) {
+        switch (codePoint) {
+            case '/', '\\', '|', '<', '>', 0x2014 -> rendered.append('-');
+            case ':' -> rendered.append(" -");
+            case '?', '*' -> {
+            }
+            case '"', 0x201c, 0x201d -> rendered.append('\'');
+            default -> {
+                if (Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)) {
+                    rendered.append(' ');
+                } else if (!Character.isISOControl(codePoint)) {
+                    rendered.appendCodePoint(codePoint);
+                }
+            }
+        }
     }
 
     private static String providerYear(AlbumProviderLink providerLink) {
@@ -604,7 +699,8 @@ public class AlbumProviderConflictService {
             String targetRelativePath,
             String targetFolderName,
             Path source,
-            Path target) {
+            Path target,
+            boolean sanitizedTargetFolderName) {
     }
 
     private record MovedFolder(

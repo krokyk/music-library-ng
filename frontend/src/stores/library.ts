@@ -9,9 +9,11 @@ import type {
   AlbumTitleConflictPlan,
   AlbumTitleConflictResult,
   Artist,
+  ArtistCountryConflict,
   ArtistProviderBulkMatchResult,
   ArtistProviderCandidate,
   ArtistProviderLink,
+  ArtistStatusConflict,
   CollectionFolderCandidate,
   CollectionMetadata,
   MusicRootInfo,
@@ -69,6 +71,8 @@ interface State {
   scanJob: ScanJobStatus | null
   providerLinks: Record<number, ArtistProviderLink[]>
   providerJob: ProviderCheckJobStatus | null
+  artistCountryConflicts: ArtistCountryConflict[]
+  artistStatusConflicts: ArtistStatusConflict[]
   providerReleaseDateConflicts: ProviderReleaseDateConflict[]
   providerTitleConflicts: ProviderTitleConflict[]
   uiSettings: UiSettings
@@ -151,6 +155,8 @@ export const useLibraryStore = defineStore('library', {
     scanJob: null,
     providerLinks: {},
     providerJob: null,
+    artistCountryConflicts: [],
+    artistStatusConflicts: [],
     providerReleaseDateConflicts: [],
     providerTitleConflicts: [],
     uiSettings: {
@@ -199,11 +205,22 @@ export const useLibraryStore = defineStore('library', {
     async loadAll() {
       this.loading = true
       try {
-        const [artists, albums, collections, musicRoot, providerReleaseDateConflicts, providerTitleConflicts] = await Promise.all([
+        const [
+          artists,
+          albums,
+          collections,
+          musicRoot,
+          artistCountryConflicts,
+          artistStatusConflicts,
+          providerReleaseDateConflicts,
+          providerTitleConflicts,
+        ] = await Promise.all([
           apiGet<Artist[]>('/api/artists'),
           apiGet<Album[]>('/api/albums'),
           apiGet<MusicCollection[]>('/api/collections'),
           apiGet<MusicRootInfo>('/api/settings/music-root'),
+          apiGet<ArtistCountryConflict[]>('/api/provider-conflicts/artist-countries'),
+          apiGet<ArtistStatusConflict[]>('/api/provider-conflicts/artist-statuses'),
           apiGet<ProviderReleaseDateConflict[]>('/api/provider-conflicts/release-dates'),
           apiGet<ProviderTitleConflict[]>('/api/provider-conflicts/titles'),
         ])
@@ -211,6 +228,8 @@ export const useLibraryStore = defineStore('library', {
         this.albums = albums
         this.collections = collections
         this.musicRoot = musicRoot
+        this.artistCountryConflicts = artistCountryConflicts
+        this.artistStatusConflicts = artistStatusConflicts
         this.providerReleaseDateConflicts = providerReleaseDateConflicts
         this.providerTitleConflicts = providerTitleConflicts
       } catch (error) {
@@ -624,6 +643,7 @@ export const useLibraryStore = defineStore('library', {
       if (payload.id) {
         this.replaceArtist(artist)
         this.replaceCollectionArtist(artist, this.currentCollectionScopeForArtist(artist.id))
+        await this.loadProviderConflicts()
         return artist
       }
       await this.loadArtists()
@@ -1100,14 +1120,26 @@ export const useLibraryStore = defineStore('library', {
       this.providerTitleConflicts = await apiGet<ProviderTitleConflict[]>('/api/provider-conflicts/titles')
       return this.providerTitleConflicts
     },
+    async loadArtistCountryConflicts() {
+      this.artistCountryConflicts = await apiGet<ArtistCountryConflict[]>('/api/provider-conflicts/artist-countries')
+      return this.artistCountryConflicts
+    },
+    async loadArtistStatusConflicts() {
+      this.artistStatusConflicts = await apiGet<ArtistStatusConflict[]>('/api/provider-conflicts/artist-statuses')
+      return this.artistStatusConflicts
+    },
     async loadProviderConflicts() {
-      const [releaseDateConflicts, titleConflicts] = await Promise.all([
+      const [artistCountryConflicts, artistStatusConflicts, releaseDateConflicts, titleConflicts] = await Promise.all([
+        apiGet<ArtistCountryConflict[]>('/api/provider-conflicts/artist-countries'),
+        apiGet<ArtistStatusConflict[]>('/api/provider-conflicts/artist-statuses'),
         apiGet<ProviderReleaseDateConflict[]>('/api/provider-conflicts/release-dates'),
         apiGet<ProviderTitleConflict[]>('/api/provider-conflicts/titles'),
       ])
+      this.artistCountryConflicts = artistCountryConflicts
+      this.artistStatusConflicts = artistStatusConflicts
       this.providerReleaseDateConflicts = releaseDateConflicts
       this.providerTitleConflicts = titleConflicts
-      return { releaseDateConflicts, titleConflicts }
+      return { artistCountryConflicts, artistStatusConflicts, releaseDateConflicts, titleConflicts }
     },
     async planUseProviderReleaseDate(conflict: ProviderReleaseDateConflict) {
       return apiGet<AlbumReleaseDateConflictPlan>(providerConflictPath(conflict, 'provider-year-plan'))
@@ -1138,6 +1170,20 @@ export const useLibraryStore = defineStore('library', {
     async resetKeepLocalReleaseDate(albumId: number, providerLinkId: number, artistId?: number | null) {
       const result = await apiSend<AlbumReleaseDateConflictResult>(
         providerConflictIdPath(albumId, providerLinkId, 'reset-keep-local'),
+        'POST',
+      )
+      this.replaceAlbum(result.album)
+      this.invalidateCollectionMetadata()
+      await this.loadProviderConflicts()
+      const refreshArtistId = artistId ?? result.album.artistIds[0] ?? null
+      if (refreshArtistId) {
+        await this.refreshArtistAfterScopedJob(refreshArtistId, this.currentCollectionScopeForArtist(refreshArtistId))
+      }
+      return result
+    },
+    async resetKeepLocalTitle(albumId: number, providerLinkId: number, artistId?: number | null) {
+      const result = await apiSend<AlbumTitleConflictResult>(
+        providerTitleConflictIdPath(albumId, providerLinkId, 'reset-keep-local'),
         'POST',
       )
       this.replaceAlbum(result.album)
@@ -1327,5 +1373,9 @@ function providerConflictIdPath(albumId: number, providerLinkId: number, action:
 }
 
 function providerTitleConflictPath(conflict: ProviderTitleConflict, action: string) {
-  return `/api/albums/${conflict.albumId}/provider-links/${conflict.providerLinkId}/title-conflict/${action}`
+  return providerTitleConflictIdPath(conflict.albumId, conflict.providerLinkId, action)
+}
+
+function providerTitleConflictIdPath(albumId: number, providerLinkId: number, action: string) {
+  return `/api/albums/${albumId}/provider-links/${providerLinkId}/title-conflict/${action}`
 }

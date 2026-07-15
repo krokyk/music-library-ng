@@ -69,6 +69,18 @@ class SpiritOfMetalProviderTest {
     }
 
     @Test
+    void mapsOtherProfileCountryToInternational() {
+        ProviderArtistDetails details = SpiritOfMetalProvider.parseArtistDetails("""
+                <div id="profile" class="col-sm-7">
+                  <div><span>Status</span><span>Active</span></div>
+                  <div><span>Country</span><span><a href="/en/bands/Other/1">Other</a></span></div>
+                </div>
+                """, "https://www.spirit-of-metal.com/en/band/Exit_Eden");
+
+        assertEquals("XW", details.country());
+    }
+
+    @Test
     void parsesAlbumDiscographyRows() {
         List<RemoteAlbum> albums = SpiritOfMetalProvider.parseAlbumDiscography("""
                 <section id="discography">

@@ -12,7 +12,12 @@ import java.util.Optional;
 
 import javax.sql.DataSource;
 
+import org.kroky.musiclib.model.ArtistCountryConflict;
+import org.kroky.musiclib.model.ArtistCountryConflictSource;
 import org.kroky.musiclib.model.ArtistProviderLink;
+import org.kroky.musiclib.model.ArtistStatusConflict;
+import org.kroky.musiclib.model.ArtistStatusConflictSource;
+import org.kroky.musiclib.provider.ArtistProviderMetadata;
 import org.kroky.musiclib.provider.CountryCodes;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -142,6 +147,28 @@ public class ArtistProviderLinkRepository {
         } catch (Exception e) {
             throw new IllegalStateException("Unable to list enabled provider links for collection " + collectionId, e);
         }
+    }
+
+    public List<ArtistCountryConflict> listCountryConflicts() {
+        Map<Long, ArtistConflictAccumulator> conflicts = artistConflictAccumulators("""
+                WHERE ar.country_override IS NULL
+                ORDER BY ar.name, apl.provider_id
+                """);
+        return conflicts.values().stream()
+                .filter(accumulator -> ArtistProviderMetadata.countryConflict(accumulator.links()))
+                .map(ArtistConflictAccumulator::toCountryConflict)
+                .toList();
+    }
+
+    public List<ArtistStatusConflict> listStatusConflicts() {
+        Map<Long, ArtistConflictAccumulator> conflicts = artistConflictAccumulators("""
+                WHERE ar.active_override IS NULL
+                ORDER BY ar.name, apl.provider_id
+                """);
+        return conflicts.values().stream()
+                .filter(accumulator -> ArtistProviderMetadata.activeConflict(accumulator.links()))
+                .map(ArtistConflictAccumulator::toStatusConflict)
+                .toList();
     }
 
     public ArtistProviderLink upsertForArtist(long artistId, String providerId, String providerArtistId,
@@ -304,6 +331,60 @@ public class ArtistProviderLinkRepository {
                 rs.getString("last_error_message"),
                 rs.getString("created_at"),
                 rs.getString("updated_at"));
+    }
+
+    private Map<Long, ArtistConflictAccumulator> artistConflictAccumulators(String whereClause) {
+        String sql = baseSelect() + " " + whereClause;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql);
+                ResultSet rs = statement.executeQuery()) {
+            Map<Long, ArtistConflictAccumulator> conflicts = new LinkedHashMap<>();
+            while (rs.next()) {
+                ArtistProviderLink link = map(rs);
+                if (!link.enabled()) {
+                    continue;
+                }
+                conflicts.computeIfAbsent(link.artistId(),
+                        ignored -> new ArtistConflictAccumulator(link.artistId(), link.artistName(), new ArrayList<>()))
+                        .links()
+                        .add(link);
+            }
+            return conflicts;
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to list artist provider metadata conflicts", e);
+        }
+    }
+
+    private record ArtistConflictAccumulator(
+            long artistId,
+            String artistName,
+            List<ArtistProviderLink> links) {
+
+        private ArtistCountryConflict toCountryConflict() {
+            return new ArtistCountryConflict(
+                    artistId,
+                    artistName,
+                    links.stream()
+                            .map(link -> new ArtistCountryConflictSource(
+                                    link.id(),
+                                    link.providerId(),
+                                    link.providerCountry(),
+                                    link.providerUrl()))
+                            .toList());
+        }
+
+        private ArtistStatusConflict toStatusConflict() {
+            return new ArtistStatusConflict(
+                    artistId,
+                    artistName,
+                    links.stream()
+                            .map(link -> new ArtistStatusConflictSource(
+                                    link.id(),
+                                    link.providerId(),
+                                    link.providerActive(),
+                                    link.providerUrl()))
+                            .toList());
+        }
     }
 
     private static void setNullableBoolean(PreparedStatement statement, int index, Boolean value) throws Exception {

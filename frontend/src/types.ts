@@ -341,6 +341,32 @@ export interface ProviderCheckJobStatus {
   reports: ReportArtifact[]
 }
 
+export interface ArtistCountryConflictSource {
+  providerLinkId: number
+  providerId: string
+  providerCountry?: string | null
+  providerUrl?: string | null
+}
+
+export interface ArtistCountryConflict {
+  artistId: number
+  artistName: string
+  sources: ArtistCountryConflictSource[]
+}
+
+export interface ArtistStatusConflictSource {
+  providerLinkId: number
+  providerId: string
+  providerActive?: boolean | null
+  providerUrl?: string | null
+}
+
+export interface ArtistStatusConflict {
+  artistId: number
+  artistName: string
+  sources: ArtistStatusConflictSource[]
+}
+
 export interface ProviderReleaseDateConflictSource {
   providerLinkId: number
   providerId: string

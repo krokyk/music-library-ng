@@ -77,7 +77,7 @@ function selectProvider(providerId: ProviderId) {
 }
 
 function candidateInfo(candidate: ArtistProviderCandidate) {
-  const status = candidate.active === true ? 'Active' : candidate.active === false ? 'Split-up' : null
+  const status = candidate.active === true ? 'Active' : candidate.active === false ? 'Inactive' : null
   return [candidate.country ? countryName(candidate.country) : null, status, candidate.disambiguation]
     .filter(Boolean)
     .join(' · ')

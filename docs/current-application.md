@@ -68,7 +68,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Title folders support `title (artist, release date)`, `title (release date)`, `title - release date - subtitle`, `title - release date`, and title-only fallback.
 - Release dates are stored as canonical text and may be `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`.
 - Year display, chronological sorting, and release-date tooltips derive from the stored release date.
-- Folder and path values are source evidence and must not be normalized by renaming folders on disk.
+- Collection scans keep folder and path values as source evidence and do not normalize folders by renaming them on disk.
 
 ## Collection Semantics
 
@@ -122,8 +122,17 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Metal Archives provider checks derive `/band/discography/id/<id>/tab/main` internally for scraping and UI external links append `#band_tab_discography`.
 - Provider metadata stores country as an ISO alpha-2 code, active status as nullable boolean evidence, and disambiguation as provider evidence when available.
 - The app supports `XW` as an `International` pseudo-country for manual artist country overrides.
+- Provider country values `International`, `Multinational`, and `Other` normalize to `XW`.
 - Artist country and active-status overrides live on the artist row and are never overwritten by provider rescans.
-- Effective artist country and status prefer the artist override, then the first linked provider evidence, then unknown.
+- Effective artist country and status prefer the artist override, then provider consensus, then unknown.
+- Provider consensus uses enabled provider links only.
+- Provider country consensus uses exact normalized country values only and has no scoring or fuzzy matching.
+- A specific country wins only with strict provider majority.
+- `XW` International wins automatically only when every enabled provider with country evidence resolves to `XW`.
+- Provider status consensus uses only `Active`, `Inactive`, and `Unknown`.
+- Provider status values such as split, split-up, disbanded, inactive, on hold, and changed name normalize to `Inactive`.
+- `Unknown` participates in provider metadata conflicts but is not a selectable status resolution.
+- Artist provider country and status conflicts remain unresolved when no strict consensus exists and the artist has no manual override.
 - `GET /api/artists/{artistId}/providers` lists all provider links for one artist.
 - `GET /api/artists/{artistId}/provider` returns the first provider link for compatibility with older callers.
 - `PUT /api/artists/{artistId}/provider` upserts the link for the requested provider without replacing other provider links.
@@ -182,6 +191,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Provider checks record unresolved title conflicts when a provider release links to an existing local album whose title differs from the provider title.
 - Provider checks record unresolved release-date conflicts when a provider release links to an existing local album whose release year differs from the provider year.
 - Unresolved provider release-date and title conflicts remain visible after a provider check through artist row warning indicators and the artist-scoped conflict resolver.
+- Unresolved provider artist country and status conflicts remain visible through the same artist row warning indicators and artist-scoped conflict resolver.
 
 ## Status History And Reports
 
@@ -191,24 +201,40 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Report dialog navigation such as `1/3` is the current report index inside the in-memory status history.
 - Reports omit internal identifiers.
 - Durable audit data comes from the generated plain text files under `data/reports`, not from database job tables.
-- The artist-scoped provider conflict resolver groups conflicts by local album and conflict type.
+- The artist-scoped provider conflict resolver groups artist metadata conflicts by field and album metadata conflicts by local album and conflict type.
 - The provider conflict resolver displays the artist's linked providers above the album groups.
 - Provider chips inside the provider conflict resolver include an external-open icon and open the linked provider page when clicked.
 - The provider conflict resolver uses a constant-height dialog with internal scrolling.
 - The provider conflict resolver shows conflict sections as an accordion with the first section open and only one section open at a time.
 - The provider conflict resolver title shows an artist name plus a conflict-count chip that counts local album and conflict-type sections, not provider variants.
 - Collapsed conflict-section headers show only the album path or title plus a variant-count chip such as `3 Title variants` or `1 Release Date variant`.
-- Expanded conflict sections show one local tile and one provider tile for each distinct provider value.
+- Expanded artist country conflict sections show a manual country selector tile and one provider tile for each distinct provider country value.
+- Expanded artist status conflict sections show manual Active or Inactive choices only for concrete status values that no provider supplied, plus one provider tile for each distinct provider status value.
+- Expanded album conflict sections show one local tile only when the album has an on-disk local folder and one provider tile for each distinct provider value.
+- Provider-only album conflict sections show provider-sourced tiles for current and differing provider values instead of a local tile.
 - Provider variant tiles group multiple provider sources when they propose the same provider value for the same conflict type.
+- Conflict choice tiles center the chosen value and show smaller source information in the lower right.
+- Country conflict tiles show a flag and country name for concrete country values.
+- Status conflict tiles show Active and Inactive chips, with Active green and Inactive red.
+- Choosing an artist metadata conflict value writes an artist override.
+- Clearing an artist metadata override returns the artist to provider consensus and may re-open the conflict.
 - Keeping the local year marks all grouped provider releases as resolved against the local album so future provider checks do not add the provider album again.
 - Kept-local year decisions remain visible in the Artists detail known-album list and can be reset from the year chip to make the mismatch unresolved again.
-- Using the provider year updates the album release date in the library database, resolves all grouped provider releases, and merges provider-only duplicates without renaming folders or writing audio tags.
+- Using the provider year updates the album release date in the library database, renames on-disk album folders for supported artist-album layouts, updates supported audio `YEAR` tags, resolves matching provider releases, and merges provider-only duplicates.
+- Using the provider year preserves the album checked state.
 - Keeping the local title marks every differing provider title for that album as resolved against the local album.
 - Keeping the local title clears title resolution on provider links that already match the local title.
-- Using a provider title updates the album title in the library database, marks matching provider links as `USE_PROVIDER`, marks other provider titles on that album as `USE_OTHER_PROVIDER`, and merges provider-only duplicates without renaming folders or writing audio tags.
+- Kept-local title decisions remain visible as yellow outlined title chips with undo controls in the Artists detail known-albums list.
+- Using a provider title updates the album title in the library database, renames on-disk album folders for supported artist-album layouts, updates supported audio `ALBUM` tags, marks matching provider links as `USE_PROVIDER`, marks other provider titles on that album as `USE_OTHER_PROVIDER`, and merges provider-only duplicates.
+- Using a provider title preserves the album checked state.
+- Provider checks remove stale local-path rows for an artist across all collections before matching provider releases and write a warning to the application log for every cleanup batch.
+- Provider title and release-date conflict previews and actions repeat stale-path cleanup as a backstop for existing database state.
+- A conflict action treats an album with no remaining on-disk local paths as provider-only, so it updates provider and album metadata without renaming folders or editing audio tags.
+- Conflict-driven folder renames preserve provider metadata in the database and audio tags while rendering Windows-safe folder names with the configured character substitutions, collapsed whitespace, and no trailing spaces or periods.
+- Folder rendering replaces `/`, `\`, `|`, `<`, `>`, and em dash with `-`, replaces `:` with ` -`, removes `?` and `*`, and replaces straight or curly double quotes with `'`.
+- Conflict-driven folder renames fail instead of overwriting another folder when the rendered target already exists.
 - Provider conflict choice tiles show compact source provider chips with provider icons and external-open icons.
 - Compact source provider chips open the linked provider artist page and use tooltips such as `Open artist page in Metal Archives`.
-- Provider conflict resolution is metadata-only and never mutates files or folders on disk.
 - Collection-scoped provider checks assign newly created or otherwise unassigned provider albums to the selected collection.
 - Provider checks from the global Artists screen refresh artist-level provider data without assigning collection membership.
 - MusicBrainz imports supported full albums only.
@@ -268,15 +294,17 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Clicking a country cell opens a cell-anchored popover with a search field and country list.
 - Country popover selections write only the artist country override.
 - Manual country and status overrides are visually distinguished from provider-derived values so rescan-stable values are visible in the table.
-- Status cells show only the effective status, and clicking the status opens a cell-anchored menu with Active, Split-up, and clear controls.
+- Status cells show only the effective status, and clicking the status opens a cell-anchored menu with Active, Inactive, and clear controls.
 - Status menu edits write only the artist active-status override.
 - The Artists detail pane is the main artist metadata edit surface for name and sort name.
 - The Artists detail pane shows effective country and status plus provider evidence when an override differs from the provider value.
-- The Artists top tab and artist rows show warning indicators while provider release-date or title conflicts remain unresolved.
-- Known-album year chips show warning indicators while provider release-date conflicts remain unresolved.
-- Artist rows expose a warning `Conflicts` row action when the artist has unresolved provider title or release-date conflicts.
-- Clicking the `Conflicts` action or an unresolved known-album year chip opens the provider conflict dialog for that artist only.
+- The Artists top tab and artist rows show warning indicators while provider artist metadata, release-date, or title conflicts remain unresolved.
+- Known-album year and title chips show warning indicators while provider release-date or title conflicts remain unresolved.
+- Artist rows expose a warning `Conflicts` row action when the artist has unresolved provider artist metadata, title, or release-date conflicts.
+- Clicking the `Conflicts` action or an unresolved known-album year or title chip opens the provider conflict dialog for that artist only.
 - Known-album year chips show an outlined kept-local state with an undo action when a provider year mismatch was resolved by keeping the local year.
+- Known-album title chips use the same warning, kept-local, and overlay-control geometry as known-album year chips.
+- Known-album titles show an outlined kept-local state with an undo action when a provider title mismatch was resolved by keeping the local title.
 - The Artists detail pane shows known albums with the same local, checked non-local, and unchecked non-local color treatment used by collection album rows.
 
 ## UI Rules
@@ -310,11 +338,14 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Provider bulk matching requires an explicit `artistIds` array and never falls back to all artists.
 - Scan jobs use `/api/scan`.
 - Provider check jobs use `/api/provider-checks`.
+- Unresolved provider artist country conflicts use `GET /api/provider-conflicts/artist-countries`.
+- Unresolved provider artist status conflicts use `GET /api/provider-conflicts/artist-statuses`.
 - Unresolved provider release-date conflicts use `GET /api/provider-conflicts/release-dates`.
 - Unresolved provider title conflicts use `GET /api/provider-conflicts/titles`.
 - Provider title conflict actions use `/api/albums/{albumId}/provider-links/{providerLinkId}/title-conflict/...`.
 - Provider release-date conflict actions use `/api/albums/{albumId}/provider-links/{providerLinkId}/release-date-conflict`.
 - Resetting a kept-local release-date decision uses `POST /api/albums/{albumId}/provider-links/{providerLinkId}/release-date-conflict/reset-keep-local`.
+- Resetting a kept-local title decision uses `POST /api/albums/{albumId}/provider-links/{providerLinkId}/title-conflict/reset-keep-local`.
 - Settings use `/api/settings/music-root` and `/api/settings/ui`.
 - Raw preference access uses `/api/preferences/{key}`.
 - SPA fallback must stay separate from `/api`, `/q`, and asset-like routes.
@@ -328,7 +359,6 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Track file scanning and audio tag parsing are not part of normal collection scans.
 - Cover art is not implemented.
 - Provider refresh has no track, release, cover-art, or MusicBrainz edit submission flow.
-- Provider conflict resolution does not rename folders or edit audio tags.
 - HTML provider search pages are not stable public APIs, so parser tests are required when their parsing changes.
 - Title provider scans are not a default title-collection workflow.
 - Multi-user sync conflict handling is not implemented.

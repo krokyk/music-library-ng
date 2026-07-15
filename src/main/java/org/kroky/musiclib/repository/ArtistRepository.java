@@ -17,6 +17,7 @@ import org.kroky.musiclib.db.Names;
 import org.kroky.musiclib.model.Artist;
 import org.kroky.musiclib.model.ArtistProviderLink;
 import org.kroky.musiclib.model.UpsertResult;
+import org.kroky.musiclib.provider.ArtistProviderMetadata;
 import org.kroky.musiclib.provider.CountryCodes;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -587,9 +588,9 @@ public class ArtistRepository {
                 row.providerArtistId(),
                 row.providerArtistName(),
                 row.providerUrl(),
-                row.providerCountry(),
+                ArtistProviderMetadata.countryConsensus(providerLinks),
                 row.providerDisambiguation(),
-                row.providerActive(),
+                ArtistProviderMetadata.activeConsensus(providerLinks),
                 row.providerLastErrorMessage(),
                 List.copyOf(providerLinks),
                 row.collectionAlbumCount(),

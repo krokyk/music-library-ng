@@ -5,8 +5,10 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.model.Album;
@@ -130,6 +132,7 @@ public class ProviderCheckService {
         int ignoredProviderRecords = 0;
         int errors = 0;
         List<String> messages = new ArrayList<>();
+        Set<Long> reconciledArtistIds = new HashSet<>();
         progress.started(links.size() + initialSkippedArtists, skippedArtists);
 
         if (links.isEmpty()) {
@@ -162,6 +165,10 @@ public class ProviderCheckService {
             progress.artistStarted(link);
             try {
                 processedArtists++;
+                if (!reconciledArtistIds.contains(link.artistId())) {
+                    removeStaleLocalPaths(link);
+                    reconciledArtistIds.add(link.artistId());
+                }
                 if (MusicBrainzClient.PROVIDER_ID.equals(link.providerId())) {
                     var result = artistProviderRefresh.importMusicBrainz(link, collectionId, report);
                     foundAlbums += result.foundReleaseGroupCount();
@@ -280,6 +287,26 @@ public class ProviderCheckService {
         messages.add(message);
         return providerSummary(report, status, processedArtists, skippedArtists, foundAlbums, newAlbums,
                 existingAlbums, releaseDateConflicts, titleConflicts, ignoredProviderRecords, errors, messages);
+    }
+
+    void removeStaleLocalPaths(ArtistProviderLink link) {
+        List<String> stalePaths = albums.list(link.artistId(), null, null, null, null).stream()
+                .flatMap(album -> album.localPaths().stream())
+                .filter(localPath -> !localPath.onDisk())
+                .map(localPath -> localPath.resolvedPath())
+                .toList();
+        if (stalePaths.isEmpty()) {
+            return;
+        }
+        int removed = albums.removeStaleLocalPathsForArtist(link.artistId());
+        if (removed > 0) {
+            LOG.warnf("Removed %d stale local path row%s before provider refresh for artist id=%d name=%s: %s",
+                    removed,
+                    removed == 1 ? "" : "s",
+                    link.artistId(),
+                    link.artistName(),
+                    String.join(", ", stalePaths));
+        }
     }
 
     private void assignToCollectionIfUnassigned(org.kroky.musiclib.model.Album album, String collectionId) {

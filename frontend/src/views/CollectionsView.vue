@@ -1023,6 +1023,16 @@ function albumPresenceClass(album: Album) {
   }
 }
 
+function albumTitleClasses(album: Album) {
+  return {
+    ...albumPresenceClass(album),
+  }
+}
+
+function albumReleaseDateChipClasses(_album: Album) {
+  return {}
+}
+
 function albumRowClass(album: Album) {
   return {
     'is-selected': album.id === selectedAlbumRowId.value,
@@ -3201,7 +3211,7 @@ watch(sortedCollectionTitleItems, (items) => {
               @click.capture="selectTitleRow(item)"
             >
                 <div data-column="title.title" class="workspace-grid__cell truncate-cell">
-                  <span :class="albumPresenceClass(item)">{{ item.title }}</span>
+                  <span :class="albumTitleClasses(item)">{{ item.title }}</span>
                 </div>
                 <div data-column="title.artist" class="workspace-grid__cell truncate-cell">
                   <span>{{ item.artistName ?? '' }}</span>
@@ -3209,12 +3219,12 @@ watch(sortedCollectionTitleItems, (items) => {
                 <div data-column="title.releaseDate" class="workspace-grid__cell release-date-cell">
                   <v-tooltip v-if="releaseDateTooltip(item.releaseDate)" :text="releaseDateTooltip(item.releaseDate)" location="top">
                     <template #activator="{ props }">
-                      <v-chip v-bind="props" class="release-date-chip" variant="tonal">
+                      <v-chip v-bind="props" class="release-date-chip" :class="albumReleaseDateChipClasses(item)" variant="tonal">
                         {{ releaseDateYearLabel(item.releaseDate) }}
                       </v-chip>
                     </template>
                   </v-tooltip>
-                  <v-chip v-else-if="releaseDateYearLabel(item.releaseDate)" class="release-date-chip" variant="tonal">
+                  <v-chip v-else-if="releaseDateYearLabel(item.releaseDate)" class="release-date-chip" :class="albumReleaseDateChipClasses(item)" variant="tonal">
                     {{ releaseDateYearLabel(item.releaseDate) }}
                   </v-chip>
                 </div>
@@ -3643,18 +3653,18 @@ watch(sortedCollectionTitleItems, (items) => {
           >
               <div data-column="album.name" class="workspace-grid__cell truncate-cell">
                 <div class="album-cell">
-                  <span :class="albumPresenceClass(album)">{{ album.title }}</span>
+                  <span :class="albumTitleClasses(album)">{{ album.title }}</span>
                 </div>
               </div>
               <div data-column="album.releaseDate" class="workspace-grid__cell release-date-cell">
                 <v-tooltip v-if="releaseDateTooltip(album.releaseDate)" :text="releaseDateTooltip(album.releaseDate)" location="top">
                   <template #activator="{ props }">
-                    <v-chip v-bind="props" class="release-date-chip" variant="tonal">
+                    <v-chip v-bind="props" class="release-date-chip" :class="albumReleaseDateChipClasses(album)" variant="tonal">
                       {{ releaseDateYearLabel(album.releaseDate) }}
                     </v-chip>
                   </template>
                 </v-tooltip>
-                <v-chip v-else-if="releaseDateYearLabel(album.releaseDate)" class="release-date-chip" variant="tonal">
+                <v-chip v-else-if="releaseDateYearLabel(album.releaseDate)" class="release-date-chip" :class="albumReleaseDateChipClasses(album)" variant="tonal">
                   {{ releaseDateYearLabel(album.releaseDate) }}
                 </v-chip>
               </div>

@@ -1,8 +1,11 @@
 package org.kroky.musiclib.repository;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +19,7 @@ import org.kroky.musiclib.model.ProviderReleaseDateConflictSource;
 import org.kroky.musiclib.model.ProviderTitleConflict;
 import org.kroky.musiclib.model.ProviderTitleConflictSource;
 import org.kroky.musiclib.provider.ProviderTitles;
+import org.kroky.musiclib.scan.MusicRootService;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -25,6 +29,9 @@ public class AlbumProviderLinkRepository {
 
     @Inject
     DataSource dataSource;
+
+    @Inject
+    MusicRootService musicRootService;
 
     public List<ProviderReleaseDateConflict> listReleaseDateConflicts() {
         String sql = """
@@ -37,14 +44,7 @@ public class AlbumProviderLinkRepository {
                        apl.provider_title,
                        apl.provider_release_date,
                        apl.provider_id,
-                       apl.provider_url,
-                       (
-                           SELECT lp.relative_path
-                           FROM album_local_paths lp
-                           WHERE lp.album_id = a.id
-                           ORDER BY lp.id
-                           LIMIT 1
-                       ) AS local_relative_path
+                       apl.provider_url
                 FROM album_provider_links apl
                 JOIN albums a ON a.id = apl.album_id
                 JOIN album_artists aa ON aa.album_id = a.id AND aa.position = 0
@@ -61,19 +61,21 @@ public class AlbumProviderLinkRepository {
                 PreparedStatement statement = connection.prepareStatement(sql);
                 var rs = statement.executeQuery()) {
             Map<String, ConflictAccumulator> conflicts = new LinkedHashMap<>();
+            Map<Long, Optional<String>> onDiskPathCache = new HashMap<>();
             while (rs.next()) {
                 long albumId = rs.getLong("album_id");
                 String providerReleaseDate = rs.getString("provider_release_date");
                 String key = albumId + ":" + releaseYear(providerReleaseDate);
                 ConflictAccumulator conflict = conflicts.get(key);
                 if (conflict == null) {
+                    String localRelativePath = firstOnDiskRelativePath(connection, albumId, onDiskPathCache).orElse(null);
                     conflict = new ConflictAccumulator(
                             albumId,
                             rs.getLong("artist_id"),
                             rs.getString("artist_name"),
                             rs.getString("album_title"),
                             rs.getString("local_release_date"),
-                            rs.getString("local_relative_path"));
+                            localRelativePath);
                     conflicts.put(key, conflict);
                 }
                 conflict.sources().add(new ProviderReleaseDateConflictSource(
@@ -102,14 +104,7 @@ public class AlbumProviderLinkRepository {
                        apl.provider_title,
                        apl.provider_release_date,
                        apl.provider_id,
-                       apl.provider_url,
-                       (
-                           SELECT lp.relative_path
-                           FROM album_local_paths lp
-                           WHERE lp.album_id = a.id
-                           ORDER BY lp.id
-                           LIMIT 1
-                       ) AS local_relative_path
+                       apl.provider_url
                 FROM album_provider_links apl
                 JOIN albums a ON a.id = apl.album_id
                 JOIN album_artists aa ON aa.album_id = a.id AND aa.position = 0
@@ -122,6 +117,7 @@ public class AlbumProviderLinkRepository {
                 PreparedStatement statement = connection.prepareStatement(sql);
                 var rs = statement.executeQuery()) {
             Map<String, TitleConflictAccumulator> conflicts = new LinkedHashMap<>();
+            Map<Long, Optional<String>> onDiskPathCache = new HashMap<>();
             while (rs.next()) {
                 String albumTitle = rs.getString("album_title");
                 String providerTitle = rs.getString("provider_title");
@@ -132,13 +128,14 @@ public class AlbumProviderLinkRepository {
                 String key = albumId + ":" + ProviderTitles.clean(providerTitle).toLowerCase();
                 TitleConflictAccumulator conflict = conflicts.get(key);
                 if (conflict == null) {
+                    String localRelativePath = firstOnDiskRelativePath(connection, albumId, onDiskPathCache).orElse(null);
                     conflict = new TitleConflictAccumulator(
                             albumId,
                             rs.getLong("artist_id"),
                             rs.getString("artist_name"),
                             albumTitle,
                             rs.getString("local_release_date"),
-                            rs.getString("local_relative_path"));
+                            localRelativePath);
                     conflicts.put(key, conflict);
                 }
                 conflict.sources().add(new ProviderTitleConflictSource(
@@ -472,6 +469,47 @@ public class AlbumProviderLinkRepository {
                 && !"USE_PROVIDER".equals(normalized)
                 && !("title".equals(label) && "USE_OTHER_PROVIDER".equals(normalized))) {
             throw new IllegalArgumentException("Unknown " + label + " conflict resolution: " + raw);
+        }
+    }
+
+    private Optional<String> firstOnDiskRelativePath(Connection connection, long albumId,
+            Map<Long, Optional<String>> cache) {
+        return cache.computeIfAbsent(albumId, id -> firstOnDiskRelativePath(connection, id));
+    }
+
+    private Optional<String> firstOnDiskRelativePath(Connection connection, long albumId) {
+        String sql = """
+                SELECT lp.relative_path, c.relative_path AS collection_relative_path
+                FROM album_local_paths lp
+                JOIN collections c ON c.id = lp.collection_id
+                WHERE lp.album_id = ?
+                ORDER BY lp.id
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, albumId);
+            try (var rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    String relativePath = rs.getString("relative_path");
+                    String resolvedPath = resolvedPath(rs.getString("collection_relative_path"), relativePath);
+                    if (resolvedPath != null && Files.isDirectory(Path.of(resolvedPath))) {
+                        return Optional.of(relativePath);
+                    }
+                }
+                return Optional.empty();
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to resolve album local paths for conflicts", e);
+        }
+    }
+
+    private String resolvedPath(String collectionRelativePath, String albumRelativePath) {
+        if (collectionRelativePath == null || albumRelativePath == null) {
+            return null;
+        }
+        try {
+            return musicRootService.resolveAlbum(collectionRelativePath, albumRelativePath).toString();
+        } catch (IllegalStateException e) {
+            return null;
         }
     }
 
