@@ -4,7 +4,6 @@ import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 import ProviderChip from '@/components/ProviderChip.vue'
 import ProviderMatchDialog from '@/components/ProviderMatchDialog.vue'
-import { countryName } from '@/countries'
 import { formatDateWithJavaPattern } from '@/dateFormat'
 import { providerDefinition, validateProviderUrl, type ProviderId } from '@/providers'
 import type { Album, Artist, ArtistProviderCandidate, CollectionFolderCandidate, MusicCollection } from '@/types'
@@ -104,7 +103,6 @@ const paneLayoutCache = reactive<Record<PaneLayoutKind, number[]>>({
   artist: [...defaultPanePercents],
   title: [...defaultPanePercents],
 })
-const paneLayoutSaveTimer = ref<number | null>(null)
 const paneNames = ['collections', 'artists', 'albums'] as const
 const titleItemDialog = ref(false)
 const titleItemSaving = ref(false)
@@ -524,7 +522,7 @@ function artistIssueLabel(artist: Artist) {
 
 function artistFailureTooltip(artist: Artist) {
   const localFailed = Boolean(artist.localScanErrorMessage)
-  const providerFailed = Boolean(providerForArtist(artist)?.lastErrorMessage ?? artist.providerLastErrorMessage)
+  const providerFailed = Boolean(providerForArtist(artist)?.lastErrorMessage)
   if (localFailed && providerFailed) {
     return 'Local and provider scans failed'
   }
@@ -538,22 +536,7 @@ function artistFailureTooltip(artist: Artist) {
 }
 
 function providerForArtist(artist: Artist) {
-  if (artist.providerLinks?.length) {
-    return artist.providerLinks[0]
-  }
-  if (!artist.providerId) {
-    return null
-  }
-  return {
-    providerId: artist.providerId,
-    providerArtistId: artist.providerArtistId,
-    providerArtistName: artist.providerArtistName,
-    providerCountry: artist.providerCountry,
-    providerDisambiguation: artist.providerDisambiguation,
-    providerActive: artist.providerActive,
-    providerUrl: artist.providerUrl,
-    lastErrorMessage: artist.providerLastErrorMessage ?? null,
-  }
+  return artist.providerLinks[0] ?? null
 }
 
 function providerChipText(artist: Artist) {
@@ -1326,10 +1309,6 @@ function gridActionLabelClass(table: keyof typeof columnWidthPreferenceKeys) {
   return actionLabelClassFor(showGridActionLabels(table))
 }
 
-function rowActionClass(pane: keyof typeof paneWidths) {
-  return [actionLabelClass(pane), 'workspace-row-action']
-}
-
 function collectionRowActionClass(collection: MusicCollection) {
   return [actionLabelClassFor(showCollectionRowActionLabels(collection)), 'workspace-row-action']
 }
@@ -1777,18 +1756,7 @@ function activatePaneLayout(kind: PaneLayoutKind) {
   panePercents.value = [...paneLayoutCache[kind]]
 }
 
-function schedulePaneLayoutSave() {
-  if (paneLayoutSaveTimer.value !== null) {
-    window.clearTimeout(paneLayoutSaveTimer.value)
-  }
-  paneLayoutSaveTimer.value = window.setTimeout(savePaneLayout, 200)
-}
-
 function savePaneLayout() {
-  if (paneLayoutSaveTimer.value !== null) {
-    window.clearTimeout(paneLayoutSaveTimer.value)
-    paneLayoutSaveTimer.value = null
-  }
   const kind = activePaneLayoutKind()
   const rounded = repairPaneLayout(normalizePanePercents(panePercents.value), kind)
     .map((value) => Math.round(value * 100) / 100)
@@ -2484,8 +2452,12 @@ async function clearArtistProvider(artist: Artist) {
   if (writeActionsDisabled.value) {
     return
   }
+  const provider = providerForArtist(artist)
+  if (!provider) {
+    return
+  }
   try {
-    await store.clearArtistProvider(artist.id, providerForArtist(artist)?.providerId)
+    await store.clearArtistProvider(artist.id, provider.providerId)
   } catch (error) {
     store.showErrorStatus(error, 'Unable to remove provider')
   }
@@ -2735,9 +2707,6 @@ onBeforeUnmount(() => {
   if (artistRowMeasureFrame !== null) {
     window.cancelAnimationFrame(artistRowMeasureFrame)
     artistRowMeasureFrame = null
-  }
-  if (paneLayoutSaveTimer.value !== null) {
-    savePaneLayout()
   }
 })
 

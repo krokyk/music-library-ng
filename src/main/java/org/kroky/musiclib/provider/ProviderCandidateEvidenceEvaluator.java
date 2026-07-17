@@ -73,7 +73,6 @@ final class ProviderCandidateEvidenceEvaluator {
                 albumEvidenceScore,
                 yearBonus,
                 evidenceSummary(finalScore, nameScore, albumEvidence),
-                matchedLocalAlbums(albumEvidence),
                 albumEvidence);
     }
 
@@ -288,16 +287,6 @@ final class ProviderCandidateEvidenceEvaluator {
             }
         }
         return List.copyOf(strongestByAlbum.values());
-    }
-
-    private static List<String> matchedLocalAlbums(List<ArtistProviderCandidateAlbum> albumEvidence) {
-        LinkedHashSet<String> titles = new LinkedHashSet<>();
-        for (ArtistProviderCandidateAlbum evidence : scoringEvidence(albumEvidence)) {
-            if (KIND_LOCAL.equals(evidence.localEvidenceKind()) && evidence.localTitle() != null) {
-                titles.add(evidence.localTitle());
-            }
-        }
-        return List.copyOf(titles);
     }
 
     private static String evidenceSummary(int finalScore, int nameScore, List<ArtistProviderCandidateAlbum> albumEvidence) {
@@ -542,7 +531,6 @@ final class ProviderCandidateEvidenceEvaluator {
             int albumEvidenceScore,
             int yearBonus,
             String evidenceSummary,
-            List<String> matchedLocalAlbums,
             List<ArtistProviderCandidateAlbum> albumEvidence) {
     }
 

@@ -1,12 +1,10 @@
 package org.kroky.musiclib.resource;
 
 import org.jboss.logging.Logger;
-import org.kroky.musiclib.model.AlbumTitleConflictPlan;
 import org.kroky.musiclib.model.AlbumTitleConflictResult;
 import org.kroky.musiclib.provider.AlbumProviderConflictService;
 
 import jakarta.inject.Inject;
-import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -18,15 +16,6 @@ public class AlbumProviderTitleConflictResource {
 
     @Inject
     AlbumProviderConflictService conflicts;
-
-    @GET
-    @Path("/provider-title-plan")
-    public AlbumTitleConflictPlan providerTitlePlan(
-            @PathParam("albumId") long albumId,
-            @PathParam("providerLinkId") long providerLinkId) {
-        LOG.infof("Preview provider title conflict resolution album=%d providerLink=%d", albumId, providerLinkId);
-        return conflicts.planUseProviderTitle(albumId, providerLinkId);
-    }
 
     @POST
     @Path("/keep-local")

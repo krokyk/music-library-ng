@@ -34,10 +34,6 @@ public class ArtistProviderBulkMatchService {
     @Inject
     ArtistProviderMatchService matches;
 
-    public ArtistProviderBulkMatchResult matchMusicBrainzArtists(List<Long> requestedArtistIds) {
-        return matchProviderArtists("musicbrainz", requestedArtistIds);
-    }
-
     public ArtistProviderBulkMatchResult matchProviderArtists(String providerId, List<Long> requestedArtistIds) {
         List<Long> artistIds = artistIds(requestedArtistIds);
         List<ArtistProviderBulkMatchItem> items = new ArrayList<>();

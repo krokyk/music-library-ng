@@ -413,14 +413,6 @@ body,
   overflow: auto;
 }
 
-.scan-report-dialog__loading {
-  align-items: center;
-  color: rgba(255, 255, 255, 0.68);
-  display: flex;
-  gap: 10px;
-  padding: 24px 0;
-}
-
 .scan-report-dialog__content {
   color: rgba(255, 255, 255, 0.9);
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
@@ -500,7 +492,6 @@ body,
   line-height: 1.15;
 }
 
-.page-kicker,
 .stat-strip {
   color: rgba(255, 255, 255, 0.58);
   font-size: 0.78rem;
@@ -539,12 +530,6 @@ body,
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   margin-bottom: 18px;
   padding-bottom: 18px;
-}
-
-.settings-section--last {
-  border-bottom: 0;
-  margin-bottom: 0;
-  padding-bottom: 4px;
 }
 
 .settings-section__header {
@@ -621,10 +606,6 @@ body,
 .settings-cell--control {
   align-items: center;
   display: flex;
-}
-
-.settings-cell--spacer {
-  display: none;
 }
 
 .settings-slider-control {
@@ -720,56 +701,11 @@ body,
   background: rgba(255, 255, 255, 0.035);
 }
 
-.music-table-row--selectable {
-  cursor: pointer;
-}
-
-.music-table .v-table__wrapper > table > tbody > tr.music-table-row--selected > td {
-  background: rgba(0, 213, 255, 0.1);
-}
-
-.music-table .v-table__wrapper > table > tbody > tr.music-table-row--selected:hover > td {
-  background: rgba(0, 213, 255, 0.14);
-}
-
-.music-table-row--deleting > td {
-  color: rgba(255, 255, 255, 0.42);
-  font-style: italic;
-}
-
-.artist-delete-cell {
-  align-items: center;
-  display: inline-flex;
-  gap: 8px;
-  min-width: 0;
-}
-
-.artist-provider-actions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  justify-content: flex-end;
-  vertical-align: middle;
-}
-
-.artist-provider-action {
-  min-width: 0;
-}
-
-.artist-provider-action__label {
-  white-space: nowrap;
-}
-
 .artist-info-grid {
   align-items: start;
   display: grid;
   gap: 8px 12px;
   grid-template-columns: 92px minmax(0, 1fr);
-}
-
-.artist-info-albums {
-  max-height: 360px;
-  overflow: auto;
 }
 
 .artists-page {
@@ -1257,12 +1193,6 @@ body,
   box-shadow: inset 0 0 0 1px rgba(255, 190, 80, 0.42);
 }
 
-.metadata-protected-outline--text {
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
-  padding-inline: 3px;
-}
-
 .artist-source-value.metadata-protected-outline {
   padding: 2px 4px;
 }
@@ -1457,12 +1387,6 @@ body,
 .workspace-row--deleting {
   color: rgba(255, 255, 255, 0.42);
   font-style: italic;
-}
-
-@media (max-width: 1280px) {
-  .artist-provider-action__label {
-    display: none;
-  }
 }
 
 .collections-workspace {
@@ -1718,17 +1642,6 @@ body,
   align-items: center;
   display: flex;
   gap: 8px;
-}
-
-.nav-row__edit {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(0, 213, 255, 0.52);
-  border-radius: 4px;
-  color: #ffffff;
-  font: inherit;
-  min-width: 0;
-  outline: 0;
-  padding: 3px 6px;
 }
 
 .nav-row__actions {
@@ -2004,11 +1917,6 @@ body.is-pane-resizing {
 
 .album-cell {
   width: 100%;
-}
-
-.album-cell__disk-icon {
-  flex: 0 0 auto;
-  margin-left: auto;
 }
 
 .artist-cell__spinner {
@@ -2413,16 +2321,6 @@ body.is-pane-resizing {
   color: #06160a;
 }
 
-.provider-candidate-album-chip__badge--checked {
-  background: rgb(var(--v-theme-primary));
-  color: #051018;
-}
-
-.provider-candidate-album-chip__badge--unchecked {
-  background: rgba(255, 255, 255, 0.72);
-  color: #111111;
-}
-
 .provider-candidate-album-chip__badge--conflict {
   background: rgb(var(--v-theme-warning));
   color: #160f00;
@@ -2538,7 +2436,6 @@ body.is-pane-resizing {
 
 .workspace-row:hover .row-actions,
 .workspace-row.is-selected .row-actions,
-.music-table-row--selected .row-actions,
 .row-actions:focus-within {
   opacity: 1;
   pointer-events: auto;
@@ -2642,8 +2539,7 @@ body.is-pane-resizing {
   padding: 0 12px;
 }
 
-.collection-type-toggle .v-btn__content,
-.collection-type-chip .v-chip__content {
+.collection-type-toggle .v-btn__content {
   gap: 7px;
 }
 
@@ -2717,17 +2613,6 @@ body.is-pane-resizing {
 
 .collection-edit-row__label {
   line-height: 1;
-}
-
-.collection-edit-row__value {
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 0.82rem;
-  font-weight: 800;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
 }
 
 .dialog-card .v-card-title {
@@ -2988,15 +2873,6 @@ body.is-pane-resizing {
   text-transform: uppercase;
 }
 
-.provider-conflict-choice__label {
-  color: rgba(255, 255, 255, 0.58);
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
 .provider-conflict-choice__value {
   align-self: center;
   color: rgba(255, 255, 255, 0.93);
@@ -3086,12 +2962,6 @@ body.is-pane-resizing {
 
 .edit-form__grid > .v-col {
   padding: 8px;
-}
-
-.edit-form__section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--edit-form-gap-small, 10px);
 }
 
 .edit-form__meta {

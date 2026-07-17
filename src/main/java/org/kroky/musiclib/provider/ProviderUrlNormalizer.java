@@ -71,10 +71,6 @@ public final class ProviderUrlNormalizer {
         return METAL_ARCHIVES_BASE_URL + METAL_ARCHIVES_DISCOGRAPHY_PATH.formatted(metalArchivesBandId(providerUrl));
     }
 
-    public static String metalArchivesExternalArtistUrl(String providerUrl) {
-        return normalizeMetalArchives(providerUrl) + "#band_tab_discography";
-    }
-
     public static String metalArchivesBandId(String providerUrl) {
         URI uri = parseRequired(providerUrl, "Metal Archives URL is required");
         requireHttps(uri, "Metal Archives URL must start with https://");

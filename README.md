@@ -132,20 +132,15 @@ Install Visual Studio Build Tools with Desktop development with C++, MSVC Build 
 Install GraalVM for JDK 21, Windows x64 archive, and point `GRAALVM_HOME` at it.
 
 Build frontend assets in WSL first with the normal Gradle build when frontend changes need to be included.
-Then run the native helper from Windows PowerShell:
+Run the batch launcher from Windows PowerShell, Command Prompt, Explorer, or Total Commander:
 
-```powershell
-$env:GRAALVM_HOME = "<graalvm-jdk-21>"
+```bat
 cd <project-root>
 .\build-native-exe.bat
 ```
 
-The helper calls `scripts/build-native-exe.ps1`, loads the Visual Studio amd64 build environment when it can, and skips frontend tasks by default.
-If you call the PowerShell helper directly after `frontend/dist` is current, use:
-
-```powershell
-.\scripts\build-native-exe.ps1 -SkipFrontend
-```
+The batch launcher runs `scripts/build-native-exe.ps1`, loads the Visual Studio amd64 build environment when it can, and skips frontend tasks by default.
+Edit its `GRAALVM_HOME` value when the local GraalVM installation moves.
 
 The expected native executable is:
 

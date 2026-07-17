@@ -16,7 +16,6 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -39,18 +38,6 @@ public class ArtistProviderResource {
 
     @Inject
     ProviderRegistry providerRegistry;
-
-    @GET
-    @Path("/provider")
-    public ArtistProviderLink provider(@PathParam("artistId") long artistId) {
-        return providerLinks.findByArtist(artistId).orElseThrow(NotFoundException::new);
-    }
-
-    @GET
-    @Path("/providers")
-    public List<ArtistProviderLink> providers(@PathParam("artistId") long artistId) {
-        return providerLinks.listByArtist(artistId);
-    }
 
     @GET
     @Path("/provider-candidates/{providerId}")
@@ -87,13 +74,6 @@ public class ArtistProviderResource {
                 request.providerDisambiguation(),
                 request.providerActive(),
                 request.enabledOrDefault());
-    }
-
-    @DELETE
-    @Path("/provider")
-    public Response clearProvider(@PathParam("artistId") long artistId) {
-        providerLinks.deleteByArtist(artistId);
-        return Response.noContent().build();
     }
 
     @DELETE

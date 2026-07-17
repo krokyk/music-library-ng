@@ -50,10 +50,6 @@ public class ScanService {
     @Inject
     MusicRootService musicRootService;
 
-    public List<ScanSummary> scanAllEnabled() {
-        return scanAllEnabled(ProgressListener.NONE);
-    }
-
     public List<ScanSummary> scanAllEnabled(ProgressListener progress) {
         LOG.info("Starting scan for all collections");
         List<ScanSummary> summaries = new ArrayList<>();
@@ -66,18 +62,10 @@ public class ScanService {
         return summaries;
     }
 
-    public ScanSummary scan(String collectionId) {
-        return scan(collectionId, ProgressListener.NONE);
-    }
-
     public ScanSummary scan(String collectionId, ProgressListener progress) {
         MusicCollection collection = collectionRepository.find(collectionId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown collection: " + collectionId));
         return scan(collection, progress);
-    }
-
-    public ScanSummary scan(MusicCollection collection) {
-        return scan(collection, ProgressListener.NONE);
     }
 
     public ScanSummary scan(MusicCollection collection, ProgressListener progress) {

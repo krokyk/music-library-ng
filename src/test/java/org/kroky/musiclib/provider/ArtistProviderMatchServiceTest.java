@@ -91,7 +91,6 @@ class ArtistProviderMatchServiceTest {
         assertEquals(96, evidence.albumEvidenceScore());
         assertEquals(9, evidence.yearBonus());
         assertEquals(100, evidence.nameScore());
-        assertEquals(List.of("The Alliance of the Kings", "Soulless Child"), evidence.matchedLocalAlbums());
         assertEvidence(evidence.albumEvidence().get(0), "exact", 100, 40, "local");
         assertEvidence(evidence.albumEvidence().get(1), "normalized", 96, 24, "checked");
         assertEvidence(evidence.albumEvidence().get(2), "fuzzy", 99, 32, "local");

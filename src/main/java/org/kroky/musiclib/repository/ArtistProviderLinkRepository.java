@@ -73,19 +73,6 @@ public class ArtistProviderLinkRepository {
         }
     }
 
-    public Optional<ArtistProviderLink> findByArtist(long artistId) {
-        String sql = baseSelect() + " WHERE apl.artist_id = ? ORDER BY apl.id LIMIT 1";
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, artistId);
-            try (ResultSet rs = statement.executeQuery()) {
-                return rs.next() ? Optional.of(map(rs)) : Optional.empty();
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to find provider for artist " + artistId, e);
-        }
-    }
-
     public Optional<ArtistProviderLink> findByArtistAndProvider(long artistId, String providerId) {
         String sql = baseSelect() + " WHERE apl.artist_id = ? AND apl.provider_id = ? ORDER BY apl.id LIMIT 1";
         try (Connection connection = dataSource.getConnection();
@@ -97,21 +84,6 @@ public class ArtistProviderLinkRepository {
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to find " + providerId + " provider for artist " + artistId, e);
-        }
-    }
-
-    public List<ArtistProviderLink> listEnabled() {
-        String sql = baseSelect() + " WHERE apl.enabled = 1 ORDER BY ar.name, apl.provider_id";
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql);
-                ResultSet rs = statement.executeQuery()) {
-            List<ArtistProviderLink> links = new ArrayList<>();
-            while (rs.next()) {
-                links.add(map(rs));
-            }
-            return links;
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to list enabled provider links", e);
         }
     }
 
@@ -238,16 +210,6 @@ public class ArtistProviderLinkRepository {
             statement.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to update provider metadata for link " + id, e);
-        }
-    }
-
-    public void deleteByArtist(long artistId) {
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement("DELETE FROM artist_provider_links WHERE artist_id = ?")) {
-            statement.setLong(1, artistId);
-            statement.executeUpdate();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to delete provider for artist " + artistId, e);
         }
     }
 

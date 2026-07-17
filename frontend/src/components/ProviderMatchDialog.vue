@@ -13,7 +13,6 @@ const props = withDefaults(defineProps<{
   candidates: ArtistProviderCandidate[]
   candidatesByProvider?: CandidateMap
   loadingProviderIds?: ProviderId[]
-  loadedProviderIds?: ProviderId[]
   selectedProviderCandidateIds?: Partial<Record<ProviderId, string | null>>
   multiProvider?: boolean
   artistName?: string | null
@@ -84,24 +83,7 @@ function candidateInfo(candidate: ArtistProviderCandidate) {
 }
 
 function candidateAlbums(candidate: ArtistProviderCandidate) {
-  const evidence = candidate.albumEvidence?.length ? candidate.albumEvidence : candidate.albums
-  return evidence.length > 0
-    ? evidence
-    : candidate.releaseGroups.map((group) => ({
-        title: group.title,
-        providerReleaseDate: group.releaseDate,
-        providerUrl: group.providerUrl,
-        localAlbumId: null,
-        localTitle: null,
-        localReleaseDate: null,
-        localOnDisk: false,
-        releaseDateConflict: false,
-        matchType: 'none' as const,
-        titleScore: 0,
-        evidenceStrength: 0,
-        localEvidenceKind: 'provider-only' as const,
-        genericTitle: false,
-      }))
+  return candidate.albumEvidence
 }
 
 function sortedCandidateAlbums(candidate: ArtistProviderCandidate) {
@@ -174,17 +156,8 @@ function albumYearDistance(album: ArtistProviderCandidateAlbum) {
   return Math.abs(Number(providerYear) - Number(localYear))
 }
 
-function candidateScore(candidate: ArtistProviderCandidate) {
-  return candidate.finalScore ?? candidate.matchScore
-}
-
 function candidateEvidenceSummary(candidate: ArtistProviderCandidate) {
-  if (candidate.evidenceSummary) {
-    return candidate.evidenceSummary
-  }
-  const albumMatches = candidate.matchedLocalAlbums.length
-  const albumText = albumMatches === 1 ? '1 local' : `${albumMatches} local`
-  return `Confidence ${candidateScore(candidate)} / Name ${candidate.nameScore ?? 0} / Albums ${albumMatches > 0 ? albumText : 'no evidence'}`
+  return candidate.evidenceSummary
 }
 
 function albumChipLabel(album: ArtistProviderCandidateAlbum) {
@@ -411,7 +384,7 @@ function refreshAll() {
               <div class="provider-candidate-row__title">
                 <span class="cell-strong">{{ candidate.providerArtistName }}</span>
                 <v-chip size="x-small" color="primary" variant="tonal" class="ml-2">
-                  Confidence {{ candidateScore(candidate) }}
+                  Confidence {{ candidate.finalScore }}
                 </v-chip>
               </div>
               <div class="provider-candidate-row__subtitle">

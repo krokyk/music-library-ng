@@ -167,14 +167,10 @@ class ArtistProviderBulkMatchServiceTest {
                 null,
                 providerScore,
                 evidence.finalScore(),
-                evidence.finalScore(),
                 evidence.nameScore(),
                 evidence.albumEvidenceScore(),
                 evidence.yearBonus(),
                 evidence.evidenceSummary(),
-                evidence.matchedLocalAlbums(),
-                evidence.albumEvidence(),
-                List.of(),
                 evidence.albumEvidence());
     }
 

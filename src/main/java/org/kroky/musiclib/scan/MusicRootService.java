@@ -52,10 +52,6 @@ public class MusicRootService {
                 candidates());
     }
 
-    public Optional<Path> selectedRoot() {
-        return Optional.of(requireRoot());
-    }
-
     public Path requireRoot() {
         Path root = cachedRoot;
         if (root != null) {

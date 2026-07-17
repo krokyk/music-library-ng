@@ -18,7 +18,6 @@ interface UiForm {
   scanPollIntervalMs: number
   artistScanSpinnerEnabled: boolean
   providerBatchRescanDelayMinutes: number
-  statusHistoryDateFormat: string
   statusBarLocation: 'top' | 'bottom'
 }
 
@@ -44,7 +43,6 @@ const uiForm = reactive<UiForm>({
   scanPollIntervalMs: 200,
   artistScanSpinnerEnabled: true,
   providerBatchRescanDelayMinutes: 60,
-  statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
   statusBarLocation: 'top',
 })
 const savingUiSettings = ref(false)
@@ -59,7 +57,6 @@ function syncUiForm() {
   uiForm.scanPollIntervalMs = uiSettings.value.scanPollIntervalMs
   uiForm.artistScanSpinnerEnabled = uiSettings.value.artistScanSpinnerEnabled
   uiForm.providerBatchRescanDelayMinutes = uiSettings.value.providerBatchRescanDelayMinutes
-  uiForm.statusHistoryDateFormat = uiSettings.value.statusHistoryDateFormat
   uiForm.statusBarLocation = uiSettings.value.statusBarLocation
 }
 

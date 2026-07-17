@@ -133,11 +133,8 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Provider status values such as split, split-up, disbanded, inactive, on hold, and changed name normalize to `Inactive`.
 - `Unknown` participates in provider metadata conflicts but is not a selectable status resolution.
 - Artist provider country and status conflicts remain unresolved when no strict consensus exists and the artist has no manual override.
-- `GET /api/artists/{artistId}/providers` lists all provider links for one artist.
-- `GET /api/artists/{artistId}/provider` returns the first provider link for compatibility with older callers.
 - `PUT /api/artists/{artistId}/provider` upserts the link for the requested provider without replacing other provider links.
 - `DELETE /api/artists/{artistId}/providers/{providerId}` removes one provider link.
-- `DELETE /api/artists/{artistId}/provider` removes every provider link for the artist.
 - Provider candidate search is shared across supported providers through `GET /api/artists/{artistId}/provider-candidates/{providerId}`.
 - Manual provider candidate dialogs and bulk provider matching use the same backend candidate-evidence evaluator.
 - Provider candidate confidence combines provider search score, artist-name similarity, album-title evidence, and a small capped release-year bonus.
@@ -332,7 +329,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Artists use `GET`, `POST`, `PUT`, and `DELETE` routes under `/api/artists`.
 - Artist removal from a collection uses `DELETE /api/artists/{id}/collections/{collectionId}`.
 - Albums use `GET`, `POST`, and `PUT` routes under `/api/albums`.
-- One-artist provider identities use `GET /api/artists/{artistId}/providers`, `GET /api/artists/{artistId}/provider`, `PUT /api/artists/{artistId}/provider`, `DELETE /api/artists/{artistId}/providers/{providerId}`, and `DELETE /api/artists/{artistId}/provider`.
+- One-artist provider identities use `PUT /api/artists/{artistId}/provider` and `DELETE /api/artists/{artistId}/providers/{providerId}`.
 - Provider candidate search uses `GET /api/artists/{artistId}/provider-candidates/{providerId}`.
 - Provider bulk matching uses `POST /api/provider-matches/{providerId}/artists`.
 - Provider bulk matching requires an explicit `artistIds` array and never falls back to all artists.

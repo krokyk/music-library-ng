@@ -22,14 +22,6 @@ public class SettingsResource {
     private static final String SCAN_POLL_KEY = "ui.scan-progress.poll-interval-ms";
     private static final String ARTIST_SPINNER_KEY = "collections-screen.artists-pane.scan-spinner-enabled";
     private static final String STATUS_BAR_LOCATION_KEY = "ui.status-bar.location";
-    private static final String[] OBSOLETE_UI_KEYS = {
-            "collections-screen.collections-pane.scan-spinner-enabled",
-            "collections-screen.collections-pane.scan-progress-enabled",
-            "collections-screen.collections-pane.action-label-threshold",
-            "collections-screen.artists-pane.action-label-threshold",
-            "collections-screen.albums-pane.action-label-threshold",
-            "collections-screen.titles-pane.action-label-threshold"
-    };
     private static final int STATUS_VISIBLE_MIN = 0;
     private static final int STATUS_VISIBLE_MAX = 30_000;
     private static final int SCAN_POLL_MIN = 100;
@@ -111,12 +103,10 @@ public class SettingsResource {
         preferences.delete(ARTIST_SPINNER_KEY);
         preferences.delete(ProviderSettingsService.BATCH_RESCAN_DELAY_KEY);
         preferences.delete(STATUS_BAR_LOCATION_KEY);
-        deleteObsoleteUiPreferences();
         return effectiveUiSettings();
     }
 
     private UiSettings effectiveUiSettings() {
-        deleteObsoleteUiPreferences();
         int defaultStatusVisible = defaultStatusVisible();
         int defaultScanPoll = defaultScanPoll();
         boolean defaultArtistSpinner = config.ui().defaultArtistScanSpinnerEnabled();
@@ -155,44 +145,7 @@ public class SettingsResource {
                 new UiSettings.Values(
                         defaultStatusVisible,
                         defaultScanPoll,
-                        defaultArtistSpinner,
-                        defaultProviderBatchRescanDelay,
-                        defaultDateFormat,
-                        defaultReleaseDateDisplayFormat,
-                        defaultStatusBarLocation,
-                        defaultWorkspaceColumnWidths(),
-                        defaultArtistsScreenColumnWidths(),
-                        tableGridColumnMinWidth),
-                new UiSettings.Overrides(
-                        statusVisible
-                                .map(value -> parseInt(
-                                        value.value(),
-                                        defaultStatusVisible,
-                                        STATUS_VISIBLE_MIN,
-                                        STATUS_VISIBLE_MAX) != defaultStatusVisible)
-                                .orElse(false),
-                        scanPoll
-                                .map(value -> parseInt(
-                                        value.value(),
-                                        defaultScanPoll,
-                                        SCAN_POLL_MIN,
-                                        SCAN_POLL_MAX) != defaultScanPoll)
-                                .orElse(false),
-                        artistSpinner.map(value -> Boolean.parseBoolean(value.value()) != defaultArtistSpinner)
-                                .orElse(false),
-                        providerBatchRescanDelay
-                                .map(value -> parseInt(
-                                        value.value(),
-                                        defaultProviderBatchRescanDelay,
-                                        ProviderSettingsService.BATCH_RESCAN_DELAY_MIN,
-                                        ProviderSettingsService.BATCH_RESCAN_DELAY_MAX) != defaultProviderBatchRescanDelay)
-                                .orElse(false),
-                        false,
-                        false,
-                        statusBarLocation
-                                .map(value -> !normalizeStatusBarLocation(value.value(), defaultStatusBarLocation)
-                                        .equals(defaultStatusBarLocation))
-                                .orElse(false)));
+                        defaultProviderBatchRescanDelay));
     }
 
     private UiSettings.WorkspaceColumnWidths defaultWorkspaceColumnWidths() {
@@ -243,12 +196,6 @@ public class SettingsResource {
             preferences.delete(key);
         } else {
             preferences.save(key, value);
-        }
-    }
-
-    private void deleteObsoleteUiPreferences() {
-        for (String key : OBSOLETE_UI_KEYS) {
-            preferences.delete(key);
         }
     }
 

@@ -30,13 +30,12 @@ Use the current source-of-truth docs and the codebase as shared memory.
 - Use `codex-ui-workflow-guide.md` for stable workflow and UI rules.
 - Use `ideas.md` for unimplemented ideas only.
 - Remove or shrink ideas from `ideas.md` when implementing or rejecting them.
-- Treat `evolution-*.md` files as historical archaeology only.
-- Consult evolution docs only when the current docs and code do not explain why an older decision exists.
+- Treat `evolution-*.md` files as preserved historical archaeology only.
+- Consult evolution documents only when the current docs and code do not explain why an older decision exists.
 - Do not put long session transcripts into `AGENTS.md`.
 - Do not put chat chronology, session labels, suggested prompts, abandoned ideas, speculative alternatives, or commit archaeology into current docs.
-- Do not create an evolution document for every session.
-- Create a new evolution or design note only for a major decision that needs durable rationale beyond the current behavior reference.
-- After a major decision is implemented, update `current-application.md` and leave the evolution doc as historical context.
+- Create a design note only for a major decision that needs durable rationale beyond the current behavior reference.
+- After a major decision is implemented, update `current-application.md`.
 - Before committing documentation, search the relevant code paths for behavior that could make the doc stale.
 - When starting a separate session, give it a narrow ownership boundary, for example: "work only on album grid behavior" or "work only on settings layout".
 - When two sessions work in parallel, use separate branches or worktrees and merge through normal Git review.

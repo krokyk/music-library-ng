@@ -51,9 +51,6 @@ public class ProviderCheckService {
                 int errors) {
         }
 
-        default boolean isCancelled() {
-            return false;
-        }
     }
 
     @Inject
@@ -111,11 +108,6 @@ public class ProviderCheckService {
         return checkLinks(report, links, skippedArtists, collection.id(), batchRescanDelayMinutes, true, progress);
     }
 
-    public ProviderCheckSummary checkAll(int batchRescanDelayMinutes, ProgressListener progress) {
-        ProviderCheckReport report = new ProviderCheckReport("all provider checks");
-        return checkLinks(report, providerLinks.listEnabled(), 0, null, batchRescanDelayMinutes, true, progress);
-    }
-
     private ProviderCheckSummary checkLinks(ProviderCheckReport report, List<ArtistProviderLink> links,
             int skippedArtists,
             String collectionId, int batchRescanDelayMinutes, boolean skipRecentlyChecked,
@@ -144,13 +136,6 @@ public class ProviderCheckService {
         }
 
         for (ArtistProviderLink link : links) {
-            if (progress.isCancelled()) {
-                String message = "Provider check cancelled.";
-                messages.add(message);
-                report.note(message);
-                return providerSummary(report, "CANCELLED", processedArtists, skippedArtists, foundAlbums, newAlbums,
-                        existingAlbums, releaseDateConflicts, titleConflicts, ignoredProviderRecords, errors, messages);
-            }
             if (skipRecentlyChecked && recentlyChecked(link, batchRescanDelayMinutes)) {
                 skippedArtists++;
                 recentlySkippedArtists++;

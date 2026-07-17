@@ -13,9 +13,6 @@ public interface MusicLibraryConfig {
     @WithName("db.path")
     String dbPath();
 
-    @WithName("backup.directory")
-    String backupDirectory();
-
     @WithName("report.directory")
     @WithDefault("data/reports")
     String reportDirectory();

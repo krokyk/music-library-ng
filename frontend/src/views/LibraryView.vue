@@ -132,6 +132,13 @@ function normalizeReleaseDateInput(value: unknown) {
   return text || null
 }
 
+function updateAlbumReleaseDate(album: Album, event: Event) {
+  const releaseDate = normalizeReleaseDateInput((event.target as HTMLInputElement).value)
+  if (releaseDate !== album.releaseDate) {
+    void updateAlbum(album, { releaseDate })
+  }
+}
+
 onMounted(() => store.loadAll())
 </script>
 
@@ -279,7 +286,7 @@ onMounted(() => store.loadAll())
                 density="compact"
                 :disabled="writeActionsDisabled"
                 hide-details
-                @update:model-value="(value) => updateAlbum(album, { releaseDate: normalizeReleaseDateInput(value) })"
+                @change="updateAlbumReleaseDate(album, $event)"
               ></v-text-field>
             </td>
             <td style="width: 112px">

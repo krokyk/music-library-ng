@@ -57,8 +57,3 @@ export function countryFlagSrc(value?: string | null) {
   const code = normalizeCountryCode(value)
   return code ? `/flags/${code.toLowerCase()}.svg` : ''
 }
-
-export function countryOption(value?: string | null) {
-  const code = normalizeCountryCode(value)
-  return code ? countryOptions.find((option) => option.code === code) ?? null : null
-}

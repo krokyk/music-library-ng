@@ -11,30 +11,12 @@ public record UiSettings(
         WorkspaceColumnWidths workspaceColumnDefaults,
         ArtistsScreenColumnWidths artistsScreenColumnDefaults,
         int tableGridColumnMinWidth,
-        Values defaults,
-        Overrides overrides) {
+        Values defaults) {
 
     public record Values(
             int statusCompleteVisibleMs,
             int scanPollIntervalMs,
-            boolean artistScanSpinnerEnabled,
-            int providerBatchRescanDelayMinutes,
-            String statusHistoryDateFormat,
-            String releaseDateDisplayFormat,
-            String statusBarLocation,
-            WorkspaceColumnWidths workspaceColumnDefaults,
-            ArtistsScreenColumnWidths artistsScreenColumnDefaults,
-            int tableGridColumnMinWidth) {
-    }
-
-    public record Overrides(
-            boolean statusCompleteVisibleMs,
-            boolean scanPollIntervalMs,
-            boolean artistScanSpinnerEnabled,
-            boolean providerBatchRescanDelayMinutes,
-            boolean statusHistoryDateFormat,
-            boolean releaseDateDisplayFormat,
-            boolean statusBarLocation) {
+            int providerBatchRescanDelayMinutes) {
     }
 
     public record WorkspaceColumnWidths(

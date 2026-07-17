@@ -14,7 +14,7 @@ Current behavior belongs in `docs/current-application.md`.
 
 - Add startup and shutdown backup handling for the SQLite database.
 - Add backup and restore metadata so the app can show what backup was produced and which runtime database it belongs to.
-- Keep backups under the configured backup directory unless the user explicitly chooses another location.
+- Keep backups under `data/backups` unless the user explicitly chooses another location.
 
 ## Cover Art
 
@@ -26,15 +26,6 @@ Current behavior belongs in `docs/current-application.md`.
 - Keep an artist provider chip visible in the Collections screen Artists pane whenever the artist has a provider identity.
 - Do not make the provider identity visible only on row hover because provider assignment is persistent row state, not just an action.
 - Preserve the existing hover and selected-row behavior for actions that operate on the provider chip.
-
-## Collection Scan Consolidation And Performance
-
-- Revisit the local scan buttons in the Collections screen Artists pane because the bulk local scan overlaps with collection scan behavior.
-- Evaluate whether per-artist local scans still provide enough value to justify their buttons.
-- If the per-artist scan is not useful, remove local scan buttons from the Artists pane and keep collection scan as the main local discovery action.
-- Improve collection scan performance for the common case where the user only added new folders on disk.
-- Consider loading existing collection artists and local paths into memory, scanning folder names quickly, and comparing the two sets before doing heavier database writes.
-- Preserve the current rule that scans update database evidence and never rename or delete files on disk.
 
 ## Grid Table Action Alignment
 
@@ -60,7 +51,6 @@ Current behavior belongs in `docs/current-application.md`.
 ## Album Collection Membership Assignment
 
 - Add collection membership editing to album edit flows so provider-discovered albums can be assigned to collections by user choice.
-- Provider-discovered albums should not automatically gain collection membership unless the provider job is collection-scoped and the album is otherwise unassigned.
 - Consider prompting when the user marks a provider-discovered album checked from a collection context.
 - The prompt could offer to also add the album to the active collection.
 - Avoid prompting when the album already belongs to the active collection or when the checkbox change is not collection-contextual.
@@ -79,16 +69,6 @@ Current behavior belongs in `docs/current-application.md`.
 - The navigation should preserve the user expectation that a collection chip represents real membership, not just decorative metadata.
 - If the target collection is title-centric, navigate to the title row for the album instead of trying to select an artist pane row.
 
-## Screenshots
-
-- Add maintained screenshots for the README or documentation.
-- Screenshots should be regenerated from the packaged app so they match the production UI.
-
-## Release Packaging
-
-- Document the preferred release packaging layout and update process beyond the current native executable build notes.
-- The packaging docs should cover config location, data location, backups, and upgrade expectations.
-
 ## Compilation Representation
 
 - Decide how to represent compilations where album-level contributors are not enough.
@@ -100,10 +80,11 @@ Current behavior belongs in `docs/current-application.md`.
 - Add a duplicate-detection workflow for albums with slightly different names, release dates, or provider identities.
 - The workflow should preview merges before changing shared album identity.
 
-## Folder Rename Workflow
+## Folder Rename Preview And Confirmation
 
-- Add an identity-preserving folder rename workflow with preview and stored local-path updates.
-- This workflow must not silently rename folders as part of scanning.
+- Add a UI preview and explicit confirmation before conflict resolution renames folders or updates audio tags.
+- Show source and target folders, planned tag changes, unsupported files, and warnings from the existing conflict plan.
+- Reuse the existing Windows-safe folder rendering, rollback, and stored local-path update behavior.
 
 ## Artist Collection Organizer
 

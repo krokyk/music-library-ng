@@ -4,9 +4,7 @@ import { formatDateWithJavaPattern } from '@/dateFormat'
 import { providerDefinition, type ProviderId } from '@/providers'
 import type {
   Album,
-  AlbumReleaseDateConflictPlan,
   AlbumReleaseDateConflictResult,
-  AlbumTitleConflictPlan,
   AlbumTitleConflictResult,
   Artist,
   ArtistCountryConflict,
@@ -69,7 +67,6 @@ interface State {
   selectedArtistId: number | null
   musicRoot: MusicRootInfo | null
   scanJob: ScanJobStatus | null
-  providerLinks: Record<number, ArtistProviderLink[]>
   providerJob: ProviderCheckJobStatus | null
   artistCountryConflicts: ArtistCountryConflict[]
   artistStatusConflicts: ArtistStatusConflict[]
@@ -153,7 +150,6 @@ export const useLibraryStore = defineStore('library', {
     selectedArtistId: null,
     musicRoot: null,
     scanJob: null,
-    providerLinks: {},
     providerJob: null,
     artistCountryConflicts: [],
     artistStatusConflicts: [],
@@ -173,23 +169,7 @@ export const useLibraryStore = defineStore('library', {
       defaults: {
         statusCompleteVisibleMs: 10000,
         scanPollIntervalMs: 200,
-        artistScanSpinnerEnabled: true,
         providerBatchRescanDelayMinutes: 60,
-        statusHistoryDateFormat: 'yyyy-MM-dd HH:mm:ss.SSS',
-        releaseDateDisplayFormat: 'yyyy-MM-dd',
-        statusBarLocation: 'top',
-        workspaceColumnDefaults: defaultWorkspaceColumnDefaults,
-        artistsScreenColumnDefaults: defaultArtistsScreenColumnDefaults,
-        tableGridColumnMinWidth: 40,
-      },
-      overrides: {
-        statusCompleteVisibleMs: false,
-        scanPollIntervalMs: false,
-        artistScanSpinnerEnabled: false,
-        providerBatchRescanDelayMinutes: false,
-        statusHistoryDateFormat: false,
-        releaseDateDisplayFormat: false,
-        statusBarLocation: false,
       },
     },
     statusHistory: [],
@@ -611,21 +591,6 @@ export const useLibraryStore = defineStore('library', {
         await this.loadAlbumsForArtist(this.selectedArtistId, true, { clearCurrent: false })
       }
     },
-    async refreshCollectionArtistsOnly(clearArtistSelection = false) {
-      if (!this.selectedCollectionId) {
-        return
-      }
-      if (clearArtistSelection) {
-        this.selectedArtistId = null
-      }
-      this.collectionAlbums = []
-      const collection = this.collections.find((item) => item.id === this.selectedCollectionId)
-      if (collection?.type === 'TITLE') {
-        await this.loadTitlesForCollection(this.selectedCollectionId, true)
-      } else {
-        await this.loadArtistsForCollection(this.selectedCollectionId, true)
-      }
-    },
     async addArtist(name: string) {
       await this.saveArtist({ name, sortName: null, countryOverride: null, activeOverride: null })
       await this.loadArtists()
@@ -715,7 +680,6 @@ export const useLibraryStore = defineStore('library', {
       this.albums = albums
       this.invalidateCollectionContent()
       this.collectionArtists = this.collectionArtists.filter((artist) => artist.id !== artistId)
-      delete this.providerLinks[artistId]
       if (this.selectedArtistId === artistId) {
         this.selectedArtistId = null
         this.collectionAlbums = []
@@ -802,7 +766,6 @@ export const useLibraryStore = defineStore('library', {
         this.loadArtist(artistId),
         collectionId ? this.loadArtist(artistId, collectionId) : Promise.resolve(null),
       ])
-      await this.loadArtistProvider(artistId)
       this.replaceArtist(globalArtist)
       if (collectionId && scopedArtist) {
         this.replaceCollectionArtist(scopedArtist, collectionId)
@@ -942,7 +905,6 @@ export const useLibraryStore = defineStore('library', {
         }
         return {
           ...artist,
-          checkedAlbumCount: Math.max(0, artist.checkedAlbumCount + checkedDelta),
           uncheckedAlbumCount: Math.max(0, artist.uncheckedAlbumCount - checkedDelta),
         }
       }
@@ -952,20 +914,6 @@ export const useLibraryStore = defineStore('library', {
         Object.entries(this.collectionArtistsByCollection).map(([key, artists]) => [
           key,
           artists.map(updateArtist),
-        ]),
-      )
-    },
-    removeCachedAlbum(albumId: number) {
-      this.collectionAlbumsByArtist = Object.fromEntries(
-        Object.entries(this.collectionAlbumsByArtist).map(([key, albums]) => [
-          key,
-          albums.filter((album) => album.id !== albumId),
-        ]),
-      )
-      this.collectionTitleItemsByCollection = Object.fromEntries(
-        Object.entries(this.collectionTitleItemsByCollection).map(([key, titles]) => [
-          key,
-          titles.filter((album) => album.id !== albumId),
         ]),
       )
     },
@@ -1044,11 +992,6 @@ export const useLibraryStore = defineStore('library', {
       this.startProviderJobPolling()
       return this.providerJob
     },
-    async runProviderAllJob() {
-      await this.startProviderAllJob()
-      this.startProviderJobPolling()
-      return this.providerJob
-    },
     startProviderJobPolling() {
       if (providerJobPoller !== null) {
         return
@@ -1100,10 +1043,6 @@ export const useLibraryStore = defineStore('library', {
       )
       return this.providerJob
     },
-    async startProviderAllJob() {
-      this.providerJob = await apiSend<ProviderCheckJobStatus>('/api/provider-checks/jobs/all', 'POST')
-      return this.providerJob
-    },
     async loadProviderJob() {
       try {
         this.providerJob = await apiGet<ProviderCheckJobStatus>('/api/provider-checks/jobs/current')
@@ -1111,22 +1050,6 @@ export const useLibraryStore = defineStore('library', {
         this.showErrorStatus(error, 'Unable to load provider status')
       }
       return this.providerJob
-    },
-    async loadProviderReleaseDateConflicts() {
-      this.providerReleaseDateConflicts = await apiGet<ProviderReleaseDateConflict[]>('/api/provider-conflicts/release-dates')
-      return this.providerReleaseDateConflicts
-    },
-    async loadProviderTitleConflicts() {
-      this.providerTitleConflicts = await apiGet<ProviderTitleConflict[]>('/api/provider-conflicts/titles')
-      return this.providerTitleConflicts
-    },
-    async loadArtistCountryConflicts() {
-      this.artistCountryConflicts = await apiGet<ArtistCountryConflict[]>('/api/provider-conflicts/artist-countries')
-      return this.artistCountryConflicts
-    },
-    async loadArtistStatusConflicts() {
-      this.artistStatusConflicts = await apiGet<ArtistStatusConflict[]>('/api/provider-conflicts/artist-statuses')
-      return this.artistStatusConflicts
     },
     async loadProviderConflicts() {
       const [artistCountryConflicts, artistStatusConflicts, releaseDateConflicts, titleConflicts] = await Promise.all([
@@ -1141,9 +1064,6 @@ export const useLibraryStore = defineStore('library', {
       this.providerTitleConflicts = titleConflicts
       return { artistCountryConflicts, artistStatusConflicts, releaseDateConflicts, titleConflicts }
     },
-    async planUseProviderReleaseDate(conflict: ProviderReleaseDateConflict) {
-      return apiGet<AlbumReleaseDateConflictPlan>(providerConflictPath(conflict, 'provider-year-plan'))
-    },
     async keepLocalReleaseDate(conflict: ProviderReleaseDateConflict) {
       const result = await apiSend<AlbumReleaseDateConflictResult>(providerConflictPath(conflict, 'keep-local'), 'POST')
       await this.refreshAfterProviderReleaseDateResolution(conflict, result)
@@ -1153,9 +1073,6 @@ export const useLibraryStore = defineStore('library', {
       const result = await apiSend<AlbumReleaseDateConflictResult>(providerConflictPath(conflict, 'use-provider-year'), 'POST')
       await this.refreshAfterProviderReleaseDateResolution(conflict, result)
       return result
-    },
-    async planUseProviderTitle(conflict: ProviderTitleConflict) {
-      return apiGet<AlbumTitleConflictPlan>(providerTitleConflictPath(conflict, 'provider-title-plan'))
     },
     async keepLocalTitle(conflict: ProviderTitleConflict) {
       const result = await apiSend<AlbumTitleConflictResult>(providerTitleConflictPath(conflict, 'keep-local'), 'POST')
@@ -1213,10 +1130,6 @@ export const useLibraryStore = defineStore('library', {
       await this.loadProviderConflicts()
       await this.refreshArtistAfterScopedJob(conflict.artistId, this.currentCollectionScopeForArtist(conflict.artistId))
     },
-    async cancelProviderJob() {
-      this.providerJob = await apiSend<ProviderCheckJobStatus>('/api/provider-checks/jobs/current/cancel', 'POST')
-      return this.providerJob
-    },
     async loadPreference(key: string) {
       try {
         return await apiGet<UserPreference>(`/api/preferences/${encodeURIComponent(key)}`)
@@ -1227,27 +1140,8 @@ export const useLibraryStore = defineStore('library', {
     async savePreference(key: string, value: string) {
       return apiSend<UserPreference>(`/api/preferences/${encodeURIComponent(key)}`, 'PUT', { value })
     },
-    async loadArtistProvider(artistId: number) {
-      try {
-        const providers = await apiGet<ArtistProviderLink[]>(`/api/artists/${artistId}/providers`)
-        this.providerLinks[artistId] = providers
-        return providers[0] ?? null
-      } catch (error) {
-        if (error instanceof Error && error.message.startsWith('404 ')) {
-          this.providerLinks[artistId] = []
-          return null
-        }
-        throw error
-      }
-    },
-    async searchMusicBrainzCandidates(artistId: number) {
-      return this.searchProviderCandidates(artistId, 'musicbrainz')
-    },
     async searchProviderCandidates(artistId: number, providerId: ProviderId) {
       return apiGet<ArtistProviderCandidate[]>(`/api/artists/${artistId}/provider-candidates/${providerId}`)
-    },
-    async bulkMatchMusicBrainz(artistIds: number[]) {
-      return this.bulkMatchProvider('musicbrainz', artistIds)
     },
     async bulkMatchProvider(providerId: ProviderId, artistIds: number[]) {
       const count = artistIds.length
@@ -1263,11 +1157,6 @@ export const useLibraryStore = defineStore('library', {
           'POST',
           { artistIds },
         )
-        for (const item of result.items) {
-          if (item.providerLink) {
-            this.upsertCachedProviderLink(item.artistId, item.providerLink)
-          }
-        }
         const refreshedArtistIds = uniqueArtistIds(result.items.map((item) => item.artistId))
         const collectionScope = this.currentCollectionScopeForArtists(refreshedArtistIds)
         await this.refreshArtistsAfterScopedJob(refreshedArtistIds, collectionScope)
@@ -1299,26 +1188,12 @@ export const useLibraryStore = defineStore('library', {
         providerUrl: payload.providerUrl,
         enabled: payload.enabled,
       })
-      this.upsertCachedProviderLink(artistId, provider)
       await this.refreshArtistAfterScopedJob(artistId, this.currentCollectionScopeForArtist(artistId))
       return provider
     },
-    async clearArtistProvider(artistId: number, providerId?: string | null) {
-      if (providerId) {
-        await apiSend(`/api/artists/${artistId}/providers/${encodeURIComponent(providerId)}`, 'DELETE')
-        this.providerLinks[artistId] = (this.providerLinks[artistId] ?? []).filter((link) => link.providerId !== providerId)
-      } else {
-        await apiSend(`/api/artists/${artistId}/provider`, 'DELETE')
-        this.providerLinks[artistId] = []
-      }
+    async clearArtistProvider(artistId: number, providerId: string) {
+      await apiSend(`/api/artists/${artistId}/providers/${encodeURIComponent(providerId)}`, 'DELETE')
       await this.refreshArtistAfterScopedJob(artistId, this.currentCollectionScopeForArtist(artistId))
-    },
-    upsertCachedProviderLink(artistId: number, provider: ArtistProviderLink) {
-      const current = this.providerLinks[artistId] ?? []
-      this.providerLinks[artistId] = [
-        ...current.filter((link) => link.providerId !== provider.providerId),
-        provider,
-      ].sort((left, right) => left.providerId.localeCompare(right.providerId))
     },
     currentCollectionScopeForArtist(artistId: number) {
       if (!this.selectedCollectionId) {

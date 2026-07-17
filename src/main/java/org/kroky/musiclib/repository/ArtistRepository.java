@@ -64,13 +64,11 @@ public class ArtistRepository {
             List<ArtistRow> rows = queryArtistRows(sql, statement -> {
                 statement.setString(1, normalizedCollectionId);
                 statement.setString(2, normalizedCollectionId);
-                statement.setString(3, normalizedCollectionId);
-                statement.setString(4, normalizedCollectionId);
-                statement.setString(5, normalizedSearch);
-                statement.setString(6, normalizedSearch);
+                statement.setString(3, normalizedSearch);
+                statement.setString(4, normalizedSearch);
+                statement.setString(5, normalizedCollectionId);
+                statement.setString(6, normalizedCollectionId);
                 statement.setString(7, normalizedCollectionId);
-                statement.setString(8, normalizedCollectionId);
-                statement.setString(9, normalizedCollectionId);
             });
             return mapRows(rows, normalizedCollectionId);
         } catch (Exception e) {
@@ -90,9 +88,7 @@ public class ArtistRepository {
             List<ArtistRow> rows = queryArtistRows(sql, statement -> {
                 statement.setString(1, normalizedCollectionId);
                 statement.setString(2, normalizedCollectionId);
-                statement.setString(3, normalizedCollectionId);
-                statement.setString(4, normalizedCollectionId);
-                statement.setLong(5, id);
+                statement.setLong(3, id);
             });
             if (rows.isEmpty()) {
                 return Optional.empty();
@@ -190,10 +186,6 @@ public class ArtistRepository {
         }
     }
 
-    public void assignToCollection(long artistId, String collectionId) {
-        assignToCollection(artistId, collectionId, false);
-    }
-
     public void assignToCollection(long artistId, String collectionId, boolean local) {
         String normalizedCollectionId = blankToNull(collectionId);
         if (normalizedCollectionId == null) {
@@ -217,28 +209,6 @@ public class ArtistRepository {
         } catch (Exception e) {
             throw new IllegalStateException("Unable to assign artist " + artistId
                     + " to collection " + collectionId, e);
-        }
-    }
-
-    public void setCollectionLocal(long artistId, String collectionId, boolean local) {
-        String normalizedCollectionId = blankToNull(collectionId);
-        if (normalizedCollectionId == null) {
-            return;
-        }
-        String sql = """
-                UPDATE artist_collections
-                SET local = ?
-                WHERE artist_id = ? AND collection_id = ?
-                """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setInt(1, local ? 1 : 0);
-            statement.setLong(2, artistId);
-            statement.setString(3, normalizedCollectionId);
-            statement.executeUpdate();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to update local state for artist " + artistId
-                    + " in collection " + collectionId, e);
         }
     }
 
@@ -377,10 +347,6 @@ public class ArtistRepository {
         }
     }
 
-    public void clearLocalScanError(long artistId, String collectionId) {
-        markLocalScanError(artistId, collectionId, null);
-    }
-
     public void clearLocalScanErrorsForCollection(String collectionId) {
         String normalizedCollectionId = blankToNull(collectionId);
         if (normalizedCollectionId == null) {
@@ -480,58 +446,8 @@ public class ArtistRepository {
     private static String selectArtists(String whereClause) {
         return """
                 SELECT a.id, a.name, a.sort_name, a.country_override, a.active_override,
-                       a.created_at, a.updated_at,
                        count(al.id) AS album_count,
-                       coalesce(sum(CASE WHEN al.checked = 1 THEN 1 ELSE 0 END), 0) AS checked_album_count,
                        coalesce(sum(CASE WHEN al.checked = 0 THEN 1 ELSE 0 END), 0) AS unchecked_album_count,
-                       (SELECT count(*)
-                        FROM artist_provider_links apl_count
-                        WHERE apl_count.artist_id = a.id) AS provider_link_count,
-                       (SELECT apl.provider_id
-                        FROM artist_provider_links apl
-                        WHERE apl.artist_id = a.id
-                        ORDER BY apl.id
-                        LIMIT 1) AS provider_id,
-                       (SELECT apl.provider_artist_id
-                        FROM artist_provider_links apl
-                        WHERE apl.artist_id = a.id
-                        ORDER BY apl.id
-                        LIMIT 1) AS provider_artist_id,
-                       (SELECT apl.provider_artist_name
-                        FROM artist_provider_links apl
-                        WHERE apl.artist_id = a.id
-                        ORDER BY apl.id
-                        LIMIT 1) AS provider_artist_name,
-                       (SELECT apl.provider_url
-                        FROM artist_provider_links apl
-                        WHERE apl.artist_id = a.id
-                        ORDER BY apl.id
-                        LIMIT 1) AS provider_url,
-                       (SELECT apl.country
-                        FROM artist_provider_links apl
-                        WHERE apl.artist_id = a.id
-                        ORDER BY apl.id
-                        LIMIT 1) AS provider_country,
-                       (SELECT apl.disambiguation
-                        FROM artist_provider_links apl
-                        WHERE apl.artist_id = a.id
-                        ORDER BY apl.id
-                        LIMIT 1) AS provider_disambiguation,
-                       (SELECT apl.active
-                        FROM artist_provider_links apl
-                        WHERE apl.artist_id = a.id
-                        ORDER BY apl.id
-                        LIMIT 1) AS provider_active,
-                       (SELECT apl.last_error_message
-                        FROM artist_provider_links apl
-                        WHERE apl.artist_id = a.id
-                        ORDER BY apl.id
-                        LIMIT 1) AS provider_last_error_message,
-                       (SELECT count(DISTINCT ca.album_id)
-                        FROM collection_albums ca
-                        JOIN album_artists aa_ca ON aa_ca.album_id = ca.album_id
-                        WHERE aa_ca.artist_id = a.id
-                          AND (? IS NULL OR ca.collection_id = ?)) AS collection_album_count,
                        (SELECT ac.last_local_scan_error_message
                         FROM artist_collections ac
                         WHERE ac.artist_id = a.id
@@ -551,13 +467,7 @@ public class ArtistRepository {
                            WHERE ac.artist_id = a.id
                              AND (ac.local = 1 OR ac.last_local_scan_error_message IS NOT NULL)
                            ORDER BY collection_id
-                       )) AS collection_ids,
-                       (SELECT group_concat(collection_id, ',') FROM (
-                           SELECT ac.collection_id
-                           FROM artist_collections ac
-                           WHERE ac.artist_id = a.id AND ac.local = 1
-                           ORDER BY ac.collection_id
-                       )) AS local_collection_ids
+                       )) AS collection_ids
                 FROM artists a
                 LEFT JOIN album_artists aa ON aa.artist_id = a.id
                 LEFT JOIN albums al ON al.id = aa.album_id
@@ -578,25 +488,13 @@ public class ArtistRepository {
                 row.countryOverride(),
                 row.activeOverride(),
                 parseCollectionIds(row.collectionIds()),
-                parseCollectionIds(row.localCollectionIds()),
                 row.albumCount(),
-                row.checkedAlbumCount(),
                 row.uncheckedAlbumCount(),
                 albums.countOnDiskLocalAlbumsForArtist(collectionId, row.id()),
-                row.providerLinkCount(),
-                row.providerId(),
-                row.providerArtistId(),
-                row.providerArtistName(),
-                row.providerUrl(),
                 ArtistProviderMetadata.countryConsensus(providerLinks),
-                row.providerDisambiguation(),
                 ArtistProviderMetadata.activeConsensus(providerLinks),
-                row.providerLastErrorMessage(),
                 List.copyOf(providerLinks),
-                row.collectionAlbumCount(),
-                row.localScanErrorMessage(),
-                row.createdAt(),
-                row.updatedAt());
+                row.localScanErrorMessage());
     }
 
     @FunctionalInterface
@@ -611,23 +509,9 @@ public class ArtistRepository {
             String countryOverride,
             Boolean activeOverride,
             int albumCount,
-            int checkedAlbumCount,
             int uncheckedAlbumCount,
-            int providerLinkCount,
-            String providerId,
-            String providerArtistId,
-            String providerArtistName,
-            String providerUrl,
-            String providerCountry,
-            String providerDisambiguation,
-            Boolean providerActive,
-            String providerLastErrorMessage,
-            int collectionAlbumCount,
             String localScanErrorMessage,
-            String collectionIds,
-            String localCollectionIds,
-            String createdAt,
-            String updatedAt) {
+            String collectionIds) {
 
         static ArtistRow from(ResultSet rs) throws Exception {
             return new ArtistRow(
@@ -637,23 +521,9 @@ public class ArtistRepository {
                     rs.getString("country_override"),
                     nullableBoolean(rs, "active_override"),
                     rs.getInt("album_count"),
-                    rs.getInt("checked_album_count"),
                     rs.getInt("unchecked_album_count"),
-                    rs.getInt("provider_link_count"),
-                    rs.getString("provider_id"),
-                    rs.getString("provider_artist_id"),
-                    rs.getString("provider_artist_name"),
-                    rs.getString("provider_url"),
-                    rs.getString("provider_country"),
-                    rs.getString("provider_disambiguation"),
-                    nullableBoolean(rs, "provider_active"),
-                    rs.getString("provider_last_error_message"),
-                    rs.getInt("collection_album_count"),
                     rs.getString("local_scan_error_message"),
-                    rs.getString("collection_ids"),
-                    rs.getString("local_collection_ids"),
-                    rs.getString("created_at"),
-                    rs.getString("updated_at"));
+                    rs.getString("collection_ids"));
         }
     }
 

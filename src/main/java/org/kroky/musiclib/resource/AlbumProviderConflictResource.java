@@ -1,12 +1,10 @@
 package org.kroky.musiclib.resource;
 
 import org.jboss.logging.Logger;
-import org.kroky.musiclib.model.AlbumReleaseDateConflictPlan;
 import org.kroky.musiclib.model.AlbumReleaseDateConflictResult;
 import org.kroky.musiclib.provider.AlbumProviderConflictService;
 
 import jakarta.inject.Inject;
-import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -18,16 +16,6 @@ public class AlbumProviderConflictResource {
 
     @Inject
     AlbumProviderConflictService conflicts;
-
-    @GET
-    @Path("/provider-year-plan")
-    public AlbumReleaseDateConflictPlan providerYearPlan(
-            @PathParam("albumId") long albumId,
-            @PathParam("providerLinkId") long providerLinkId) {
-        LOG.infof("Preview provider release date conflict resolution album=%d providerLink=%d",
-                albumId, providerLinkId);
-        return conflicts.planUseProviderReleaseDate(albumId, providerLinkId);
-    }
 
     @POST
     @Path("/keep-local")

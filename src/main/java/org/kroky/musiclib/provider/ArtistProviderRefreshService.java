@@ -32,11 +32,6 @@ public class ArtistProviderRefreshService {
     @Inject
     MusicBrainzClient musicBrainz;
 
-    public ProviderRefreshResult importMusicBrainz(ArtistProviderLink link, ProviderCheckReport report)
-            throws ProviderException {
-        return importMusicBrainz(link, null, report);
-    }
-
     public ProviderRefreshResult importMusicBrainz(ArtistProviderLink link, String collectionId,
             ProviderCheckReport report)
             throws ProviderException {

@@ -128,7 +128,7 @@ class AlbumProviderLinkRepositoryTest {
     }
 
     @Test
-    void titleConflictsGroupEquivalentProviderTitlesAndResolveTogether() {
+    void titleConflictsGroupEquivalentProviderTitles() {
         repository.linkAlbum(
                 1,
                 "musicbrainz",
@@ -157,21 +157,6 @@ class AlbumProviderLinkRepositoryTest {
         assertEquals(1, conflicts.get(0).albumId());
         assertEquals("Origine: The Black Crystal Sword Saga, Pt. 2", conflicts.get(0).providerTitle());
         assertEquals(2, conflicts.get(0).sources().size());
-
-        assertEquals(2, repository.resolveMatchingTitleConflicts(
-                1,
-                "Origine: The Black Crystal Sword Saga, Pt. 2",
-                "KEEP_LOCAL"));
-        assertEquals(0, repository.listTitleConflicts().size());
-        assertEquals("KEEP_LOCAL", repository.find(conflicts.get(0).sources().get(0).providerLinkId()).orElseThrow()
-                .titleResolution());
-        assertEquals("KEEP_LOCAL", repository.find(conflicts.get(0).sources().get(1).providerLinkId()).orElseThrow()
-                .titleResolution());
-
-        assertEquals(2, repository.resetMatchingKeepLocalTitleConflicts(
-                1,
-                "Origine: The Black Crystal Sword Saga, Pt. 2"));
-        assertEquals(1, repository.listTitleConflicts().size());
     }
 
     @Test

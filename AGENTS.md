@@ -10,8 +10,8 @@ Every new Codex session should read these shared source-of-truth files before br
 - `docs/codex-ui-workflow-guide.md`
 
 For small, targeted questions or one-file fixes, read those two files plus only the files needed for the task.
-`docs/evolution-*.md` files are historical archaeology only.
-Consult an evolution document only when the current source-of-truth docs and code do not explain why an older decision exists.
+`docs/evolution-*.md` files are preserved historical decision records for archaeology only.
+Do not use them as current source-of-truth documentation or required startup context.
 
 ## Project Summary
 
@@ -68,9 +68,7 @@ Document behavior that a maintainer or user needs to know.
 - Do not document abandoned ideas, rejected alternatives, passing implementation ideas, or unrelated future work.
 - Mention follow-up work only when it is an intentional current constraint or a concrete planned next step.
 - Do not create an evolution document for every session.
-- Create a new evolution or design note only for a major decision that needs durable rationale beyond the current behavior reference.
-- Evolution docs are historical references and must not be required startup context.
-- Do not use evolution docs as the source of truth for current behavior.
+- Create a design note only for a major decision that needs durable rationale beyond the current behavior reference.
 - Do not leave `???`, open-ended brainstorming questions, or suggested future prompts in durable docs.
 - Avoid hard-coded personal paths in docs.
   Use placeholders such as `<project-root>`, `<music-root>`, `<graalvm-jdk-21>`, or environment variables.

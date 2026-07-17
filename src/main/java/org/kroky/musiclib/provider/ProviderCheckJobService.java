@@ -4,7 +4,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.kroky.musiclib.model.ArtistProviderLink;
@@ -23,7 +22,6 @@ public class ProviderCheckJobService {
 
     private static final String PROVIDER_ARTIST = "PROVIDER_ARTIST";
     private static final String PROVIDER_COLLECTION = "PROVIDER_COLLECTION";
-    private static final String PROVIDER_ALL = "PROVIDER_ALL";
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicReference<ProviderCheckJob> currentJob = new AtomicReference<>();
@@ -53,10 +51,6 @@ public class ProviderCheckJobService {
         return start(PROVIDER_COLLECTION, blankToNull(collectionId), null);
     }
 
-    public ProviderCheckJobStatus startAll() {
-        return start(PROVIDER_ALL, null, null);
-    }
-
     private ProviderCheckJobStatus start(String kind, String collectionId, Long artistId) {
         ProviderCheckJob existing = currentJob.get();
         if (existing != null && existing.isRunning()) {
@@ -77,15 +71,6 @@ public class ProviderCheckJobService {
     public ProviderCheckJobStatus current() {
         ProviderCheckJob job = currentJob.get();
         return job == null ? idleStatus() : job.status();
-    }
-
-    public ProviderCheckJobStatus cancelCurrent() {
-        ProviderCheckJob job = currentJob.get();
-        if (job == null) {
-            return idleStatus();
-        }
-        job.cancel();
-        return job.status();
     }
 
     private void run(ProviderCheckJob job) {
@@ -114,24 +99,12 @@ public class ProviderCheckJobService {
                             existingAlbums, releaseDateConflicts, titleConflicts, errors);
                 }
 
-                @Override
-                public boolean isCancelled() {
-                    return job.cancelRequested.get();
-                }
             };
 
             ProviderCheckSummary summary = runCheck(job, progress);
-            if (job.cancelRequested.get()) {
-                job.finish("CANCELLED", "Provider check cancelled.", summary);
-            } else {
-                job.finish(summary.errorCount() == 0 ? "DONE" : "FAILED", summarize(job, summary), summary);
-            }
+            job.finish(summary.errorCount() == 0 ? "DONE" : "FAILED", summarize(job, summary), summary);
         } catch (Exception e) {
-            if (job.cancelRequested.get()) {
-                job.finish("CANCELLED", "Provider check cancelled.");
-            } else {
-                job.finish("FAILED", ProviderException.describe(e));
-            }
+            job.finish("FAILED", ProviderException.describe(e));
         }
     }
 
@@ -140,17 +113,14 @@ public class ProviderCheckJobService {
             return providerChecks.checkArtist(job.requestedArtistId, job.requestedCollectionId);
         }
         int delayMinutes = providerSettings.batchRescanDelayMinutes();
-        if (PROVIDER_COLLECTION.equals(job.kind)) {
-            return providerChecks.checkCollection(job.requestedCollectionId, delayMinutes, progress);
-        }
-        return providerChecks.checkAll(delayMinutes, progress);
+        return providerChecks.checkCollection(job.requestedCollectionId, delayMinutes, progress);
     }
 
     private static String summarize(ProviderCheckJob job, ProviderCheckSummary summary) {
         String subject = switch (job.kind) {
             case PROVIDER_ARTIST -> job.requestedArtistName;
             case PROVIDER_COLLECTION -> job.requestedCollectionName + " provider check";
-            default -> "Provider check";
+            default -> throw new IllegalStateException("Unknown provider job kind: " + job.kind);
         };
         return subject + " complete: " + summary.processedArtistCount() + " checked"
                 + (summary.skippedArtistCount() > 0 ? ", " + summary.skippedArtistCount() + " skipped" : "")
@@ -189,7 +159,7 @@ public class ProviderCheckJobService {
 
     private static ProviderCheckJobStatus idleStatus() {
         return new ProviderCheckJobStatus("IDLE", PROVIDER_COLLECTION, null, null, null, null, null, null, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, false, null, List.of(), List.of());
+                0, 0, 0, 0, 0, 0, 0, null, List.of(), List.of());
     }
 
     private class ProviderCheckJob {
@@ -198,7 +168,6 @@ public class ProviderCheckJobService {
         private final String requestedCollectionName;
         private final Long requestedArtistId;
         private final String requestedArtistName;
-        private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
         private String status = "RUNNING";
         private Long activeArtistId;
         private String activeArtistName;
@@ -270,11 +239,6 @@ public class ProviderCheckJobService {
             this.message = runningMessage();
         }
 
-        synchronized void cancel() {
-            cancelRequested.set(true);
-            message = "Cancelling provider check.";
-        }
-
         synchronized void finish(String status, String message) {
             this.status = status;
             this.message = message;
@@ -314,7 +278,6 @@ public class ProviderCheckJobService {
                     releaseDateConflictCount,
                     titleConflictCount,
                     errorCount,
-                    cancelRequested.get(),
                     message,
                     List.copyOf(artistIds),
                     reports);
@@ -331,19 +294,13 @@ public class ProviderCheckJobService {
                 return "Checking " + requestedArtistName + "...";
             }
             if (itemTotal <= 0) {
-                if (PROVIDER_COLLECTION.equals(kind)) {
-                    return "Checking " + requestedCollectionName + " providers...";
-                }
-                return "Checking all providers...";
+                return "Checking " + requestedCollectionName + " providers...";
             }
             String artistName = activeArtistName == null ? "providers" : activeArtistName;
             int activeIndex = Math.min(itemTotal, itemProcessed + 1);
             String skipText = skippedArtistCount > 0 ? ", " + skippedArtistCount + " skipped" : "";
-            if (PROVIDER_COLLECTION.equals(kind)) {
-                return "Checking " + requestedCollectionName + " artists: " + artistName
-                        + " (" + activeIndex + "/" + itemTotal + skipText + ")...";
-            }
-            return "Checking all artists: " + artistName + " (" + activeIndex + "/" + itemTotal + skipText + ")...";
+            return "Checking " + requestedCollectionName + " artists: " + artistName
+                    + " (" + activeIndex + "/" + itemTotal + skipText + ")...";
         }
     }
 }

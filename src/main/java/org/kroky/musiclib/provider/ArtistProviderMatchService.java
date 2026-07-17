@@ -41,10 +41,6 @@ public class ArtistProviderMatchService {
     @Inject
     MusicLibraryConfig config;
 
-    public List<ArtistProviderCandidate> searchMusicBrainzCandidates(long artistId) throws ProviderException {
-        return searchCandidates(artistId, MusicBrainzClient.PROVIDER_ID);
-    }
-
     public List<ArtistProviderCandidate> searchCandidates(long artistId, String providerId) throws ProviderException {
         Artist artist = artists.find(artistId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown artist: " + artistId));
@@ -115,14 +111,10 @@ public class ArtistProviderMatchService {
                 details.active(),
                 result.providerScore(),
                 evidence.finalScore(),
-                evidence.finalScore(),
                 evidence.nameScore(),
                 evidence.albumEvidenceScore(),
                 evidence.yearBonus(),
                 evidence.evidenceSummary(),
-                evidence.matchedLocalAlbums(),
-                evidence.albumEvidence(),
-                releaseGroups,
                 evidence.albumEvidence());
     }
 

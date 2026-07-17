@@ -5,25 +5,13 @@ export interface Artist {
   countryOverride?: string | null
   activeOverride?: boolean | null
   collectionIds: string[]
-  localCollectionIds: string[]
   albumCount: number
-  checkedAlbumCount: number
   uncheckedAlbumCount: number
   localAlbumCount: number
-  providerLinkCount: number
-  providerId?: string | null
-  providerArtistId?: string | null
-  providerArtistName?: string | null
-  providerUrl?: string | null
   providerCountry?: string | null
-  providerDisambiguation?: string | null
   providerActive?: boolean | null
-  providerLastErrorMessage?: string | null
   providerLinks: ArtistProviderLink[]
-  collectionAlbumCount: number
   localScanErrorMessage?: string | null
-  createdAt: string
-  updatedAt: string
 }
 
 export interface AlbumLocalPath {
@@ -164,18 +152,13 @@ export interface UiSettingsValues {
 }
 
 export interface UiSettings extends UiSettingsValues {
-  defaults: UiSettingsValues
-  overrides: UiSettingOverrides
+  defaults: UiSettingsDefaults
 }
 
-export interface UiSettingOverrides {
-  statusCompleteVisibleMs: boolean
-  scanPollIntervalMs: boolean
-  artistScanSpinnerEnabled: boolean
-  providerBatchRescanDelayMinutes: boolean
-  statusHistoryDateFormat: boolean
-  releaseDateDisplayFormat: boolean
-  statusBarLocation: boolean
+export interface UiSettingsDefaults {
+  statusCompleteVisibleMs: number
+  scanPollIntervalMs: number
+  providerBatchRescanDelayMinutes: number
 }
 
 export interface WorkspaceColumnWidths {
@@ -241,16 +224,6 @@ export interface ArtistProviderLink {
   updatedAt: string
 }
 
-export interface RemoteReleaseGroup {
-  providerId: string
-  providerReleaseGroupId: string
-  title: string
-  releaseDate?: string | null
-  primaryType?: string | null
-  secondaryTypes: string[]
-  providerUrl?: string | null
-}
-
 export interface ArtistProviderCandidateAlbum {
   title: string
   providerReleaseDate?: string | null
@@ -276,16 +249,12 @@ export interface ArtistProviderCandidate {
   disambiguation?: string | null
   active?: boolean | null
   providerScore: number
-  matchScore: number
   finalScore: number
   nameScore: number
   albumEvidenceScore: number
   yearBonus: number
   evidenceSummary: string
-  matchedLocalAlbums: string[]
   albumEvidence: ArtistProviderCandidateAlbum[]
-  releaseGroups: RemoteReleaseGroup[]
-  albums: ArtistProviderCandidateAlbum[]
 }
 
 export type ArtistProviderBulkMatchStatus =
@@ -319,7 +288,7 @@ export interface ArtistProviderBulkMatchResult {
 
 export interface ProviderCheckJobStatus {
   status: string
-  kind: 'PROVIDER_ARTIST' | 'PROVIDER_COLLECTION' | 'PROVIDER_ALL'
+  kind: 'PROVIDER_ARTIST' | 'PROVIDER_COLLECTION'
   requestedCollectionId?: string | null
   requestedCollectionName?: string | null
   requestedArtistId?: number | null
@@ -335,7 +304,6 @@ export interface ProviderCheckJobStatus {
   releaseDateConflictCount: number
   titleConflictCount: number
   errorCount: number
-  cancelRequested: boolean
   message?: string | null
   artistIds: number[]
   reports: ReportArtifact[]
@@ -432,25 +400,6 @@ export interface AlbumReleaseDateConflictFolderPlan {
   files: AudioTagFilePlan[]
 }
 
-export interface AlbumReleaseDateConflictPlan {
-  albumId: number
-  providerLinkId: number
-  albumTitle: string
-  localReleaseDate?: string | null
-  providerTitle: string
-  providerReleaseDate?: string | null
-  sourcePath: string
-  targetPath: string
-  sourceRelativePath: string
-  targetRelativePath: string
-  folderCount: number
-  audioFileCount: number
-  unsupportedFileCount: number
-  folders: AlbumReleaseDateConflictFolderPlan[]
-  files: AudioTagFilePlan[]
-  warnings: string[]
-}
-
 export interface AlbumReleaseDateConflictResult {
   album: Album
   sourcePath: string
@@ -458,25 +407,6 @@ export interface AlbumReleaseDateConflictResult {
   folderCount: number
   duplicateAlbumsMerged: number
   tagFilesUpdated: number
-  files: AudioTagFilePlan[]
-  warnings: string[]
-}
-
-export interface AlbumTitleConflictPlan {
-  albumId: number
-  providerLinkId: number
-  albumTitle: string
-  localReleaseDate?: string | null
-  providerTitle: string
-  providerReleaseDate?: string | null
-  sourcePath: string
-  targetPath: string
-  sourceRelativePath: string
-  targetRelativePath: string
-  folderCount: number
-  audioFileCount: number
-  unsupportedFileCount: number
-  folders: AlbumReleaseDateConflictFolderPlan[]
   files: AudioTagFilePlan[]
   warnings: string[]
 }

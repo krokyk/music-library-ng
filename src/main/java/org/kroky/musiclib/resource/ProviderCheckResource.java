@@ -30,21 +30,10 @@ public class ProviderCheckResource {
         return jobs.startCollection(collectionId);
     }
 
-    @POST
-    @Path("/jobs/all")
-    public ProviderCheckJobStatus startAllJob() {
-        return jobs.startAll();
-    }
-
     @GET
     @Path("/jobs/current")
     public ProviderCheckJobStatus currentJob() {
         return jobs.current();
     }
 
-    @POST
-    @Path("/jobs/current/cancel")
-    public ProviderCheckJobStatus cancelCurrentJob() {
-        return jobs.cancelCurrent();
-    }
 }

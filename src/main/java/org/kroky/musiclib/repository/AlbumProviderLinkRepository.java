@@ -244,25 +244,6 @@ public class AlbumProviderLinkRepository {
         }
     }
 
-    public void resolveReleaseDateConflict(long id, String resolution) {
-        String normalized = normalizeResolution(resolution, "release date");
-        String sql = """
-                UPDATE album_provider_links
-                SET release_date_resolution = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, normalized);
-            statement.setLong(2, id);
-            if (statement.executeUpdate() == 0) {
-                throw new IllegalArgumentException("Unknown album provider link: " + id);
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to resolve album provider release date conflict", e);
-        }
-    }
-
     public int resolveMatchingReleaseDateConflicts(long albumId, String providerReleaseDate, String resolution) {
         String normalized = normalizeResolution(resolution, "release date");
         String providerYear = releaseYear(providerReleaseDate);
@@ -311,31 +292,6 @@ public class AlbumProviderLinkRepository {
         } catch (Exception e) {
             throw new IllegalStateException("Unable to reset matching keep-local release date conflicts", e);
         }
-    }
-
-    public void resolveTitleConflict(long id, String resolution) {
-        String normalized = normalizeResolution(resolution, "title");
-        String sql = """
-                UPDATE album_provider_links
-                SET title_resolution = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, normalized);
-            statement.setLong(2, id);
-            if (statement.executeUpdate() == 0) {
-                throw new IllegalArgumentException("Unknown album provider link: " + id);
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to resolve album provider title conflict", e);
-        }
-    }
-
-    public int resolveMatchingTitleConflicts(long albumId, String providerTitle, String resolution) {
-        String normalized = normalizeResolution(resolution, "title");
-        List<Long> ids = matchingTitleConflictIds(albumId, providerTitle, null);
-        return updateTitleResolution(ids, normalized);
     }
 
     public int resolveAlbumTitleUsingProvider(long albumId, String providerTitle) {

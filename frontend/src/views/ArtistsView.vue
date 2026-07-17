@@ -57,7 +57,6 @@ const {
   artistStatusConflicts,
   collections,
   providerJob,
-  providerLinks,
   providerReleaseDateConflicts,
   providerTitleConflicts,
   providerStatus,
@@ -242,7 +241,7 @@ const artistsVirtualBottomSpacerHeight = computed(() =>
 const artistStats = computed(() => ({
   total: artists.value.length,
   unchecked: artists.value.reduce((sum, artist) => sum + artist.uncheckedAlbumCount, 0),
-  providers: artists.value.reduce((sum, artist) => sum + artist.providerLinkCount, 0),
+  providers: artists.value.reduce((sum, artist) => sum + artist.providerLinks.length, 0),
 }))
 const bulkProviderChipLabelsVisible = computed(() =>
   artistsPaneWidths.artists === 0 || artistsPaneWidths.artists >= artistsBulkExpandedMinimumWidth,
@@ -845,10 +844,7 @@ async function openArtistProviderConflicts(artist: Artist, preferredSectionKey: 
   providerConflictCountryMenu.value = false
   conflictCountrySearch.value = ''
   try {
-    await Promise.all([
-      store.loadProviderConflicts(),
-      store.loadArtistProvider(artist.id),
-    ])
+    await store.loadProviderConflicts()
     if (preferredSectionKey && providerConflictSections.value.some((section) => section.key === preferredSectionKey)) {
       openProviderConflictSectionKey.value = preferredSectionKey
     } else {
@@ -1529,16 +1525,11 @@ function resolveElement(value: unknown) {
   return null
 }
 
-async function selectArtist(artist: Artist) {
+function selectArtist(artist: Artist) {
   if (deletingArtistId.value === artist.id) {
     return
   }
   selectedArtistId.value = artist.id
-  try {
-    await store.loadArtistProvider(artist.id)
-  } catch (error) {
-    store.showErrorStatus(error, 'Unable to load artist provider')
-  }
 }
 
 function markArtistSelected(artist: Artist) {
@@ -1684,16 +1675,12 @@ function providerLinkCandidate(link: ArtistProviderLink): ArtistProviderCandidat
     disambiguation: link.providerDisambiguation ?? null,
     active: link.providerActive ?? null,
     providerScore: 100,
-    matchScore: 100,
     finalScore: 100,
     nameScore: 100,
     albumEvidenceScore: 0,
     yearBonus: 0,
     evidenceSummary: 'Already associated',
-    matchedLocalAlbums: [],
     albumEvidence: [],
-    releaseGroups: [],
-    albums: [],
   }
 }
 
@@ -1937,7 +1924,7 @@ function bulkStatusColor(status: ArtistProviderBulkMatchItem['status']) {
   }
 }
 
-async function clearArtistProvider(artist: Artist, providerId?: string | null) {
+async function clearArtistProvider(artist: Artist, providerId: string) {
   selectedArtistId.value = artist.id
   if (writeActionsDisabled.value) {
     return
@@ -2058,17 +2045,7 @@ async function saveArtistActiveOverride(artist: Artist, active: boolean | null) 
 }
 
 function providersForArtist(artist: Artist) {
-  const cached = providerLinks.value[artist.id]
-  if (cached) {
-    return cached
-  }
-  if (artist.providerLinks?.length) {
-    return artist.providerLinks
-  }
-  if (!artist.providerId) {
-    return []
-  }
-  return [legacyProviderLink(artist)]
+  return artist.providerLinks
 }
 
 function providerForArtist(artist: Artist, providerId?: string | null) {
@@ -2077,25 +2054,6 @@ function providerForArtist(artist: Artist, providerId?: string | null) {
     return providers.find((provider) => provider.providerId === providerId) ?? null
   }
   return providers[0] ?? null
-}
-
-function legacyProviderLink(artist: Artist): ArtistProviderLink {
-  return {
-    id: 0,
-    artistId: artist.id,
-    artistName: artist.name,
-    providerId: artist.providerId ?? 'musicbrainz',
-    providerArtistId: artist.providerArtistId,
-    providerArtistName: artist.providerArtistName,
-    providerCountry: artist.providerCountry,
-    providerDisambiguation: artist.providerDisambiguation,
-    providerActive: artist.providerActive,
-    providerUrl: artist.providerUrl,
-    enabled: true,
-    lastErrorMessage: artist.providerLastErrorMessage ?? null,
-    createdAt: artist.createdAt,
-    updatedAt: artist.updatedAt,
-  }
 }
 
 function visibleArtistsMissingProvider(providerId: ProviderId) {
@@ -3150,7 +3108,6 @@ watch(providerConflictSections, () => {
       :candidates="[]"
       :candidates-by-provider="providerCandidatesById"
       :loading-provider-ids="providerLoadingIds"
-      :loaded-provider-ids="providerLoadedIds"
       :selected-provider-candidate-ids="selectedProviderCandidateIds"
       :artist-name="selectedArtist?.name ?? null"
       :loading="providerLoadingIds.length > 0"

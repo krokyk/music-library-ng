@@ -144,24 +144,6 @@ public class AlbumRepository {
         }
     }
 
-    public Optional<Album> findDuplicate(long artistId, String title, String releaseDate) {
-        try (Connection connection = dataSource.getConnection()) {
-            Optional<Long> id = findDuplicateId(connection, artistId, title, releaseDate);
-            return id.flatMap(this::find);
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to find album duplicate", e);
-        }
-    }
-
-    public Optional<Album> findByArtistAndTitle(long artistId, String title) {
-        try (Connection connection = dataSource.getConnection()) {
-            Optional<Long> id = findByArtistAndTitleId(connection, artistId, title);
-            return id.flatMap(this::find);
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to find album by artist and title", e);
-        }
-    }
-
     public Album create(long artistId, String title, String releaseDate, boolean checked, String notes) {
         return create(List.of(artistId), title, releaseDate, checked, notes, null);
     }
@@ -497,10 +479,6 @@ public class AlbumRepository {
 
     public int removeUnseenLocalPaths(String collectionId, Set<String> seenPaths) {
         return removeUnseenLocalPaths(collectionId, null, seenPaths);
-    }
-
-    public int removeUnseenLocalPathsForArtist(String collectionId, long artistId, Set<String> seenPaths) {
-        return removeUnseenLocalPaths(collectionId, artistId, seenPaths);
     }
 
     public boolean removeFromCollection(String collectionId, long albumId) {

@@ -20,7 +20,6 @@ public record ProviderCheckJobStatus(
         int releaseDateConflictCount,
         int titleConflictCount,
         int errorCount,
-        boolean cancelRequested,
         String message,
         List<Long> artistIds,
         List<ReportArtifact> reports) {

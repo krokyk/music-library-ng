@@ -21,7 +21,4 @@ public class ProviderRegistry {
         throw new ProviderException("No provider supports URL: " + providerUrl);
     }
 
-    public List<String> providerIds() {
-        return providers.stream().map(DiscographyProvider::providerId).toList();
-    }
 }
