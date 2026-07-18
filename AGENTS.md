@@ -13,6 +13,12 @@ For small, targeted questions or one-file fixes, read those two files plus only 
 `docs/evolution-*.md` files are preserved historical decision records for archaeology only.
 Do not use them as current source-of-truth documentation or required startup context.
 
+## Agent skills
+
+### Domain docs
+
+This is a single-context repository with an optional domain glossary and lazily created ADRs. See `docs/agents/domain.md`.
+
 ## Project Summary
 
 Music Library NG is a local-first music collection app for one user running on one PC at a time.
