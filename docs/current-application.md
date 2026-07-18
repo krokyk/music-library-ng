@@ -181,6 +181,9 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Provider checks do not delete local albums or local path evidence because a provider omits a release.
 - Provider checks generate plain text report files under the configured report directory.
 - Provider report files use a timestamp and short report subject in their filename, with a numeric suffix only when needed to avoid overwriting an existing file.
+- Provider adapters fetch and filter eligible remote releases before local library writes begin.
+- Each eligible discography is reconciled atomically for one artist and one provider, including provider metadata, album changes, provider links, collection assignment, duplicate merges, and the successful-check timestamp.
+- A failed artist-provider reconciliation rolls back that provider's complete local write set and records the failure separately so other providers and artists remain committed.
 - Provider checks use the shared provider candidate album-title evaluator to link exact, normalized, and high-confidence fuzzy provider releases to existing local albums.
 - Provider checks can link a provider release to an existing provider-created unchecked album from another provider when strong title evidence and compatible release years identify the same album.
 - Provider checks prefer a strong local album match over an existing provider-only link and merge same-artist provider-only duplicates into that local album.
@@ -225,6 +228,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Using a provider title updates the album title in the library database, renames on-disk album folders for supported artist-album layouts, updates supported audio `ALBUM` tags, marks matching provider links as `USE_PROVIDER`, marks other provider titles on that album as `USE_OTHER_PROVIDER`, and merges provider-only duplicates.
 - Using a provider title preserves the album checked state.
 - Provider checks remove stale local-path rows for an artist across all collections before matching provider releases and write a warning to the application log for every cleanup batch.
+- Stale local-path cleanup commits independently because missing-folder evidence remains stale even when a later remote provider fetch or reconciliation fails.
 - Provider title and release-date conflict previews and actions repeat stale-path cleanup as a backstop for existing database state.
 - A conflict action treats an album with no remaining on-disk local paths as provider-only, so it updates provider and album metadata without renaming folders or editing audio tags.
 - Conflict-driven folder renames preserve provider metadata in the database and audio tags while rendering Windows-safe folder names with the configured character substitutions, collapsed whitespace, and no trailing spaces or periods.
@@ -236,7 +240,9 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Provider checks from the global Artists screen refresh artist-level provider data without assigning collection membership.
 - MusicBrainz imports supported full albums only.
 - MusicBrainz ignores EPs, singles, splits, compilations, live releases, demos, soundtrack secondary types, and malformed provider records as diagnostics.
-- MusicBrainz exact, normalized, and high-confidence fuzzy title matches count as already in library and may fill a missing local release date.
+- Exact, normalized, and high-confidence fuzzy matches from any supported provider may fill a missing library release date.
+- The first successfully reconciled provider fills a missing release date, while a later provider with a different year creates an unresolved conflict instead of replacing it.
+- Automatic missing-release-date enrichment updates only database metadata and never renames folders or writes audio tags.
 - HTML providers import supported album rows from their discography pages and are covered by parser tests for the response shapes the app depends on.
 - HTML provider artist details refresh provider country and active-status evidence from the artist page when the provider exposes those values.
 

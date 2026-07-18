@@ -12,13 +12,11 @@ import java.util.Set;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.model.Album;
-import org.kroky.musiclib.model.ArtistProviderCandidateAlbum;
 import org.kroky.musiclib.model.ArtistProviderLink;
 import org.kroky.musiclib.model.MusicCollection;
 import org.kroky.musiclib.model.ProviderCheckSummary;
 import org.kroky.musiclib.model.ReportArtifact;
 import org.kroky.musiclib.model.RemoteReleaseGroup;
-import org.kroky.musiclib.repository.AlbumProviderLinkRepository;
 import org.kroky.musiclib.repository.AlbumRepository;
 import org.kroky.musiclib.repository.ArtistRepository;
 import org.kroky.musiclib.repository.ArtistProviderLinkRepository;
@@ -66,16 +64,16 @@ public class ProviderCheckService {
     AlbumRepository albums;
 
     @Inject
-    AlbumProviderLinkRepository albumProviderLinks;
-
-    @Inject
     ProviderRegistry providers;
 
     @Inject
     ProviderCheckReportWriter reportWriter;
 
     @Inject
-    ArtistProviderRefreshService artistProviderRefresh;
+    MusicBrainzClient musicBrainz;
+
+    @Inject
+    ProviderDiscographyReconciliationService discographyReconciliation;
 
     public ProviderCheckSummary checkArtist(long artistId, String collectionId) {
         if (collectionId != null && collections.find(collectionId).isEmpty()) {
@@ -154,103 +152,33 @@ public class ProviderCheckService {
                     removeStaleLocalPaths(link);
                     reconciledArtistIds.add(link.artistId());
                 }
-                if (MusicBrainzClient.PROVIDER_ID.equals(link.providerId())) {
-                    var result = artistProviderRefresh.importMusicBrainz(link, collectionId, report);
-                    foundAlbums += result.foundReleaseGroupCount();
-                    newAlbums += result.createdAlbumCount();
-                    existingAlbums += result.existingAlbumCount();
-                    releaseDateConflicts += result.releaseDateConflictCount();
-                    titleConflicts += result.titleConflictCount();
-                    ignoredProviderRecords += result.skippedCount();
-                    messages.addAll(result.messages());
-                    providerLinks.markSuccess(link.id());
-                    processedItems++;
-                    progress.itemFinished(link, processedItems, skippedArtists, foundAlbums, newAlbums,
-                            existingAlbums, releaseDateConflicts, titleConflicts, errors);
-                    continue;
-                }
-                DiscographyProvider provider = providers.find(link.providerId(), link.providerUrl());
-                ProviderArtistDetails details = provider.fetchArtistDetails(link.providerUrl());
-                providerLinks.updateProviderMetadata(link.id(), details.country(), details.active());
-                List<RemoteAlbum> remoteAlbums = details.albums();
-                foundAlbums += remoteAlbums.size();
-                int linkNewAlbums = 0;
-                int linkReleaseDateConflicts = 0;
-                int linkTitleConflicts = 0;
-                List<Album> localAlbums = new ArrayList<>(albums.list(link.artistId(), null, null, null, null));
-                for (RemoteAlbum remoteAlbum : remoteAlbums) {
-                    String providerReleaseGroupId = providerReleaseGroupId(remoteAlbum);
-                    RemoteReleaseGroup releaseGroup = remoteReleaseGroup(
-                            link.providerId(), providerReleaseGroupId, remoteAlbum);
-                    ArtistProviderCandidateAlbum evidence = ProviderCandidateEvidenceEvaluator.albumEvidence(
-                            localAlbums,
-                            releaseGroup);
-                    Album evidenceAlbum = evidence.localAlbumId() == null
-                            ? null
-                            : localAlbums.stream()
-                                    .filter(localAlbum -> evidence.localAlbumId().equals(localAlbum.id()))
-                                    .findFirst()
-                                    .orElseGet(() -> albums.find(evidence.localAlbumId()).orElse(null));
-                    var linkedAlbumId = albumProviderLinks.findAlbumId(link.providerId(), providerReleaseGroupId);
-                    if (linkedAlbumId.isPresent()) {
-                        Album album = albums.find(linkedAlbumId.get()).orElse(null);
-                        if (shouldRelinkProviderOnlyAlbum(album, evidenceAlbum, evidence)) {
-                            mergeProviderOnlyDuplicates(evidenceAlbum.id(), link.artistId(), remoteAlbum);
-                            linkAlbum(evidenceAlbum.id(), link.providerId(), remoteAlbum);
-                            album = albums.find(evidenceAlbum.id()).orElse(evidenceAlbum);
-                        } else if (album != null) {
-                            mergeProviderOnlyDuplicates(album.id(), link.artistId(), remoteAlbum);
-                            album = albums.find(album.id()).orElse(album);
-                        }
-                        assignToCollectionIfUnassigned(album, collectionId);
-                        ProviderAlbumOutcome outcome = reportProviderAlbumOutcome(link, album, remoteAlbum, report);
-                        existingAlbums += outcome.existingAlbums();
-                        releaseDateConflicts += outcome.releaseDateConflicts();
-                        linkReleaseDateConflicts += outcome.releaseDateConflicts();
-                        titleConflicts += outcome.titleConflicts();
-                        linkTitleConflicts += outcome.titleConflicts();
-                        continue;
-                    }
-
-                    if (ProviderCandidateEvidenceEvaluator.canAutoLinkProviderImportAlbum(evidence, evidenceAlbum)) {
-                        Album album = evidenceAlbum;
-                        if (album == null) {
-                            report.ignoredProviderRecord(link.artistName() + " (" + providerLabel(link.providerId())
-                                    + "): " + remoteAlbum.title()
-                                    + " | reason: matched local album is no longer available");
-                            ignoredProviderRecords++;
-                            continue;
-                        }
-                        linkAlbum(album.id(), link.providerId(), remoteAlbum);
-                        mergeProviderOnlyDuplicates(album.id(), link.artistId(), remoteAlbum);
-                        album = albums.find(album.id()).orElse(album);
-                        assignToCollectionIfUnassigned(album, collectionId);
-                        ProviderAlbumOutcome outcome = reportProviderAlbumOutcome(link, album, remoteAlbum, report);
-                        existingAlbums += outcome.existingAlbums();
-                        releaseDateConflicts += outcome.releaseDateConflicts();
-                        linkReleaseDateConflicts += outcome.releaseDateConflicts();
-                        titleConflicts += outcome.titleConflicts();
-                        linkTitleConflicts += outcome.titleConflicts();
-                        continue;
-                    }
-                    Album album = albums.create(link.artistId(), remoteAlbum.title(), remoteAlbum.releaseDate(), false, null,
-                            collectionId);
-                    linkAlbum(album.id(), link.providerId(), remoteAlbum);
-                    localAlbums.add(album);
-                    newAlbums++;
-                    linkNewAlbums++;
-                    report.addedAsUnchecked(providerAlbumRow(link, remoteAlbum, album));
-                }
-                if (linkNewAlbums == 0 && linkReleaseDateConflicts == 0 && linkTitleConflicts == 0) {
+                FetchedDiscography fetched = fetchDiscography(link, report);
+                foundAlbums += fetched.foundCount();
+                ignoredProviderRecords += fetched.ignoredCount();
+                var result = discographyReconciliation.reconcile(
+                        link,
+                        fetched.country(),
+                        fetched.active(),
+                        fetched.releases(),
+                        collectionId);
+                reportReconciliation(link, result, report);
+                newAlbums += result.createdAlbumCount();
+                existingAlbums += result.existingAlbumCount();
+                releaseDateConflicts += result.releaseDateConflictCount();
+                titleConflicts += result.titleConflictCount();
+                if (result.createdAlbumCount() == 0
+                        && result.releaseDateConflictCount() == 0
+                        && result.titleConflictCount() == 0
+                        && fetched.ignoredCount() == 0
+                        && !result.changedLibraryMetadata()) {
                     report.noChange(link.artistName() + " (" + providerLabel(link.providerId()) + ")");
                 }
-                providerLinks.markSuccess(link.id());
             } catch (Exception e) {
                 errors++;
                 String errorDetail = ProviderException.describe(e);
                 String message = "Provider check failed for " + link.artistName() + ": " + errorDetail;
                 messages.add(message);
-                providerLinks.markError(link.id(), errorDetail);
+                markProviderError(link, errorDetail);
                 report.error(link.artistName() + " (" + providerLabel(link.providerId()) + "): " + errorDetail);
                 LOG.errorf(e, "Provider check failed artistId=%d providerLinkId=%d artist=%s: %s",
                         link.artistId(), link.id(), link.artistName(), errorDetail);
@@ -291,12 +219,6 @@ public class ProviderCheckService {
         }
     }
 
-    private void assignToCollectionIfUnassigned(org.kroky.musiclib.model.Album album, String collectionId) {
-        if (album != null && collectionId != null && album.collections().isEmpty() && album.localPaths().isEmpty()) {
-            albums.assignToCollection(album.id(), collectionId);
-        }
-    }
-
     private ProviderCheckSummary providerSummary(ProviderCheckReport report, String status, int processedArtists,
             int skippedArtists, int foundAlbums, int newAlbums, int existingAlbums, int releaseDateConflicts,
             int titleConflicts, int ignoredProviderRecords, int errors, List<String> messages) {
@@ -316,31 +238,56 @@ public class ProviderCheckService {
         }
     }
 
-    private void linkAlbum(long albumId, String providerId, RemoteAlbum remoteAlbum) {
-        albumProviderLinks.linkAlbum(
-                albumId,
-                providerId,
-                providerReleaseGroupId(remoteAlbum),
-                remoteAlbum.title(),
-                remoteAlbum.releaseDate(),
-                remoteAlbum.sourceUrl());
+    private FetchedDiscography fetchDiscography(ArtistProviderLink link, ProviderCheckReport report)
+            throws ProviderException {
+        if (MusicBrainzClient.PROVIDER_ID.equals(link.providerId())) {
+            requireMusicBrainzIdentity(link);
+            var artist = musicBrainz.fetchArtist(link.providerArtistId());
+            List<RemoteReleaseGroup> fetched = musicBrainz.fetchReleaseGroups(link.providerArtistId());
+            List<RemoteReleaseGroup> eligible = new ArrayList<>();
+            int ignored = 0;
+            for (RemoteReleaseGroup release : fetched) {
+                String reason = ignoredMusicBrainzReason(release);
+                if (reason == null) {
+                    eligible.add(release);
+                    continue;
+                }
+                ignored++;
+                report.ignoredProviderRecord(link.artistName() + " (MusicBrainz): "
+                        + blankValue(release == null ? null : release.title()) + " | reason: " + reason);
+            }
+            return new FetchedDiscography(artist.country(), artist.active(), eligible, fetched.size(), ignored);
+        }
+
+        DiscographyProvider provider = providers.find(link.providerId(), link.providerUrl());
+        ProviderArtistDetails details = provider.fetchArtistDetails(link.providerUrl());
+        List<RemoteAlbum> remoteAlbums = details.albums() == null ? List.of() : details.albums();
+        List<RemoteReleaseGroup> releases = remoteAlbums.stream()
+                .map(album -> remoteReleaseGroup(link.providerId(), providerReleaseGroupId(album), album))
+                .toList();
+        return new FetchedDiscography(details.country(), details.active(), releases, remoteAlbums.size(), 0);
     }
 
-    private void mergeProviderOnlyDuplicates(long keepAlbumId, long artistId, RemoteAlbum remoteAlbum) {
-        albums.mergeProviderOnlyDuplicates(
-                keepAlbumId,
-                artistId,
-                remoteAlbum.title(),
-                remoteAlbum.releaseDate());
+    private static String ignoredMusicBrainzReason(RemoteReleaseGroup release) {
+        if (release == null || release.title() == null || release.title().isBlank()) {
+            return "Blank provider album title";
+        }
+        if (release.providerReleaseGroupId() == null || release.providerReleaseGroupId().isBlank()) {
+            return "Missing release-group id";
+        }
+        if (!"Album".equalsIgnoreCase(release.primaryType())) {
+            return "Unsupported primary type: " + release.primaryType();
+        }
+        if (release.secondaryTypes() != null && !release.secondaryTypes().isEmpty()) {
+            return "Secondary type: " + String.join(", ", release.secondaryTypes());
+        }
+        return null;
     }
 
-    private static boolean shouldRelinkProviderOnlyAlbum(Album linkedAlbum, Album evidenceAlbum,
-            ArtistProviderCandidateAlbum evidence) {
-        return linkedAlbum != null
-                && evidenceAlbum != null
-                && linkedAlbum.id() != evidenceAlbum.id()
-                && linkedAlbum.localPaths().isEmpty()
-                && ProviderCandidateEvidenceEvaluator.canAutoLinkProviderImportAlbum(evidence, evidenceAlbum);
+    private static void requireMusicBrainzIdentity(ArtistProviderLink link) {
+        if (link.providerArtistId() == null || link.providerArtistId().isBlank()) {
+            throw new IllegalArgumentException("MusicBrainz artist MBID is required");
+        }
     }
 
     private static String providerReleaseGroupId(RemoteAlbum remoteAlbum) {
@@ -361,63 +308,57 @@ public class ProviderCheckService {
                 remoteAlbum.sourceUrl());
     }
 
-    private ProviderAlbumOutcome reportProviderAlbumOutcome(ArtistProviderLink link, Album album,
-            RemoteAlbum remoteAlbum, ProviderCheckReport report) {
-        if (album == null) {
-            report.alreadyInLibrary(providerAlbumRow(link, remoteAlbum, null));
-            return new ProviderAlbumOutcome(1, 0, 0);
+    private static void reportReconciliation(ArtistProviderLink link,
+            ProviderDiscographyReconciliationService.Result result, ProviderCheckReport report) {
+        for (var outcome : result.outcomes()) {
+            if (outcome.created()) {
+                report.addedAsUnchecked(providerAlbumRow(link, outcome.release(), outcome.album()));
+                continue;
+            }
+            if (outcome.releaseDateConflict()) {
+                report.releaseDateConflict(releaseDateConflictRow(link, outcome.album(), outcome.release()));
+            }
+            if (outcome.titleConflict()) {
+                report.titleConflict(titleConflictRow(link, outcome.album(), outcome.release()));
+            }
+            if (!outcome.releaseDateConflict() && !outcome.titleConflict()) {
+                String row = providerAlbumRow(link, outcome.release(), outcome.album());
+                report.alreadyInLibrary(outcome.releaseDateFilled()
+                        ? row + " | filled missing local release date"
+                        : row);
+            }
         }
-        boolean releaseDateConflict = releaseDateConflict(album.releaseDate(), remoteAlbum.releaseDate());
-        boolean titleConflict = ProviderTitles.titleConflict(album.title(), remoteAlbum.title());
-        if (releaseDateConflict) {
-            report.releaseDateConflict(releaseDateConflictRow(link, album, remoteAlbum));
-        }
-        if (titleConflict) {
-            report.titleConflict(titleConflictRow(link, album, remoteAlbum));
-        }
-        if (!releaseDateConflict && !titleConflict) {
-            report.alreadyInLibrary(providerAlbumRow(link, remoteAlbum, album));
-        }
-        return new ProviderAlbumOutcome(
-                releaseDateConflict || titleConflict ? 0 : 1,
-                releaseDateConflict ? 1 : 0,
-                titleConflict ? 1 : 0);
     }
 
-    private static boolean releaseDateConflict(String localReleaseDate, String providerReleaseDate) {
-        String localYear = releaseYear(localReleaseDate);
-        String providerYear = releaseYear(providerReleaseDate);
-        return localYear != null && providerYear != null && !localYear.equals(providerYear);
-    }
-
-    private static String releaseYear(String releaseDate) {
-        String normalized = releaseDate == null || releaseDate.isBlank() ? null : releaseDate.trim();
-        if (normalized == null || normalized.length() < 4) {
-            return null;
+    private void markProviderError(ArtistProviderLink link, String errorDetail) {
+        try {
+            providerLinks.markError(link.id(), errorDetail);
+        } catch (Exception markError) {
+            LOG.errorf(markError, "Unable to record provider failure providerLinkId=%d artist=%s",
+                    link.id(), link.artistName());
         }
-        return normalized.substring(0, 4);
     }
 
     private static String blankValue(String value) {
         return value == null || value.isBlank() ? "<blank>" : value;
     }
 
-    private static String releaseDateConflictRow(ArtistProviderLink link, Album album, RemoteAlbum remoteAlbum) {
+    private static String releaseDateConflictRow(ArtistProviderLink link, Album album, RemoteReleaseGroup release) {
         return link.artistName() + " (" + providerLabel(link.providerId()) + "): " + album.title()
                 + " | local: " + blankValue(album.releaseDate())
-                + " | provider: " + blankValue(remoteAlbum.releaseDate())
-                + " | provider title: " + blankValue(remoteAlbum.title());
+                + " | provider: " + blankValue(release.releaseDate())
+                + " | provider title: " + blankValue(release.title());
     }
 
-    private static String titleConflictRow(ArtistProviderLink link, Album album, RemoteAlbum remoteAlbum) {
+    private static String titleConflictRow(ArtistProviderLink link, Album album, RemoteReleaseGroup release) {
         return link.artistName() + " (" + providerLabel(link.providerId()) + "): " + album.title()
-                + " | provider title: " + blankValue(remoteAlbum.title())
-                + " | release: " + blankValue(remoteAlbum.releaseDate());
+                + " | provider title: " + blankValue(release.title())
+                + " | release: " + blankValue(release.releaseDate());
     }
 
-    private static String providerAlbumRow(ArtistProviderLink link, RemoteAlbum remoteAlbum, Album album) {
-        return link.artistName() + " (" + providerLabel(link.providerId()) + "): " + blankValue(remoteAlbum.title())
-                + " | release: " + blankValue(remoteAlbum.releaseDate())
+    private static String providerAlbumRow(ArtistProviderLink link, RemoteReleaseGroup release, Album album) {
+        return link.artistName() + " (" + providerLabel(link.providerId()) + "): " + blankValue(release.title())
+                + " | release: " + blankValue(release.releaseDate())
                 + (album == null ? "" : " | local album: " + album.title());
     }
 
@@ -492,6 +433,11 @@ public class ProviderCheckService {
         };
     }
 
-    private record ProviderAlbumOutcome(int existingAlbums, int releaseDateConflicts, int titleConflicts) {
+    private record FetchedDiscography(
+            String country,
+            Boolean active,
+            List<RemoteReleaseGroup> releases,
+            int foundCount,
+            int ignoredCount) {
     }
 }

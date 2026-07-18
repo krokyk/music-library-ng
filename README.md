@@ -182,13 +182,17 @@ Provider scans link exact, normalized, and high-confidence fuzzy provider album-
 Collection scans can attach a newly discovered local folder to a same-artist checked or provider-linked DB-only album when fuzzy title evidence is strong and the release year is compatible.
 Provider scans keep local paths unchanged and record unresolved title conflicts when the linked provider title differs from the local album title.
 Provider scans record unresolved release-date conflicts when a linked provider release year differs from the local album release year.
+Provider scans fetch remote data first, then reconcile one provider's complete eligible discography for one artist in a single database transaction.
+A failed artist-provider reconciliation rolls back that provider's album, metadata, link, membership, merge, and success-state writes without rolling back other providers or artists.
+Any supported provider may fill a missing library release date after a strong album match, while a later differing provider year becomes an unresolved conflict.
+Automatic missing-date enrichment changes database metadata only and does not rename folders or write audio tags.
 Unresolved release-date and title conflicts are shown after provider scans and remain indicated in the Artists view until resolved.
 Release-date conflicts from multiple providers are grouped by local album and provider year.
 Title conflicts from multiple providers are grouped by local album and provider title.
 Keeping the local year preserves the local folder metadata while preventing future provider scans from adding the grouped provider albums again.
 Kept-local year decisions can be reset from the Artists detail year chip so the mismatch becomes unresolved again.
-Using the provider year updates the library release date metadata, resolves grouped provider links, and merges provider-only duplicates without renaming folders or writing audio tags.
-Using the provider title updates the library album title metadata, resolves grouped provider links, and merges provider-only duplicates without renaming folders or writing audio tags.
+Using the provider year updates the library release date metadata, renames supported on-disk album folders, writes supported audio `YEAR` tags, resolves grouped provider links, and merges provider-only duplicates.
+Using the provider title updates the library album title metadata, renames supported on-disk album folders, writes supported audio `ALBUM` tags, resolves grouped provider links, and merges provider-only duplicates.
 Local album scans and provider scans run in background jobs so the workspace remains navigable while status updates continue.
 Local and provider scans write plaintext reports under `data/reports`, and clickable status-history reports are kept only for the current window session.
 Scan buttons and write actions such as add, edit, delete, and provider-link changes are disabled while a local or provider scan is running.

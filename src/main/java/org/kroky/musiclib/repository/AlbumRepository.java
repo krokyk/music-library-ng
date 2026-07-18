@@ -158,19 +158,27 @@ public class AlbumRepository {
         LOG.infof("Creating album artistId=%d title='%s' releaseDate='%s' checked=%s",
                 artistIds == null || artistIds.isEmpty() ? 0 : artistIds.get(0), title, releaseDate, checked);
         try (Connection connection = dataSource.getConnection()) {
-            boolean autoCommit = connection.getAutoCommit();
-            connection.setAutoCommit(false);
+            boolean ownsTransaction = connection.getAutoCommit();
+            if (ownsTransaction) {
+                connection.setAutoCommit(false);
+            }
             try {
                 long albumId = insertAlbum(connection, title, releaseDate, checked, notes);
                 replaceArtists(connection, albumId, artistIds);
                 assignToCollection(connection, albumId, collectionId);
-                connection.commit();
+                if (ownsTransaction) {
+                    connection.commit();
+                }
                 return find(albumId).orElseThrow();
             } catch (Exception e) {
-                rollbackQuietly(connection);
+                if (ownsTransaction) {
+                    rollbackQuietly(connection);
+                }
                 throw e;
             } finally {
-                connection.setAutoCommit(autoCommit);
+                if (ownsTransaction) {
+                    connection.setAutoCommit(true);
+                }
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to create album " + title, e);
@@ -460,17 +468,25 @@ public class AlbumRepository {
 
     public int mergeProviderOnlyDuplicates(long keepAlbumId, long artistId, String title, String releaseDate) {
         try (Connection connection = dataSource.getConnection()) {
-            boolean autoCommit = connection.getAutoCommit();
-            connection.setAutoCommit(false);
+            boolean ownsTransaction = connection.getAutoCommit();
+            if (ownsTransaction) {
+                connection.setAutoCommit(false);
+            }
             try {
                 int merged = mergeProviderOnlyDuplicates(connection, keepAlbumId, artistId, title, releaseDate);
-                connection.commit();
+                if (ownsTransaction) {
+                    connection.commit();
+                }
                 return merged;
             } catch (Exception e) {
-                rollbackQuietly(connection);
+                if (ownsTransaction) {
+                    rollbackQuietly(connection);
+                }
                 throw e;
             } finally {
-                connection.setAutoCommit(autoCommit);
+                if (ownsTransaction) {
+                    connection.setAutoCommit(true);
+                }
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to merge provider-only duplicate albums", e);
