@@ -974,33 +974,6 @@ public class AlbumRepository {
         }
     }
 
-    private Optional<Long> findByArtistAndTitleId(Connection connection, long artistId, String title)
-            throws Exception {
-        String sql = """
-                SELECT a.id
-                FROM albums a
-                JOIN album_artists aa ON aa.album_id = a.id
-                WHERE aa.artist_id = ? AND a.normalized_title = ?
-                ORDER BY
-                    CASE
-                        WHEN EXISTS (
-                            SELECT 1 FROM album_local_paths lp
-                            WHERE lp.album_id = a.id
-                        ) THEN 0
-                        ELSE 1
-                    END,
-                    a.id
-                LIMIT 1
-                """;
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, artistId);
-            statement.setString(2, Names.normalize(title));
-            try (ResultSet rs = statement.executeQuery()) {
-                return rs.next() ? Optional.of(rs.getLong("id")) : Optional.empty();
-            }
-        }
-    }
-
     private Optional<Long> findScannedDuplicateId(Connection connection, long artistId, String title, String releaseDate)
             throws Exception {
         String sql = """

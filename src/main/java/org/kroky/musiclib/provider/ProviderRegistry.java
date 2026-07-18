@@ -1,7 +1,5 @@
 package org.kroky.musiclib.provider;
 
-import java.util.List;
-
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;

@@ -174,7 +174,6 @@ public class ProviderCheckService {
                 providerLinks.updateProviderMetadata(link.id(), details.country(), details.active());
                 List<RemoteAlbum> remoteAlbums = details.albums();
                 foundAlbums += remoteAlbums.size();
-                int linkExistingAlbums = 0;
                 int linkNewAlbums = 0;
                 int linkReleaseDateConflicts = 0;
                 int linkTitleConflicts = 0;
@@ -206,7 +205,6 @@ public class ProviderCheckService {
                         assignToCollectionIfUnassigned(album, collectionId);
                         ProviderAlbumOutcome outcome = reportProviderAlbumOutcome(link, album, remoteAlbum, report);
                         existingAlbums += outcome.existingAlbums();
-                        linkExistingAlbums += outcome.existingAlbums();
                         releaseDateConflicts += outcome.releaseDateConflicts();
                         linkReleaseDateConflicts += outcome.releaseDateConflicts();
                         titleConflicts += outcome.titleConflicts();
@@ -229,7 +227,6 @@ public class ProviderCheckService {
                         assignToCollectionIfUnassigned(album, collectionId);
                         ProviderAlbumOutcome outcome = reportProviderAlbumOutcome(link, album, remoteAlbum, report);
                         existingAlbums += outcome.existingAlbums();
-                        linkExistingAlbums += outcome.existingAlbums();
                         releaseDateConflicts += outcome.releaseDateConflicts();
                         linkReleaseDateConflicts += outcome.releaseDateConflicts();
                         titleConflicts += outcome.titleConflicts();
