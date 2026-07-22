@@ -6,6 +6,7 @@ param(
     [int]$Width = 1920,
     [int]$Height = 1080,
     [string]$ArtistCollection = "Melodeath",
+    [string]$ArtistName = "",
     [string]$TitleCollection = "Soundtracks",
     [switch]$KeepChromeOpen
 )
@@ -321,6 +322,10 @@ try {
     if (-not (Wait-ForJs $socket "document.querySelector('.collection-edit-card') !== null" 5000)) {
         throw "Collection edit overlay did not render."
     }
+    Eval-Js $socket "(() => { const input = document.querySelector('.collection-edit-card input'); if (!input) return false; input.focus(); return true; })()" | Out-Null
+    if (-not (Wait-ForJs $socket "(() => { const card = document.querySelector('.collection-edit-card'); const title = card?.querySelector('.v-card-title'); const labels = [...(card?.querySelectorAll('.v-field-label--floating') ?? [])]; if (!card || !title || labels.length === 0) return false; const titleBottom = title.getBoundingClientRect().bottom; const cardTop = card.getBoundingClientRect().top; return labels.every((label) => { const rect = label.getBoundingClientRect(); return rect.top >= titleBottom - 0.5 && rect.top >= cardTop; }); })()" 3000)) {
+        throw "Collection edit floating field label overlaps or clips behind the dialog title."
+    }
     Start-Sleep -Milliseconds 500
     $collectionEdit = Eval-Js $socket $metricsJs
     $collectionEditPath = Join-Path $OutputDir "musiclib-collection-edit.png"
@@ -338,11 +343,17 @@ try {
     $artistPath = Join-Path $OutputDir "musiclib-artist-collection.png"
     Save-Screenshot $socket $artistPath
 
-    Eval-Js $socket "(() => { const row = document.querySelector('.artists-pane .workspace-row'); if (!row) return false; row.click(); return true; })()" | Out-Null
-    if (-not (Wait-ForJs $socket "(() => { const meta = document.querySelector('.albums-pane .pane-header__meta'); if (!meta || !meta.textContent.trim()) return false; return !!(document.querySelector('.albums-pane .workspace-grid') || Array.from(document.querySelectorAll('.albums-pane .pane-empty')).find((node) => !node.textContent.includes('Select an artist'))); })()" 8000)) {
-        throw "$ArtistCollection album pane did not render after selecting an artist."
+    if (-not (Eval-Js $socket "(() => { const rows = [...document.querySelectorAll('.artists-pane .workspace-row')]; const row = '$ArtistName' ? rows.find((node) => node.textContent.includes('$ArtistName')) : rows[0]; if (!row) return false; row.click(); return true; })()")) {
+        throw "Artist '$ArtistName' was not visible in $ArtistCollection."
+    }
+    if (-not (Wait-ForJs $socket "(() => { const meta = document.querySelector('.albums-pane .pane-header__meta'); if (!meta || !meta.textContent.trim()) return false; return !!(document.querySelector('.albums-pane .pane-loading') || document.querySelector('.albums-pane .workspace-grid') || Array.from(document.querySelectorAll('.albums-pane .pane-empty')).find((node) => !node.textContent.includes('Select an artist'))); })()" 3000)) {
+        $albumPaneState = Eval-Js $socket "(() => JSON.stringify({ selected: document.querySelector('.artists-pane .workspace-row.is-selected')?.textContent.trim() ?? null, meta: document.querySelector('.albums-pane .pane-header__meta')?.textContent.trim() ?? null, empty: document.querySelector('.albums-pane .pane-empty')?.textContent.trim() ?? null, loading: !!document.querySelector('.albums-pane .pane-loading') }))()"
+        throw "$ArtistCollection album pane did not render after selecting an artist. Rendered state: $albumPaneState"
     }
     Start-Sleep -Milliseconds 500
+    if (-not (Eval-Js $socket "(() => [...document.querySelectorAll('.albums-pane .workspace-row')].every((row) => { const checkbox = row.querySelector('input[type=checkbox]'); if (!checkbox || checkbox.disabled) return true; return checkbox.checked ? !!row.querySelector('.album-presence-text--nonlocal-checked') : !!row.querySelector('.album-presence-text--nonlocal-unchecked'); }))()")) {
+        throw "$ArtistCollection has a non-local album with incorrect checked or unchecked styling."
+    }
     $album = Eval-Js $socket $metricsJs
     $albumPath = Join-Path $OutputDir "musiclib-album-selection.png"
     Save-Screenshot $socket $albumPath
@@ -351,10 +362,51 @@ try {
     if (-not (Wait-ForJs $socket "document.querySelectorAll('.titles-pane .workspace-row').length > 0" 8000)) {
         throw "$TitleCollection titles did not render."
     }
+    $titleGridState = Eval-Js $socket "(() => { const headers = [...document.querySelectorAll('.titles-pane .workspace-grid__header-cell')]; return JSON.stringify({ count: headers.length, labels: headers.map((node) => node.textContent.trim()), yearResizable: !!headers[2]?.querySelector('.column-resize-handle'), action: !!document.querySelector('.titles-pane .row-action-cell'), select: !!document.querySelector('.titles-pane .v-select') }); })()"
+    if (-not (Eval-Js $socket "(() => { const headers = [...document.querySelectorAll('.titles-pane .workspace-grid__header-cell')]; return headers.length === 4 && headers.slice(0, 3).map((node) => node.textContent.trim()).join('|') === 'Title|Artist|Year' && headers[3].textContent.trim() === '' && !!headers[2].querySelector('.column-resize-handle') && !document.querySelector('.titles-pane .row-action-cell') && !document.querySelector('.titles-pane .v-select'); })()")) {
+        throw "$TitleCollection title grid must contain Title, Artist, and resizable Year columns followed by an empty flexible spacer. Rendered state: $titleGridState"
+    }
     Start-Sleep -Milliseconds 500
     $title = Eval-Js $socket $metricsJs
     $titlePath = Join-Path $OutputDir "musiclib-title-collection.png"
     Save-Screenshot $socket $titlePath
+
+    Eval-Js $socket "(() => { const tab = [...document.querySelectorAll('.app-tabs .v-tab')].find((node) => node.textContent.includes('Artists')); if (!tab) return false; tab.click(); return true; })()" | Out-Null
+    if (-not (Wait-ForJs $socket "!!document.querySelector('.artists-page') && (!!document.querySelector('.artists-table-pane .pane-loading') || !!document.querySelector('.artists-screen-grid'))" 3000)) {
+        throw "Artists page did not render its pane or initial pane spinner."
+    }
+    if (-not (Wait-ForJs $socket "document.querySelectorAll('.artists-screen-grid .workspace-row').length > 0" 60000)) {
+        throw "Artists page did not finish its initial multi-row load."
+    }
+    $artistsPath = Join-Path $OutputDir "musiclib-artists-page.png"
+    Save-Screenshot $socket $artistsPath
+
+    Eval-Js $socket "(() => { const tab = [...document.querySelectorAll('.app-tabs .v-tab')].find((node) => node.textContent.includes('Settings')); if (!tab) return false; tab.click(); return true; })()" | Out-Null
+    if (-not (Wait-ForJs $socket "!!document.querySelector('.settings-page')" 3000)) {
+        throw "Settings page did not render before the Artists cache revisit check."
+    }
+    Eval-Js $socket "(() => { const tab = [...document.querySelectorAll('.app-tabs .v-tab')].find((node) => node.textContent.includes('Artists')); if (!tab) return false; tab.click(); return true; })()" | Out-Null
+    if (-not (Wait-ForJs $socket "document.querySelectorAll('.artists-screen-grid .workspace-row').length > 0" 3000)) {
+        throw "Artists page did not render from its session cache after returning from Settings."
+    }
+
+    $conflictOpened = Eval-Js $socket "(() => { const button = document.querySelector('.artists-screen-grid .workspace-row .mdi-alert-outline')?.closest('button'); if (!button) return false; button.click(); return true; })()"
+    if ($conflictOpened -and (Wait-ForJs $socket "!!document.querySelector('.provider-conflict-dialog .provider-conflict-choice')" 10000)) {
+        $choiceOpacity = Eval-Js $socket "(() => [...document.querySelectorAll('.provider-conflict-dialog .provider-conflict-choice')].every((node) => getComputedStyle(node).opacity === '1'))()"
+        if (-not $choiceOpacity) {
+            throw "Provider conflict choices must remain fully opaque while the conflict section is highlighted."
+        }
+        $beforeHover = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.provider-conflict-album-group--open .provider-conflict-choice')].map((node) => getComputedStyle(node).backgroundColor)))()"
+        Send-Cdp $socket "DOM.enable" | Out-Null
+        Send-Cdp $socket "CSS.enable" | Out-Null
+        $document = Send-Cdp $socket "DOM.getDocument" @{ depth = 0 }
+        $group = Send-Cdp $socket "DOM.querySelector" @{ nodeId = $document.result.root.nodeId; selector = ".provider-conflict-album-group--open" }
+        Send-Cdp $socket "CSS.forcePseudoState" @{ nodeId = $group.result.nodeId; forcedPseudoClasses = @("hover") } | Out-Null
+        $afterHover = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.provider-conflict-album-group--open .provider-conflict-choice')].map((node) => getComputedStyle(node).backgroundColor)))()"
+        if ($beforeHover -ne $afterHover) {
+            throw "Provider conflict section hover changed choice-tile background colors: $beforeHover -> $afterHover"
+        }
+    }
 
     @{
         appUrl = $AppUrl
@@ -364,6 +416,7 @@ try {
             artist = $artistPath
             album = $albumPath
             title = $titlePath
+            artists = $artistsPath
         }
         initial = $initial
         collectionEdit = $collectionEdit

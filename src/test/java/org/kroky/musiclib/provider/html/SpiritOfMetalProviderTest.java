@@ -100,10 +100,10 @@ class SpiritOfMetalProviderTest {
 
         assertEquals(2, albums.size());
         assertEquals("First", albums.get(0).title());
-        assertEquals("2010", albums.get(0).releaseDate());
+        assertEquals(2010, albums.get(0).releaseYear());
         assertEquals("https://www.spirit-of-metal.com/en/album/First/1", albums.get(0).sourceUrl());
         assertEquals("Second", albums.get(1).title());
-        assertEquals("2014-05", albums.get(1).releaseDate());
+        assertEquals(2014, albums.get(1).releaseYear());
     }
 
     @Test

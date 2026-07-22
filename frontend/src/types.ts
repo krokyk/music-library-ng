@@ -11,19 +11,6 @@ export interface Artist {
   providerCountry?: string | null
   providerActive?: boolean | null
   providerLinks: ArtistProviderLink[]
-  localScanErrorMessage?: string | null
-}
-
-export interface AlbumLocalPath {
-  id: number
-  albumId: number
-  collectionId: string
-  collectionName: string
-  relativePath: string
-  resolvedPath?: string | null
-  onDisk: boolean
-  firstSeenAt: string
-  lastSeenAt: string
 }
 
 export interface AlbumProviderLink {
@@ -32,11 +19,11 @@ export interface AlbumProviderLink {
   providerId: string
   providerReleaseGroupId: string
   providerTitle: string
-  providerReleaseDate?: string | null
+  providerReleaseYear?: number | null
   providerUrl?: string | null
-  releaseDateResolution?: string | null
+  releaseYearResolution?: string | null
   titleResolution?: string | null
-  releaseDateConflict: boolean
+  releaseYearConflict: boolean
   titleConflict: boolean
   createdAt: string
   updatedAt: string
@@ -50,16 +37,16 @@ export interface AlbumCollection {
 export interface Album {
   id: number
   artistIds: number[]
-  collections: AlbumCollection[]
-  artistName: string
+  collection: AlbumCollection
+  artistName?: string | null
   title: string
-  releaseDate?: string | null
+  releaseYear?: number | null
   sortName?: string | null
   sortNameSource: 'AUTO' | 'MANUAL'
   checked: boolean
-  hasLocalPath: boolean
+  localRelativePath?: string | null
+  resolvedPath?: string | null
   onDisk: boolean
-  localPaths: AlbumLocalPath[]
   providerLinks: AlbumProviderLink[]
   notes?: string | null
   createdAt: string
@@ -73,7 +60,6 @@ export interface MusicCollection {
   resolvedPath?: string | null
   exists: boolean
   type: 'ARTIST' | 'TITLE'
-  parser: string
   lastScanAt?: string | null
   lastScanStatus?: string | null
   lastScanMessage?: string | null
@@ -93,6 +79,18 @@ export interface CollectionMetadata {
   knownAlbumCount: number
   uncheckedAlbumCount: number
   checkedAlbumCount: number
+}
+
+export interface CollectionDeletePreview {
+  collectionId: string
+  albumCount: number
+  artistCount: number
+}
+
+export interface CollectionDeleteResult {
+  collectionId: string
+  albumsDeleted: number
+  artistsDeleted: number
 }
 
 export interface RootCandidate {
@@ -144,7 +142,6 @@ export interface UiSettingsValues {
   artistScanSpinnerEnabled: boolean
   providerBatchRescanDelayMinutes: number
   statusHistoryDateFormat: string
-  releaseDateDisplayFormat: string
   statusBarLocation: 'top' | 'bottom'
   workspaceColumnDefaults: WorkspaceColumnWidths
   artistsScreenColumnDefaults: ArtistsScreenColumnWidths
@@ -167,16 +164,15 @@ export interface WorkspaceColumnWidths {
   }
   album: {
     name: number
-    releaseDate: number
+    releaseYear: number
     checked: number
-    collections: number
+    home: number
     action: number
   }
   title: {
     title: number
     artist: number
-    releaseDate: number
-    action: number
+    releaseYear: number
   }
 }
 
@@ -226,13 +222,13 @@ export interface ArtistProviderLink {
 
 export interface ArtistProviderCandidateAlbum {
   title: string
-  providerReleaseDate?: string | null
+  providerReleaseYear?: number | null
   providerUrl?: string | null
   localAlbumId?: number | null
   localTitle?: string | null
-  localReleaseDate?: string | null
+  localReleaseYear?: number | null
   localOnDisk: boolean
-  releaseDateConflict: boolean
+  releaseYearConflict: boolean
   matchType: 'exact' | 'normalized' | 'fuzzy' | 'none'
   titleScore: number
   evidenceStrength: number
@@ -301,7 +297,7 @@ export interface ProviderCheckJobStatus {
   foundAlbumCount: number
   newAlbumCount: number
   existingAlbumCount: number
-  releaseDateConflictCount: number
+  releaseYearConflictCount: number
   titleConflictCount: number
   errorCount: number
   message?: string | null
@@ -335,34 +331,34 @@ export interface ArtistStatusConflict {
   sources: ArtistStatusConflictSource[]
 }
 
-export interface ProviderReleaseDateConflictSource {
+export interface ProviderReleaseYearConflictSource {
   providerLinkId: number
   providerId: string
   providerTitle: string
-  providerReleaseDate?: string | null
+  providerReleaseYear?: number | null
   providerUrl?: string | null
 }
 
-export interface ProviderReleaseDateConflict {
+export interface ProviderReleaseYearConflict {
   albumId: number
   providerLinkId: number
   artistId: number
   artistName: string
   albumTitle: string
-  localReleaseDate?: string | null
+  localReleaseYear?: number | null
   providerTitle: string
-  providerReleaseDate?: string | null
+  providerReleaseYear?: number | null
   providerId: string
   providerUrl?: string | null
   localRelativePath?: string | null
-  sources: ProviderReleaseDateConflictSource[]
+  sources: ProviderReleaseYearConflictSource[]
 }
 
 export interface ProviderTitleConflictSource {
   providerLinkId: number
   providerId: string
   providerTitle: string
-  providerReleaseDate?: string | null
+  providerReleaseYear?: number | null
   providerUrl?: string | null
 }
 
@@ -372,52 +368,48 @@ export interface ProviderTitleConflict {
   artistId: number
   artistName: string
   albumTitle: string
-  localReleaseDate?: string | null
+  localReleaseYear?: number | null
   providerTitle: string
-  providerReleaseDate?: string | null
+  providerReleaseYear?: number | null
   providerId: string
   providerUrl?: string | null
   localRelativePath?: string | null
   sources: ProviderTitleConflictSource[]
 }
 
-export interface AudioTagFilePlan {
-  relativePath: string
-  status: string
-  message: string
+export type ProviderConflictKind = 'TITLE' | 'YEAR' | 'COUNTRY' | 'STATUS'
+export type ProviderConflictAction = 'USE_PROVIDER' | 'KEEP_LOCAL' | 'RESET_KEEP_LOCAL'
+
+export interface ProviderConflictResolutionRequest {
+  kind: ProviderConflictKind
+  action?: ProviderConflictAction
+  artistId: number
+  albumId?: number
+  providerLinkId?: number
+  country?: string
+  active?: boolean
 }
 
-export interface AlbumReleaseDateConflictFolderPlan {
-  localPathId: number
-  collectionId: string
-  collectionName: string
-  sourcePath: string
-  targetPath: string
-  sourceRelativePath: string
-  targetRelativePath: string
-  audioFileCount: number
-  unsupportedFileCount: number
-  files: AudioTagFilePlan[]
+export interface ProviderConflictResolutionResult {
+  kind: ProviderConflictKind
+  action?: ProviderConflictAction | null
+  artistId: number
+  albumId?: number | null
+  artist?: Artist | null
+  album?: Album | null
+  messages: ProviderConflictResolutionMessage[]
 }
 
-export interface AlbumReleaseDateConflictResult {
-  album: Album
-  sourcePath: string
-  targetPath: string
-  folderCount: number
-  duplicateAlbumsMerged: number
-  tagFilesUpdated: number
-  files: AudioTagFilePlan[]
-  warnings: string[]
+export interface ProviderConflictResolutionMessage {
+  severity: 'INFO' | 'WARNING' | 'ERROR'
+  code: string
+  summary: string
+  details: string[]
 }
 
-export interface AlbumTitleConflictResult {
-  album: Album
-  sourcePath: string
-  targetPath: string
-  folderCount: number
-  duplicateAlbumsMerged: number
-  tagFilesUpdated: number
-  files: AudioTagFilePlan[]
-  warnings: string[]
+export interface ArtistProviderConflicts {
+  countries: ArtistCountryConflict[]
+  statuses: ArtistStatusConflict[]
+  titles: ProviderTitleConflict[]
+  years: ProviderReleaseYearConflict[]
 }

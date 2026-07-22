@@ -2,7 +2,9 @@ package org.kroky.musiclib.provider;
 
 import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.kroky.musiclib.db.Names;
@@ -15,6 +17,7 @@ public final class ProviderTitles {
     public static final String MATCH_NONE = "none";
     public static final int FUZZY_REVIEW_THRESHOLD = 84;
     public static final int FUZZY_HIGH_CONFIDENCE_THRESHOLD = 92;
+    private static final Pattern NUMBER = Pattern.compile("\\d+");
 
     private ProviderTitles() {
     }
@@ -62,11 +65,26 @@ public final class ProviderTitles {
         if (local.equals(provider)) {
             return new TitleMatch(MATCH_NORMALIZED, 96);
         }
+        if (numbersDiffer(local, provider)) {
+            return new TitleMatch(MATCH_NONE, 0);
+        }
         int score = fuzzyScore(local, provider);
         if (score >= FUZZY_REVIEW_THRESHOLD) {
             return new TitleMatch(MATCH_FUZZY, score);
         }
         return new TitleMatch(MATCH_NONE, score);
+    }
+
+    private static boolean numbersDiffer(String left, String right) {
+        List<String> leftNumbers = numbers(left);
+        List<String> rightNumbers = numbers(right);
+        return !leftNumbers.isEmpty() && !rightNumbers.isEmpty() && !leftNumbers.equals(rightNumbers);
+    }
+
+    private static List<String> numbers(String value) {
+        return NUMBER.matcher(value).results()
+                .map(result -> result.group().replaceFirst("^0+(?=\\d)", ""))
+                .toList();
     }
 
     private static int fuzzyScore(String left, String right) {

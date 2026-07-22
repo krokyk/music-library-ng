@@ -16,7 +16,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import org.kroky.musiclib.model.ReleaseDates;
+import org.kroky.musiclib.model.ReleaseYears;
 import org.kroky.musiclib.provider.CountryCodes;
 import org.kroky.musiclib.provider.DiscographyProvider;
 import org.kroky.musiclib.provider.ProviderArtistDetails;
@@ -133,10 +133,10 @@ public class SpiritOfMetalProvider implements DiscographyProvider {
             if (title == null || title.text().isBlank()) {
                 continue;
             }
-            Element releaseDate = release.selectFirst("div[itemprop=datePublished]");
+            Element releaseYear = release.selectFirst("div[itemprop=datePublished]");
             albums.add(new RemoteAlbum(
                     title.text().trim(),
-                    releaseDate == null ? null : parseReleaseDate(releaseDate.text()),
+                    releaseYear == null ? null : parseReleaseYear(releaseYear.text()),
                     release.absUrl("href").isBlank() ? providerUrl : release.absUrl("href")));
         }
         return albums;
@@ -275,9 +275,9 @@ public class SpiritOfMetalProvider implements DiscographyProvider {
         }
     }
 
-    private static String parseReleaseDate(String value) {
+    private static Integer parseReleaseYear(String value) {
         try {
-            return ReleaseDates.normalize(value.trim());
+            return ReleaseYears.fromDate(value.trim());
         } catch (Exception e) {
             return null;
         }

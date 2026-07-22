@@ -93,10 +93,10 @@ public class ProviderCheckJobService {
 
                 @Override
                 public void itemFinished(ArtistProviderLink link, int itemProcessed, int skippedArtists,
-                        int foundAlbums, int newAlbums, int existingAlbums, int releaseDateConflicts,
+                        int foundAlbums, int newAlbums, int existingAlbums, int releaseYearConflicts,
                         int titleConflicts, int errors) {
                     job.itemFinished(link.artistId(), itemProcessed, skippedArtists, foundAlbums, newAlbums,
-                            existingAlbums, releaseDateConflicts, titleConflicts, errors);
+                            existingAlbums, releaseYearConflicts, titleConflicts, errors);
                 }
 
             };
@@ -125,8 +125,8 @@ public class ProviderCheckJobService {
         return subject + " complete: " + summary.processedArtistCount() + " checked"
                 + (summary.skippedArtistCount() > 0 ? ", " + summary.skippedArtistCount() + " skipped" : "")
                 + ", " + summary.newAlbumCount() + " new albums"
-                + (summary.releaseDateConflictCount() > 0
-                        ? ", " + summary.releaseDateConflictCount() + " release date conflicts"
+                + (summary.releaseYearConflictCount() > 0
+                        ? ", " + summary.releaseYearConflictCount() + " release year conflicts"
                         : "")
                 + (summary.titleConflictCount() > 0
                         ? ", " + summary.titleConflictCount() + " title conflicts"
@@ -177,7 +177,7 @@ public class ProviderCheckJobService {
         private int foundAlbumCount;
         private int newAlbumCount;
         private int existingAlbumCount;
-        private int releaseDateConflictCount;
+        private int releaseYearConflictCount;
         private int titleConflictCount;
         private int errorCount;
         private String message;
@@ -226,14 +226,14 @@ public class ProviderCheckJobService {
         }
 
         synchronized void itemFinished(Long artistId, int itemProcessed, int skippedArtists, int foundAlbums,
-                int newAlbums, int existingAlbums, int releaseDateConflicts, int titleConflicts, int errors) {
+                int newAlbums, int existingAlbums, int releaseYearConflicts, int titleConflicts, int errors) {
             addArtistId(artistId);
             this.itemProcessed = itemProcessed;
             this.skippedArtistCount = skippedArtists;
             this.foundAlbumCount = foundAlbums;
             this.newAlbumCount = newAlbums;
             this.existingAlbumCount = existingAlbums;
-            this.releaseDateConflictCount = releaseDateConflicts;
+            this.releaseYearConflictCount = releaseYearConflicts;
             this.titleConflictCount = titleConflicts;
             this.errorCount = errors;
             this.message = runningMessage();
@@ -252,7 +252,7 @@ public class ProviderCheckJobService {
             this.foundAlbumCount = summary.foundAlbumCount();
             this.newAlbumCount = summary.newAlbumCount();
             this.existingAlbumCount = summary.existingAlbumCount();
-            this.releaseDateConflictCount = summary.releaseDateConflictCount();
+            this.releaseYearConflictCount = summary.releaseYearConflictCount();
             this.titleConflictCount = summary.titleConflictCount();
             this.errorCount = summary.errorCount();
             this.reports = summary.reports();
@@ -275,7 +275,7 @@ public class ProviderCheckJobService {
                     foundAlbumCount,
                     newAlbumCount,
                     existingAlbumCount,
-                    releaseDateConflictCount,
+                    releaseYearConflictCount,
                     titleConflictCount,
                     errorCount,
                     message,

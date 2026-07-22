@@ -31,7 +31,7 @@ Current behavior belongs in `docs/current-application.md`.
 
 - Revisit grid-table row action alignment so action controls align to the right edge of their action area.
 - This would make grid tables feel closer to the Collections and Artists pane rows where trailing controls are visually right-aligned.
-- If implemented, update `docs/codex-ui-workflow-guide.md` because the current grid-table contract says actions align left inside the action column.
+- If implemented, update `docs/ui-guide.md` because the current grid-table contract says actions align left inside the action column.
 
 ## Artists Screen Search Scope
 
@@ -48,26 +48,15 @@ Current behavior belongs in `docs/current-application.md`.
 - Consider a right-aligned `Refresh inactive` control in the Artists screen search and filter area.
 - Individual artist refresh should remain available as the deliberate override when the user is looking at one specific artist.
 
-## Album Collection Membership Assignment
+## Manual Artist Creation
 
-- Add collection membership editing to album edit flows so provider-discovered albums can be assigned to collections by user choice.
-- Consider prompting when the user marks a provider-discovered album checked from a collection context.
-- The prompt could offer to also add the album to the active collection.
-- Avoid prompting when the album already belongs to the active collection or when the checkbox change is not collection-contextual.
-
-## Collection Type Choice
-
-- Revisit collection creation so the user either chooses collection type explicitly or gets a useful inferred default.
-- Type inference could inspect folder names for title-pipeline patterns versus artist-album patterns.
-- Because collection creation is infrequent, an explicit type choice may be clearer and safer than clever inference.
-- The workflow should avoid silently creating the wrong type when folder names are ambiguous.
-
-## Collection Chip Navigation
-
-- Make collection chips in the Collections screen Albums pane clickable.
-- Clicking a chip should navigate to that collection and select the relevant artist and album when those entities exist in the target collection.
-- The navigation should preserve the user expectation that a collection chip represents real membership, not just decorative metadata.
-- If the target collection is title-centric, navigate to the title row for the album instead of trying to select an artist pane row.
+- Add manual artist creation to the global Artists screen and artist-centric Collections screen.
+- Require an artist-centric home collection before creation can begin, with the active collection preselected when launched from Collections.
+- Match the new artist to a provider and fetch an eligible non-empty discography before saving anything.
+- Create the artist, provider identity, albums, artist links, and initial album homes atomically, assigning every initial album to the chosen collection.
+- Save nothing when provider matching fails, provider fetching fails, or the provider returns no eligible albums.
+- Do not expose manual artist creation in title-centric collections because title contributors enter through title scans rather than full-discography import.
+- Keep existing-artist collection placement album-driven through each album's home selector instead of adding an independent artist membership action.
 
 ## Compilation Representation
 
@@ -77,14 +66,19 @@ Current behavior belongs in `docs/current-application.md`.
 
 ## Duplicate Album Detection
 
-- Add a duplicate-detection workflow for albums with slightly different names, release dates, or provider identities.
+- Add a duplicate-detection workflow for albums with slightly different names, release years, or provider identities.
 - The workflow should preview merges before changing shared album identity.
 
-## Folder Rename Preview And Confirmation
+## Conflict Resolution Tile Impact Preview
 
-- Add a UI preview and explicit confirmation before conflict resolution renames folders or updates audio tags.
-- Show source and target folders, planned tag changes, unsupported files, and warnings from the existing conflict plan.
-- Reuse the existing Windows-safe folder rendering, rollback, and stored local-path update behavior.
+- Add a read-only hover or focus preview that explains exactly what clicking one provider conflict resolution tile would do.
+- Show the current and target metadata value, source and target folder paths, planned audio-tag field and file count, unsupported files, and validation warnings.
+- Title previews must describe title, folder-title, and `ALBUM` tag changes only.
+- Release-year previews must describe release-year, folder-year, and `YEAR` tag changes only.
+- Generate the preview from the same backend planning implementation used to preflight the immediate tile action so displayed effects cannot drift from applied effects.
+- Hovering or focusing a tile must never remove stale paths, write database state, rename folders, or update tags.
+- Clicking a tile must remain an immediate resolution action without an Apply button or confirmation step.
+- Cache a successfully loaded preview only while its conflict and album state remain unchanged.
 
 ## Artist Collection Organizer
 
@@ -106,6 +100,61 @@ Current behavior belongs in `docs/current-application.md`.
 - Add an explicit deep-audit workflow for track files and audio tags if album-level discovery stops being enough.
 - This should be separate from normal collection scans because it is slower and introduces track identity, duplicate-file, and tag parsing rules.
 
+## Managed Playlists
+
+This is the next major milestone after the current provider-conflict work.
+
+Goal:
+
+- Replace duplicate derivative collections with app-owned playlist membership while keeping one canonical physical copy of each track in its album's home collection.
+- Keep a logical playlist independent of its player-specific outputs so the same membership can be published for desktop and Android players.
+- Treat generated playlist files as overwriteable outputs rather than sources of truth, and do not preserve manual edits made outside the app.
+
+Membership:
+
+- Let a playlist include the complete contents of one or more source collections.
+- Let a playlist additionally include explicit tracks from any collection without copying those files.
+- Record source collections and explicit track membership in the database so generated files contain only player-compatible playlist content.
+- Model each physical audio file once and retain enough stable identity to keep explicit playlist membership when an album folder or track path changes.
+- Keep the initial rule set limited to source collections plus explicit tracks, without general smart-playlist expressions or exclusions.
+
+Management:
+
+- Add a playlist manager that can create, rename, and delete logical playlists; configure source collections; add or remove explicit tracks; choose output targets; and regenerate outputs.
+- Expose playlist membership where tracks are browsed so classifying a track becomes one immediate Add-to-playlist action instead of a filesystem copy.
+- Show missing or stale referenced tracks before generation and keep the last valid generated file when generation cannot complete safely.
+- Write generated files through a temporary file and replace the target only after the complete output succeeds because the music root is synchronized by Google Drive.
+
+M3U8 output:
+
+- Generate strict extended M3U8 files directly under the music root for Poweramp and other compatible players.
+- Match the existing contract exactly: one standard `#EXTM3U` header followed by alphabetically sorted relative Windows track paths, with no blank lines, per-track metadata, or custom comments.
+- Allow the app to overwrite each generated M3U8 completely.
+
+Foobar2000-native output:
+
+- Let the same logical playlist be published into Foobar2000-native playlist state so long playlists load without reparsing M3U8 on every open.
+- Do not generate `.fpl` files directly because Foobar2000 intentionally does not publish the format as an interchange specification.
+- Perform native playlist creation and replacement through a supported Foobar2000 integration in which Foobar2000 reads the app-generated membership and owns its native persistence.
+
+Migration and maintenance:
+
+- Import the current M3U8 memberships before derivative folders are permanently removed.
+- Map derivative playlist entries to canonical tracks using exact file identity where possible and require review for missing or differing copies.
+- Support `EPIC` as the complete contents of `EPIC` plus `SOUNDTRACKS`, with additional explicit tracks available from other home collections.
+- Support `METAL BALLADS` as explicit tracks drawn from their canonical home collections instead of a physical `METAL BALLADS` directory.
+- Update every managed output when an album folder or audio path is renamed, and report the affected playlists as part of the rename result.
+- Detect stale entries such as a playlist path retaining an old album year or title after its canonical folder was renamed.
+
+Acceptance criteria:
+
+- One logical playlist can publish both M3U8 and Foobar2000-native outputs without duplicating its membership definition.
+- Regenerating `EPIC` includes all current audio files from `EPIC` and `SOUNDTRACKS` plus its explicit cross-collection tracks.
+- An explicit track can belong to multiple playlists while only one physical audio file exists.
+- Generated M3U8 files remain strict, relative, alphabetically sorted, and free of app-specific metadata.
+- A canonical path rename updates all affected managed playlist outputs without losing explicit membership.
+- Import reports entries that cannot be matched to a canonical physical track instead of silently dropping them.
+
 ## Add Provider Metadata Repair / Audit Workflow
 
 Implement a separate metadata repair/audit workflow that uses provider evidence to propose fixes. This must be separate from provider match, bulk-match, and normal provider scan behavior.
@@ -124,7 +173,7 @@ Scope:
 - Example:
   `Local 2000, MusicBrainz 2001, Metal Archives 2001, Spirit of Metal 2000` should produce a proposal such as `Suggested year: 2001, confidence: 2 of 3 providers`.
 - Majority agreement is only evidence, not an automatic mutation.
-- “Use Suggested Year” should reuse the metadata-only provider conflict resolution path when the repair is only a library metadata decision.
+- “Use Suggested Year” needs an audit-specific metadata-only action when the repair should not use the current conflict resolver's folder and tag behavior.
 - Add album-title mismatch detection as another repair proposal type.
 - Add canonical album-title proposals when provider title evidence agrees after provider-title cleanup and title normalization.
 - Example:
@@ -152,25 +201,3 @@ Acceptance criteria:
 - No filesystem rename or tag edit occurs without a preview and user confirmation.
 - Normal provider scans still only collect evidence and conflicts; they do not apply repairs.
 - Tests/build pass.
-
-## Update Playlists After Audio Path Renames
-
-When playlist management is implemented, make the future folder rename workflow update affected playlist entries whenever it renames album folders or audio files.
-
-Scope:
-
-- Detect every audio file path changed by the future folder rename workflow or future metadata repair actions that explicitly mutate files.
-- Build an old-path to new-path mapping for renamed folders/files.
-- Update all managed playlists that reference any renamed audio file.
-- Preserve playlist order, comments, blank lines, and relative/absolute path style where possible.
-- Preview playlist changes together with folder rename and tag-update plans before applying.
-- Apply playlist updates only after the user confirms the filesystem mutation.
-- Roll back or clearly report partial failure if folder rename succeeds but playlist rewrite fails.
-- Document that unmanaged external playlists are not modified unless explicitly imported/managed by the app.
-
-Acceptance criteria:
-
-- Renaming an album folder updates playlist entries pointing to tracks inside that folder.
-- Preview shows how many playlist entries will change and which playlists are affected.
-- No playlist file is rewritten when the user cancels the conflict resolution.
-- Existing conflict resolution tests cover path mapping and playlist update behavior once playlist support exists.

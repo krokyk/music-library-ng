@@ -4,50 +4,38 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.jboss.logging.Logger;
-import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.tag.FieldKey;
-import org.jaudiotagger.tag.Tag;
+import org.jboss.logging.Logger;
 import org.kroky.musiclib.model.Album;
-import org.kroky.musiclib.model.AlbumLocalPath;
 import org.kroky.musiclib.model.AlbumProviderLink;
-import org.kroky.musiclib.model.AlbumReleaseDateConflictFolderPlan;
-import org.kroky.musiclib.model.AlbumReleaseDateConflictPlan;
-import org.kroky.musiclib.model.AlbumReleaseDateConflictResult;
-import org.kroky.musiclib.model.AlbumTitleConflictPlan;
-import org.kroky.musiclib.model.AlbumTitleConflictResult;
-import org.kroky.musiclib.model.AudioTagFilePlan;
-import org.kroky.musiclib.model.ParserType;
+import org.kroky.musiclib.model.Artist;
+import org.kroky.musiclib.model.CollectionType;
 import org.kroky.musiclib.repository.AlbumProviderLinkRepository;
 import org.kroky.musiclib.repository.AlbumRepository;
+import org.kroky.musiclib.repository.ArtistRepository;
+import org.kroky.musiclib.repository.ArtistProviderLinkRepository;
 import org.kroky.musiclib.repository.MusicCollectionRepository;
 
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 @ApplicationScoped
 public class AlbumProviderConflictService {
 
-    private static final Pattern FLAT_FOLDER =
-            Pattern.compile("^(.+?) - (\\d{4}(?:-\\d{2}(?:-\\d{2})?)?) - (.+)$");
-    private static final Pattern NESTED_ALBUM_FOLDER =
-            Pattern.compile("^(\\d{4}(?:-\\d{2}(?:-\\d{2})?)?) - (.+)$");
-    private static final Pattern UNSAFE_WINDOWS_FOLDER_CHARS = Pattern.compile("[<>:\"/\\\\|?*\\p{Cntrl}]");
-    private static final Pattern COLLAPSED_SPACES = Pattern.compile(" +");
-    private static final Pattern WINDOWS_TRAILING_DOTS_OR_SPACES = Pattern.compile("[ .]+$");
-    private static final Pattern WINDOWS_RESERVED_FOLDER_NAME =
-            Pattern.compile("(?i)^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\\..*)?$");
-    private static final Set<String> AUDIO_EXTENSIONS = Set.of(
-            "mp3", "flac", "m4a", "mp4", "ogg", "oga", "wav", "aif", "aiff", "wma", "dsf");
     private static final Logger LOG = Logger.getLogger(AlbumProviderConflictService.class);
+    private static final Pattern FLAT = Pattern.compile("^(.+?) - (\\d{4}) - (.+)$");
+    private static final Pattern NESTED = Pattern.compile("^(\\d{4}) - (.+)$");
+    private static final Pattern UNSAFE = Pattern.compile("[<>:\"/\\\\|?*\\p{Cntrl}]");
+    private static final Pattern TRAILING = Pattern.compile("[ .]+$");
+    private static final Set<String> AUDIO_EXTENSIONS = Set.of("mp3", "flac", "m4a", "mp4", "ogg", "oga", "wav", "aif", "aiff", "wma", "dsf");
 
     @Inject
     AlbumRepository albums;
@@ -56,655 +44,243 @@ public class AlbumProviderConflictService {
     AlbumProviderLinkRepository providerLinks;
 
     @Inject
+    ArtistRepository artists;
+
+    @Inject
+    ArtistProviderLinkRepository artistProviderLinks;
+
+    @Inject
     MusicCollectionRepository collections;
 
-    public AlbumReleaseDateConflictPlan planUseProviderReleaseDate(long albumId, long providerLinkId) {
-        ConflictContext context = releaseDateContext(albumId, providerLinkId);
-        return releaseDatePlan(context, plan(context, yearUpdate(context.providerLink())));
-    }
-
-    public AlbumReleaseDateConflictResult keepLocalReleaseDate(long albumId, long providerLinkId) {
-        ConflictContext context = releaseDateContext(albumId, providerLinkId);
-        providerLinks.resolveMatchingReleaseDateConflicts(albumId, context.providerLink().providerReleaseDate(), "KEEP_LOCAL");
-        int merged = mergeProviderOnlyDuplicates(context.album(), context.providerLink());
-        return new AlbumReleaseDateConflictResult(
-                albums.find(albumId).orElseThrow(),
-                firstSourcePath(context),
-                firstSourcePath(context),
-                0,
-                merged,
-                0,
-                List.of(),
-                List.of("Provider release remains linked to the local album with local release date kept."));
-    }
-
-    public AlbumReleaseDateConflictResult resetKeepLocalReleaseDate(long albumId, long providerLinkId) {
-        ConflictContext context = releaseDateContext(albumId, providerLinkId);
-        providerLinks.resetMatchingKeepLocalReleaseDateConflicts(
-                albumId,
-                context.providerLink().providerReleaseDate());
-        return new AlbumReleaseDateConflictResult(
-                albums.find(albumId).orElseThrow(),
-                firstSourcePath(context),
-                firstSourcePath(context),
-                0,
-                0,
-                0,
-                List.of(),
-                List.of());
-    }
-
-    public AlbumReleaseDateConflictResult useProviderReleaseDate(long albumId, long providerLinkId) {
-        ConflictContext context = releaseDateContext(albumId, providerLinkId, true);
-        AudioTagUpdate tagUpdate = yearUpdate(context.providerLink());
-        AlbumReleaseDateConflictPlan preview = releaseDatePlan(context, plan(context, tagUpdate));
-        renameFolders(albumId, context);
-        Album updated = albums.update(albumId, context.providerLink().providerTitle(),
-                context.providerLink().providerReleaseDate(), context.album().checked(), context.album().notes()).orElseThrow();
-        providerLinks.resolveMatchingReleaseDateConflicts(albumId, context.providerLink().providerReleaseDate(), "USE_PROVIDER");
-        int merged = mergeProviderOnlyDuplicates(updated, context.providerLink());
-        TagUpdateResult tagResult = updateAudioTags(context, tagUpdate, preview.warnings());
-
-        return new AlbumReleaseDateConflictResult(
-                albums.find(albumId).orElseThrow(),
-                preview.sourcePath(),
-                preview.targetPath(),
-                context.folders().size(),
-                merged,
-                tagResult.updatedTags(),
-                tagResult.files(),
-                tagResult.warnings());
-    }
-
-    public AlbumTitleConflictPlan planUseProviderTitle(long albumId, long providerLinkId) {
-        ConflictContext context = titleContext(albumId, providerLinkId);
-        return titlePlan(context, plan(context, titleUpdate(context.providerLink())));
-    }
-
-    public AlbumTitleConflictResult keepLocalTitle(long albumId, long providerLinkId) {
-        ConflictContext context = titleContext(albumId, providerLinkId);
-        providerLinks.resolveAlbumTitleUsingLocal(albumId, context.album().title());
-        int merged = mergeProviderOnlyDuplicates(context.album(), context.providerLink());
-        return new AlbumTitleConflictResult(
-                albums.find(albumId).orElseThrow(),
-                firstSourcePath(context),
-                firstSourcePath(context),
-                0,
-                merged,
-                0,
-                List.of(),
-                List.of("Provider title remains linked to the local album with local title kept."));
-    }
-
-    public AlbumTitleConflictResult resetKeepLocalTitle(long albumId, long providerLinkId) {
-        ConflictContext context = titleContext(albumId, providerLinkId, true);
-        providerLinks.resetMatchingKeepLocalTitleConflicts(albumId, context.providerLink().providerTitle());
-        return new AlbumTitleConflictResult(
-                albums.find(albumId).orElseThrow(),
-                firstSourcePath(context),
-                firstSourcePath(context),
-                0,
-                0,
-                0,
-                List.of(),
-                List.of());
-    }
-
-    public AlbumTitleConflictResult useProviderTitle(long albumId, long providerLinkId) {
-        ConflictContext context = titleContext(albumId, providerLinkId, false, true);
-        AudioTagUpdate tagUpdate = titleUpdate(context.providerLink());
-        AlbumTitleConflictPlan preview = titlePlan(context, plan(context, tagUpdate));
-        renameFolders(albumId, context);
-        Album updated = albums.update(albumId, context.providerLink().providerTitle(),
-                context.album().releaseDate(), context.album().checked(), context.album().notes()).orElseThrow();
-        providerLinks.resolveAlbumTitleUsingProvider(albumId, context.providerLink().providerTitle());
-        int merged = mergeProviderOnlyDuplicates(updated, context.providerLink());
-        TagUpdateResult tagResult = updateAudioTags(context, tagUpdate, preview.warnings());
-
-        return new AlbumTitleConflictResult(
-                albums.find(albumId).orElseThrow(),
-                preview.sourcePath(),
-                preview.targetPath(),
-                context.folders().size(),
-                merged,
-                tagResult.updatedTags(),
-                tagResult.files(),
-                tagResult.warnings());
-    }
-
-    private PlanData plan(ConflictContext context, AudioTagUpdate tagUpdate) {
-        List<String> warnings = new ArrayList<>();
-        List<AlbumReleaseDateConflictFolderPlan> folders = context.folders().stream()
-                .map(folder -> folderPlan(folder, tagUpdate, warnings))
-                .toList();
-        int stalePathCount = context.album().localPaths().size() - context.folders().size();
-        if (stalePathCount > 0) {
-            warnings.add("Ignoring " + stalePathCount + " stale local path"
-                    + (stalePathCount == 1 ? "" : "s") + " that are not on disk.");
-        }
-        if (folders.size() > 1) {
-            warnings.add("This album has " + folders.size() + " on-disk local folders; all will be renamed.");
-        }
-        List<AudioTagFilePlan> files = folders.stream()
-                .flatMap(folder -> folder.files().stream()
-                        .map(file -> new AudioTagFilePlan(
-                                folder.collectionName() + "/" + file.relativePath(),
-                                file.status(),
-                                file.message())))
-                .toList();
-        int supported = (int) files.stream().filter(file -> "SUPPORTED".equals(file.status())).count();
-        int unsupported = (int) files.stream().filter(file -> "UNSUPPORTED".equals(file.status())).count();
-        String sourcePath = folders.size() == 1 ? folders.get(0).sourcePath() : folders.size() + " local folders";
-        String targetPath = folders.size() == 1 ? folders.get(0).targetPath() : folders.size() + " local folders";
-        String sourceRelativePath = folders.size() == 1
-                ? folders.get(0).sourceRelativePath()
-                : folders.size() + " local folders";
-        String targetRelativePath = folders.size() == 1
-                ? folders.get(0).targetRelativePath()
-                : folders.size() + " renamed local folders";
-        return new PlanData(
-                sourcePath,
-                targetPath,
-                sourceRelativePath,
-                targetRelativePath,
-                folders.size(),
-                supported,
-                unsupported,
-                folders,
-                files,
-                warnings);
-    }
-
-    private AlbumReleaseDateConflictPlan releaseDatePlan(ConflictContext context, PlanData data) {
-        return new AlbumReleaseDateConflictPlan(
-                context.album().id(),
-                context.providerLink().id(),
-                context.album().title(),
-                context.album().releaseDate(),
-                context.providerLink().providerTitle(),
-                context.providerLink().providerReleaseDate(),
-                data.sourcePath(),
-                data.targetPath(),
-                data.sourceRelativePath(),
-                data.targetRelativePath(),
-                data.folderCount(),
-                data.audioFileCount(),
-                data.unsupportedFileCount(),
-                data.folders(),
-                data.files(),
-                data.warnings());
-    }
-
-    private AlbumTitleConflictPlan titlePlan(ConflictContext context, PlanData data) {
-        return new AlbumTitleConflictPlan(
-                context.album().id(),
-                context.providerLink().id(),
-                context.album().title(),
-                context.album().releaseDate(),
-                context.providerLink().providerTitle(),
-                context.providerLink().providerReleaseDate(),
-                data.sourcePath(),
-                data.targetPath(),
-                data.sourceRelativePath(),
-                data.targetRelativePath(),
-                data.folderCount(),
-                data.audioFileCount(),
-                data.unsupportedFileCount(),
-                data.folders(),
-                data.files(),
-                data.warnings());
-    }
-
-    private AlbumReleaseDateConflictFolderPlan folderPlan(ConflictPath folder, AudioTagUpdate tagUpdate,
-            List<String> warnings) {
-        if (!Files.isDirectory(folder.source())) {
-            warnings.add("Source folder does not exist: " + folder.source());
-        }
-        if (!folder.source().equals(folder.target()) && Files.exists(folder.target())) {
-            warnings.add("Target folder already exists: " + folder.target());
-        }
-        if (folder.sanitizedTargetFolderName()) {
-            warnings.add("Provider metadata was adjusted for the Windows folder name; "
-                    + "folder will use: " + folder.targetRelativePath());
-        }
-        if (!safeDirectFolderName(folder.targetFolderName())) {
-            warnings.add("Target folder name contains characters that are not safe on Windows: "
-                    + folder.targetRelativePath());
-        }
-        List<AudioTagFilePlan> files = audioFiles(folder.source(), tagUpdate);
-        int supported = (int) files.stream().filter(file -> "SUPPORTED".equals(file.status())).count();
-        int unsupported = (int) files.stream().filter(file -> "UNSUPPORTED".equals(file.status())).count();
-        return new AlbumReleaseDateConflictFolderPlan(
-                folder.localPath().id(),
-                folder.localPath().collectionId(),
-                folder.localPath().collectionName(),
-                folder.source().toString(),
-                folder.target().toString(),
-                folder.localPath().relativePath(),
-                folder.targetRelativePath(),
-                supported,
-                unsupported,
-                files);
-    }
-
-    private ConflictContext releaseDateContext(long albumId, long providerLinkId) {
-        return releaseDateContext(albumId, providerLinkId, false);
-    }
-
-    private ConflictContext releaseDateContext(long albumId, long providerLinkId, boolean allowCurrentValue) {
-        Album album = albums.find(albumId)
-                .orElseThrow(() -> new IllegalArgumentException("Unknown album: " + albumId));
-        AlbumProviderLink providerLink = providerLinks.find(providerLinkId)
-                .orElseThrow(() -> new IllegalArgumentException("Unknown provider link: " + providerLinkId));
-        if (providerLink.albumId() != album.id()) {
-            throw new IllegalArgumentException("Provider link " + providerLinkId + " does not belong to album " + albumId);
-        }
-        if (!releaseDateConflict(album.releaseDate(), providerLink.providerReleaseDate()) && !allowCurrentValue) {
-            throw new IllegalArgumentException("Album does not have a provider release date conflict.");
-        }
-        return context(album, providerLink, ConflictTarget.useProviderReleaseDate(providerLink));
-    }
-
-    private ConflictContext titleContext(long albumId, long providerLinkId) {
-        return titleContext(albumId, providerLinkId, false, false);
-    }
-
-    private ConflictContext titleContext(long albumId, long providerLinkId, boolean allowKeptLocal) {
-        return titleContext(albumId, providerLinkId, allowKeptLocal, false);
-    }
-
-    private ConflictContext titleContext(long albumId, long providerLinkId, boolean allowKeptLocal,
-            boolean allowCurrentValue) {
-        Album album = albums.find(albumId)
-                .orElseThrow(() -> new IllegalArgumentException("Unknown album: " + albumId));
-        AlbumProviderLink providerLink = providerLinks.find(providerLinkId)
-                .orElseThrow(() -> new IllegalArgumentException("Unknown provider link: " + providerLinkId));
-        if (providerLink.albumId() != album.id()) {
-            throw new IllegalArgumentException("Provider link " + providerLinkId + " does not belong to album " + albumId);
-        }
-        if (!ProviderTitles.titleConflict(album.title(), providerLink.providerTitle())
-                && !(allowKeptLocal && "KEEP_LOCAL".equals(providerLink.titleResolution()))
-                && !allowCurrentValue) {
-            throw new IllegalArgumentException("Album does not have a provider title conflict.");
-        }
-        return context(album, providerLink, ConflictTarget.keepLocalReleaseDate(providerLink));
-    }
-
-    private ConflictContext context(Album album, AlbumProviderLink providerLink, ConflictTarget target) {
-        album = removeStaleLocalPaths(album);
-        List<ConflictPath> folders = album.localPaths().stream()
-                .filter(AlbumLocalPath::onDisk)
-                .map(localPath -> conflictPath(localPath, providerLink, target))
-                .toList();
-        return new ConflictContext(album, providerLink, folders);
-    }
-
-    private Album removeStaleLocalPaths(Album album) {
-        List<String> stalePaths = album.localPaths().stream()
-                .filter(localPath -> !localPath.onDisk())
-                .map(AlbumLocalPath::resolvedPath)
-                .toList();
-        if (stalePaths.isEmpty()) {
-            return album;
-        }
-        int removed = albums.removeStaleLocalPaths(album.id());
-        if (removed > 0) {
-            LOG.warnf("Removed %d stale local path row%s for album id=%d because %s not on disk: %s",
-                    removed,
-                    removed == 1 ? "" : "s",
-                    album.id(),
-                    removed == 1 ? "the folder is" : "the folders are",
-                    String.join(", ", stalePaths));
-        }
-        return albums.find(album.id())
-                .orElseThrow(() -> new IllegalArgumentException("Unknown album: " + album.id()));
-    }
-
-    private ConflictPath conflictPath(AlbumLocalPath localPath, AlbumProviderLink providerLink,
-            ConflictTarget target) {
-        var collection = collections.find(localPath.collectionId())
-                .orElseThrow(() -> new IllegalArgumentException("Unknown collection: " + localPath.collectionId()));
-        if (collection.parser() == ParserType.FLAT_ARTIST_YEAR_ALBUM) {
-            return flatConflictPath(localPath, providerLink, target);
-        }
-        if (collection.parser() == ParserType.NESTED_ARTIST_ALBUM) {
-            return nestedConflictPath(localPath, providerLink, target);
-        }
-        throw new IllegalArgumentException(
-                "Folder rename is only supported for flat and nested artist-album collections.");
-    }
-
-    private ConflictPath flatConflictPath(AlbumLocalPath localPath, AlbumProviderLink providerLink,
-            ConflictTarget target) {
-        if (localPath.relativePath().contains("/") || localPath.relativePath().contains("\\")) {
-            throw new IllegalArgumentException("Folder rename is only supported for direct album folders.");
-        }
-        Matcher matcher = FLAT_FOLDER.matcher(localPath.relativePath());
-        if (!matcher.matches()) {
-            throw new IllegalArgumentException("Local folder does not match artist - release date - album layout.");
-        }
-        String dateSegment = target.useProviderReleaseDate() ? providerDateSegment(providerLink) : matcher.group(2);
-        String rawTargetRelativePath = matcher.group(1) + " - " + dateSegment + " - " + target.title();
-        String targetRelativePath = windowsSafeFolderSegment(matcher.group(1), "Artist")
-                + " - " + windowsSafeFolderSegment(dateSegment, "Release Date")
-                + " - " + windowsSafeFolderSegment(target.title(), "Album");
-        Path source = Path.of(localPath.resolvedPath());
-        return new ConflictPath(localPath, targetRelativePath, targetRelativePath, source,
-                source.resolveSibling(targetRelativePath), !targetRelativePath.equals(rawTargetRelativePath));
-    }
-
-    private ConflictPath nestedConflictPath(AlbumLocalPath localPath, AlbumProviderLink providerLink,
-            ConflictTarget target) {
-        String normalizedPath = localPath.relativePath().replace('\\', '/');
-        int separator = normalizedPath.indexOf('/');
-        if (separator <= 0 || separator != normalizedPath.lastIndexOf('/') || separator >= normalizedPath.length() - 1) {
-            throw new IllegalArgumentException("Nested folder rename is only supported for artist/album folders.");
-        }
-        String artistFolder = normalizedPath.substring(0, separator);
-        String albumFolder = normalizedPath.substring(separator + 1);
-        Matcher matcher = NESTED_ALBUM_FOLDER.matcher(albumFolder);
-        if (!matcher.matches()) {
-            throw new IllegalArgumentException("Local folder does not match artist/release date - album layout.");
-        }
-        String dateSegment = target.useProviderReleaseDate() ? providerDateSegment(providerLink) : matcher.group(1);
-        String rawTargetAlbumFolder = dateSegment + " - " + target.title();
-        String targetAlbumFolder = windowsSafeFolderSegment(dateSegment, "Release Date")
-                + " - " + windowsSafeFolderSegment(target.title(), "Album");
-        String targetRelativePath = artistFolder + "/" + targetAlbumFolder;
-        Path source = Path.of(localPath.resolvedPath());
-        return new ConflictPath(localPath, targetRelativePath, targetAlbumFolder, source,
-                source.resolveSibling(targetAlbumFolder), !targetAlbumFolder.equals(rawTargetAlbumFolder));
-    }
-
-    private int mergeProviderOnlyDuplicates(Album album, AlbumProviderLink providerLink) {
-        int merged = 0;
-        for (long artistId : album.artistIds()) {
-            merged += albums.mergeProviderOnlyDuplicates(
-                    album.id(),
-                    artistId,
-                    providerLink.providerTitle(),
-                    providerLink.providerReleaseDate());
-        }
-        return merged;
-    }
-
-    private void renameFolders(long albumId, ConflictContext context) {
-        for (ConflictPath folder : context.folders()) {
-            if (!Files.isDirectory(folder.source())) {
-                throw new IllegalStateException("Source folder does not exist: " + folder.source());
-            }
-            if (folder.source().equals(folder.target())) {
-                continue;
-            }
-            if (Files.exists(folder.target())) {
-                throw new IllegalStateException("Target folder already exists: " + folder.target());
-            }
-            if (!safeDirectFolderName(folder.targetFolderName())) {
-                throw new IllegalStateException("Target folder name contains characters that are not safe on Windows: "
-                        + folder.targetRelativePath());
-            }
-        }
-
-        List<MovedFolder> movedFolders = new ArrayList<>();
-        for (ConflictPath folder : context.folders()) {
-            if (folder.source().equals(folder.target())) {
-                continue;
-            }
-            try {
-                moveFolder(folder.source(), folder.target());
-                movedFolders.add(new MovedFolder(folder.source(), folder.target()));
-            } catch (Exception e) {
-                rollbackMoves(movedFolders);
-                throw new IllegalStateException("Unable to rename album folder from " + folder.source()
-                        + " to " + folder.target(), e);
-            }
-        }
-
-        for (ConflictPath folder : context.folders()) {
-            albums.updateLocalPath(albumId, folder.localPath().id(), folder.targetRelativePath());
-        }
-    }
-
-    private TagUpdateResult updateAudioTags(ConflictContext context, AudioTagUpdate tagUpdate,
-            List<String> previewWarnings) {
-        List<AudioTagFilePlan> tagResults = new ArrayList<>();
-        for (ConflictPath folder : context.folders()) {
-            updateAudioTags(folder.target(), tagUpdate).stream()
-                    .map(file -> folderFilePlan(folder, file))
-                    .forEach(tagResults::add);
-        }
-        int updatedTags = (int) tagResults.stream().filter(file -> "UPDATED".equals(file.status())).count();
-        List<String> warnings = new ArrayList<>(previewWarnings);
-        tagResults.stream()
-                .filter(file -> "FAILED".equals(file.status()))
-                .forEach(file -> warnings.add(file.relativePath() + ": " + file.message()));
-        return new TagUpdateResult(updatedTags, tagResults, warnings);
-    }
-
-    private static List<AudioTagFilePlan> audioFiles(Path source, AudioTagUpdate tagUpdate) {
-        if (!Files.isDirectory(source)) {
-            return List.of();
-        }
-        try (var stream = Files.walk(source)) {
-            return stream
-                    .filter(Files::isRegularFile)
-                    .sorted(Comparator.comparing(path -> source.relativize(path).toString()))
-                    .map(path -> audioFilePlan(source, path, tagUpdate))
-                    .filter(plan -> !"IGNORED".equals(plan.status()))
-                    .toList();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to list audio files under " + source, e);
-        }
-    }
-
-    private static AudioTagFilePlan audioFilePlan(Path source, Path file, AudioTagUpdate tagUpdate) {
-        String relativePath = source.relativize(file).toString();
-        String extension = extension(file);
-        if (!AUDIO_EXTENSIONS.contains(extension)) {
-            return new AudioTagFilePlan(relativePath, "IGNORED", "Not an audio file handled by this workflow.");
-        }
-        if (tagUpdate.value() == null || tagUpdate.value().isBlank()) {
-            return new AudioTagFilePlan(relativePath, "UNSUPPORTED", tagUpdate.blankMessage());
-        }
-        return new AudioTagFilePlan(relativePath, "SUPPORTED", tagUpdate.planMessage());
-    }
-
-    private static List<AudioTagFilePlan> updateAudioTags(Path source, AudioTagUpdate tagUpdate) {
-        return audioFiles(source, tagUpdate).stream()
-                .map(file -> updateAudioTag(source, file, tagUpdate))
-                .toList();
-    }
-
-    private static AudioTagFilePlan folderFilePlan(ConflictPath folder, AudioTagFilePlan file) {
-        return new AudioTagFilePlan(
-                folder.localPath().collectionName() + "/" + file.relativePath(),
-                file.status(),
-                file.message());
-    }
-
-    private static AudioTagFilePlan updateAudioTag(Path source, AudioTagFilePlan file, AudioTagUpdate tagUpdate) {
-        if (!"SUPPORTED".equals(file.status())) {
-            return file;
-        }
-        Path path = source.resolve(file.relativePath());
+    public ResolutionResult resolve(ResolutionRequest request) {
         try {
-            AudioFile audioFile = AudioFileIO.read(path.toFile());
-            Tag tag = audioFile.getTagOrCreateAndSetDefault();
-            tag.setField(tagUpdate.field(), tagUpdate.value());
-            audioFile.commit();
-            return new AudioTagFilePlan(file.relativePath(), "UPDATED", tagUpdate.updatedMessage());
+            require(request != null, "Resolution request is required.");
+            Kind kind = Kind.valueOf(request.kind().trim().toUpperCase(Locale.ROOT));
+            return switch (kind) {
+                case COUNTRY -> resolveCountry(request, kind);
+                case STATUS -> resolveStatus(request, kind);
+                case TITLE, YEAR -> resolveAlbum(request, kind);
+            };
         } catch (Exception e) {
-            return new AudioTagFilePlan(file.relativePath(), "FAILED", e.getMessage());
+            LOG.warnf(e, "Provider conflict resolution failed kind=%s action=%s artist=%s album=%s: %s",
+                    request == null ? null : request.kind(), request == null ? null : request.action(),
+                    request == null ? null : request.artistId(), request == null ? null : request.albumId(),
+                    ProviderException.describe(e));
+            if (hasCause(e, FolderRenameException.class)) {
+                return error(request, "FOLDER_RENAME_FAILED", "Folder rename failed", ProviderException.describe(e));
+            }
+            return error(request, "RESOLUTION_FAILED", "Provider conflict was not resolved.", ProviderException.describe(e));
         }
     }
 
-    private static String extension(Path file) {
-        String name = file.getFileName().toString();
-        int dot = name.lastIndexOf('.');
-        return dot < 0 ? "" : name.substring(dot + 1).toLowerCase(Locale.ROOT);
+    private ResolutionResult resolveCountry(ResolutionRequest request, Kind kind) {
+        Artist artist = artist(request.artistId());
+        require(request.country() != null && !request.country().isBlank(), "Country is required.");
+        Artist updated = artists.update(artist.id(), artist.name(), artist.sortName(), request.country(), artist.activeOverride()).orElseThrow();
+        LOG.infof("Country conflict for %s resolved using local override old=%s result=%s", updated.name(), artist.countryOverride(), updated.countryOverride());
+        return success(kind, null, request, updated, null);
     }
 
-    private static void moveFolder(Path source, Path target) throws Exception {
+    private ResolutionResult resolveStatus(ResolutionRequest request, Kind kind) {
+        Artist artist = artist(request.artistId());
+        require(request.active() != null, "Status is required.");
+        Artist updated = artists.update(artist.id(), artist.name(), artist.sortName(), artist.countryOverride(), request.active()).orElseThrow();
+        LOG.infof("Status conflict for %s resolved using local override old=%s result=%s", updated.name(), artist.activeOverride(), updated.activeOverride() ? "Active" : "Inactive");
+        return success(kind, null, request, updated, null);
+    }
+
+    private ResolutionResult resolveAlbum(ResolutionRequest request, Kind kind) {
+        require(request.albumId() != null, "Album is required.");
+        Action action = Action.valueOf(requireText(request.action(), "Action").toUpperCase(Locale.ROOT));
+        Album before = albums.find(request.albumId()).orElseThrow(() -> new IllegalArgumentException("Unknown album: " + request.albumId()));
+        require(before.artistIds().contains(request.artistId()), "Album does not belong to artist.");
+        Artist conflictArtist = artist(request.artistId());
+        AlbumProviderLink chosen = request.providerLinkId() == null ? null
+                : providerLinks.find(request.providerLinkId()).orElseThrow(() -> new IllegalArgumentException("Unknown provider link: " + request.providerLinkId()));
+        if (chosen != null) require(chosen.albumId() == before.id(), "Provider link does not belong to album.");
+        if (action == Action.USE_PROVIDER || action == Action.RESET_KEEP_LOCAL) require(chosen != null, "Provider link is required.");
+
+        if (action == Action.RESET_KEEP_LOCAL) {
+            QuarkusTransaction.requiringNew().run(() -> {
+                if (kind == Kind.TITLE) providerLinks.resetMatchingKeepLocalTitleConflicts(before.id(), chosen.providerTitle());
+                else providerLinks.resetMatchingKeepLocalReleaseYearConflicts(before.id(), chosen.providerReleaseYear());
+            });
+            Album canonical = albums.find(before.id()).orElseThrow();
+            logAlbumResolution(kind, action, conflictArtist, before, canonical, chosen);
+            return success(kind, action, request, conflictArtist, canonical);
+        }
+
+        if (action == Action.KEEP_LOCAL) {
+            QuarkusTransaction.requiringNew().run(() -> {
+                if (kind == Kind.TITLE) providerLinks.resolveAlbumTitleUsingLocal(before.id(), before.title());
+                else providerLinks.resolveAllReleaseYearConflictsUsingLocal(before.id(), before.releaseYear());
+            });
+            Album canonical = albums.find(before.id()).orElseThrow();
+            logAlbumResolution(kind, action, conflictArtist, before, canonical, chosen);
+            return success(kind, action, request, conflictArtist, canonical);
+        }
+
+        String targetTitle = kind == Kind.TITLE ? ProviderTitles.clean(chosen.providerTitle()) : before.title();
+        Integer targetYear = kind == Kind.YEAR ? chosen.providerReleaseYear() : before.releaseYear();
+        require(targetTitle != null && !targetTitle.isBlank(), "Selected title is blank.");
+        if (kind == Kind.YEAR) require(targetYear != null, "Selected provider year is missing.");
+        FolderMove move;
         try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
-        } catch (Exception atomicFailure) {
-            Files.move(source, target);
+            move = folderMove(before, targetTitle, targetYear);
+        } catch (Exception e) {
+            throw new FolderRenameException(e);
         }
-    }
 
-    private static void rollbackMoves(List<MovedFolder> movedFolders) {
-        for (int index = movedFolders.size() - 1; index >= 0; index--) {
-            MovedFolder folder = movedFolders.get(index);
-            try {
-                if (Files.exists(folder.target()) && !Files.exists(folder.source())) {
-                    Files.move(folder.target(), folder.source());
+        boolean[] moved = { false };
+        Album canonical;
+        try {
+            canonical = QuarkusTransaction.requiringNew().call(() -> {
+                albums.update(before.id(), targetTitle, targetYear, before.checked(), before.notes()).orElseThrow();
+                if (kind == Kind.TITLE) {
+                    providerLinks.resolveAlbumTitleUsingProvider(before.id(), chosen.providerTitle());
+                } else {
+                    providerLinks.resolveAlbumReleaseYearUsingProvider(before.id(), chosen.providerReleaseYear());
                 }
-            } catch (Exception ignored) {
-                // Best-effort filesystem rollback; the original move failure remains the reported error.
-            }
-        }
-    }
-
-    private static String firstSourcePath(ConflictContext context) {
-        return context.folders().isEmpty() ? "" : context.folders().get(0).source().toString();
-    }
-
-    private static String providerDateSegment(AlbumProviderLink providerLink) {
-        String releaseDate = providerLink.providerReleaseDate();
-        return releaseDate == null || releaseDate.isBlank() ? providerYear(providerLink) : releaseDate.trim();
-    }
-
-    private static boolean safeDirectFolderName(String value) {
-        return value != null
-                && !value.isBlank()
-                && !UNSAFE_WINDOWS_FOLDER_CHARS.matcher(value).find()
-                && !WINDOWS_TRAILING_DOTS_OR_SPACES.matcher(value).find()
-                && !WINDOWS_RESERVED_FOLDER_NAME.matcher(value).matches();
-    }
-
-    static String windowsSafeFolderSegment(String value, String fallback) {
-        StringBuilder rendered = new StringBuilder();
-        if (value != null) {
-            value.codePoints().forEach(codePoint -> appendWindowsSafeFolderCharacter(rendered, codePoint));
-        }
-        String sanitized = COLLAPSED_SPACES.matcher(rendered).replaceAll(" ").trim();
-        sanitized = WINDOWS_TRAILING_DOTS_OR_SPACES.matcher(sanitized).replaceAll("");
-        if (sanitized.isBlank()) {
-            sanitized = fallback;
-        }
-        return sanitized;
-    }
-
-    private static void appendWindowsSafeFolderCharacter(StringBuilder rendered, int codePoint) {
-        switch (codePoint) {
-            case '/', '\\', '|', '<', '>', 0x2014 -> rendered.append('-');
-            case ':' -> rendered.append(" -");
-            case '?', '*' -> {
-            }
-            case '"', 0x201c, 0x201d -> rendered.append('\'');
-            default -> {
-                if (Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)) {
-                    rendered.append(' ');
-                } else if (!Character.isISOControl(codePoint)) {
-                    rendered.appendCodePoint(codePoint);
+                if (move != null && !move.source().equals(move.target())) {
+                    try {
+                        moveFolder(move.source(), move.target());
+                    } catch (Exception e) {
+                        throw new FolderRenameException(e);
+                    }
+                    moved[0] = true;
+                    albums.updateLocalRelativePath(before.id(), move.targetRelativePath());
+                }
+                albums.mergeProviderOnlyDuplicates(before.id(), request.artistId(), targetTitle, targetYear);
+                return albums.find(before.id()).orElseThrow();
+            });
+        } catch (Exception e) {
+            if (moved[0]) {
+                try {
+                    restoreFolder(move);
+                } catch (Exception restoreFailure) {
+                    e.addSuppressed(restoreFailure);
                 }
             }
-        }
-    }
-
-    private static String providerYear(AlbumProviderLink providerLink) {
-        return releaseYear(providerLink.providerReleaseDate());
-    }
-
-    private static AudioTagUpdate yearUpdate(AlbumProviderLink providerLink) {
-        String year = providerYear(providerLink);
-        return new AudioTagUpdate(
-                FieldKey.YEAR,
-                year,
-                "Provider release date has no year.",
-                year == null ? "" : "Year will be set to " + year + ".",
-                year == null ? "" : "Year set to " + year + ".");
-    }
-
-    private static AudioTagUpdate titleUpdate(AlbumProviderLink providerLink) {
-        String title = ProviderTitles.clean(providerLink.providerTitle());
-        return new AudioTagUpdate(
-                FieldKey.ALBUM,
-                title,
-                "Provider title is blank.",
-                title.isBlank() ? "" : "Album title will be set to " + title + ".",
-                title.isBlank() ? "" : "Album title set to " + title + ".");
-    }
-
-    private static boolean releaseDateConflict(String localReleaseDate, String providerReleaseDate) {
-        String localYear = releaseYear(localReleaseDate);
-        String providerYear = releaseYear(providerReleaseDate);
-        return localYear != null && providerYear != null && !localYear.equals(providerYear);
-    }
-
-    private static String releaseYear(String releaseDate) {
-        String normalized = releaseDate == null || releaseDate.isBlank() ? null : releaseDate.trim();
-        if (normalized == null || normalized.length() < 4) {
-            return null;
-        }
-        return normalized.substring(0, 4);
-    }
-
-    private record ConflictContext(
-            Album album,
-            AlbumProviderLink providerLink,
-            List<ConflictPath> folders) {
-    }
-
-    private record ConflictTarget(String title, boolean useProviderReleaseDate) {
-
-        private static ConflictTarget useProviderReleaseDate(AlbumProviderLink providerLink) {
-            return new ConflictTarget(ProviderTitles.clean(providerLink.providerTitle()), true);
+            throw e;
         }
 
-        private static ConflictTarget keepLocalReleaseDate(AlbumProviderLink providerLink) {
-            return new ConflictTarget(ProviderTitles.clean(providerLink.providerTitle()), false);
+        List<String> tagDetails = updateTags(canonical, kind, targetTitle, targetYear);
+        List<ResolutionMessage> messages = new ArrayList<>();
+        if (moved[0]) {
+            messages.add(new ResolutionMessage("INFO", "FOLDER_RENAMED", "Folder renamed",
+                    List.of(before.localRelativePath(), canonical.localRelativePath())));
         }
+        if (!tagDetails.isEmpty()) {
+            String field = kind == Kind.YEAR ? "YEAR" : "ALBUM";
+            tagDetails.forEach(detail -> LOG.warnf("%s tag update failed for artist=%s album=%d: %s", field, conflictArtist.name(), before.id(), detail));
+            messages.add(new ResolutionMessage("WARNING", "AUDIO_TAG_WARNINGS",
+                    tagDetails.size() + " " + field + " tag" + (tagDetails.size() == 1 ? "" : "s") + " failed",
+                    tagDetails));
+        }
+        logAlbumResolution(kind, action, conflictArtist, before, canonical, chosen);
+        return new ResolutionResult(kind.name(), action.name(), request.artistId(), before.id(), conflictArtist, canonical, List.copyOf(messages));
     }
 
-    private record PlanData(
-            String sourcePath,
-            String targetPath,
-            String sourceRelativePath,
-            String targetRelativePath,
-            int folderCount,
-            int audioFileCount,
-            int unsupportedFileCount,
-            List<AlbumReleaseDateConflictFolderPlan> folders,
-            List<AudioTagFilePlan> files,
-            List<String> warnings) {
+    private FolderMove folderMove(Album album, String title, Integer year) {
+        if (album.localRelativePath() == null) return null;
+        require(album.onDisk(), "Album folder does not exist: " + album.resolvedPath());
+        var collection = collections.find(album.collection().id()).orElseThrow();
+        require(collection.type() == CollectionType.ARTIST, "Folder rename is not supported for title collections.");
+        String relative = album.localRelativePath().replace('\\', '/');
+        String targetRelative;
+        if (!relative.contains("/")) {
+            Matcher matcher = FLAT.matcher(relative);
+            require(matcher.matches() && !relative.contains("/"), "Local folder does not match flat artist-year-album layout.");
+            targetRelative = safe(matcher.group(1)) + " - " + requireYear(year) + " - " + safe(title);
+        } else {
+            int slash = relative.indexOf('/');
+            require(slash > 0 && slash == relative.lastIndexOf('/'), "Local folder does not match nested artist-album layout.");
+            Matcher matcher = NESTED.matcher(relative.substring(slash + 1));
+            require(matcher.matches(), "Local folder does not match nested artist-year-album layout.");
+            targetRelative = relative.substring(0, slash) + "/" + requireYear(year) + " - " + safe(title);
+        }
+        Path source = Path.of(album.resolvedPath());
+        Path target = source.resolveSibling(targetRelative.substring(targetRelative.lastIndexOf('/') + 1));
+        if (!source.equals(target) && Files.exists(target)) throw new IllegalStateException("Target folder already exists: " + target);
+        return new FolderMove(source, target, targetRelative);
     }
 
-    private record AudioTagUpdate(
-            FieldKey field,
-            String value,
-            String blankMessage,
-            String planMessage,
-            String updatedMessage) {
+    private List<String> updateTags(Album album, Kind kind, String title, Integer year) {
+        if (album.resolvedPath() == null || !Files.isDirectory(Path.of(album.resolvedPath()))) return List.of();
+        List<String> failures = new ArrayList<>();
+        try (var paths = Files.walk(Path.of(album.resolvedPath()))) {
+            for (Path path : paths.filter(Files::isRegularFile).toList()) {
+                if (!AUDIO_EXTENSIONS.contains(extension(path))) continue;
+                try {
+                    var audio = AudioFileIO.read(path.toFile());
+                    var tag = audio.getTagOrCreateAndSetDefault();
+                    if (kind == Kind.YEAR) {
+                        String expected = year.toString();
+                        String existing = tag.getFirst(FieldKey.YEAR);
+                        if (!yearTagNeedsUpdate(existing, year)) continue;
+                        tag.setField(FieldKey.YEAR, expected);
+                    } else {
+                        if (title.equals(tag.getFirst(FieldKey.ALBUM))) continue;
+                        tag.setField(FieldKey.ALBUM, title);
+                    }
+                    audio.commit();
+                } catch (Exception e) {
+                    failures.add(path + ": " + ProviderException.describe(e));
+                }
+            }
+        } catch (Exception e) {
+            failures.add(album.resolvedPath() + ": " + ProviderException.describe(e));
+        }
+        return failures;
     }
 
-    private record TagUpdateResult(
-            int updatedTags,
-            List<AudioTagFilePlan> files,
-            List<String> warnings) {
+    public ProviderConflictSnapshot open(long artistId) {
+        artist(artistId);
+        albums.removeStaleLocalPathsForArtist(artistId);
+        return new ProviderConflictSnapshot(
+                artistProviderLinks.listCountryConflicts().stream().filter(c -> c.artistId() == artistId).toList(),
+                artistProviderLinks.listStatusConflicts().stream().filter(c -> c.artistId() == artistId).toList(),
+                providerLinks.listTitleConflicts().stream().filter(c -> c.artistId() == artistId).toList(),
+                providerLinks.listReleaseYearConflicts().stream().filter(c -> c.artistId() == artistId).toList());
     }
 
-    private record ConflictPath(
-            AlbumLocalPath localPath,
-            String targetRelativePath,
-            String targetFolderName,
-            Path source,
-            Path target,
-            boolean sanitizedTargetFolderName) {
+    private Artist artist(long id) { return artists.find(id).orElseThrow(() -> new IllegalArgumentException("Unknown artist: " + id)); }
+    private static void moveFolder(Path source, Path target) throws Exception { try { Files.move(source,target,StandardCopyOption.ATOMIC_MOVE); } catch(Exception e) { Files.move(source,target); } }
+    private static void restoreFolder(FolderMove move) throws Exception {
+        if (!Files.exists(move.target())) {
+            throw new IllegalStateException("Cannot restore renamed folder because the target is missing: " + move.target());
+        }
+        if (Files.exists(move.source())) {
+            throw new IllegalStateException("Cannot restore renamed folder because the original path is occupied: " + move.source());
+        }
+        Files.move(move.target(), move.source());
+    }
+    private static String extension(Path path){String n=path.getFileName().toString();int i=n.lastIndexOf('.');return i<0?"":n.substring(i+1).toLowerCase(Locale.ROOT);}
+    static boolean yearTagNeedsUpdate(String existing, Integer year){return year!=null&&(existing==null||!existing.trim().startsWith(year.toString()));}
+    private static String safe(String value){String rendered=value.replace('—','-').replaceAll("[\\\\/|<>]","-").replace(":"," -").replaceAll("[?*]","").replace('"','\'').replace('“','\'').replace('”','\'').replaceAll("\\s+"," ").trim();rendered=TRAILING.matcher(rendered).replaceAll("");require(!rendered.isBlank()&&!UNSAFE.matcher(rendered).find(),"Unsafe folder name.");return rendered;}
+    private static String requireYear(Integer year){require(year!=null,"A local album folder requires a release year.");return year.toString();}
+    private static String requireText(String value,String label){require(value!=null&&!value.isBlank(),label+" is required.");return value.trim();}
+    private static void require(boolean condition,String message){if(!condition)throw new IllegalArgumentException(message);}
+
+    private ResolutionResult success(Kind kind,Action action,ResolutionRequest request,Artist artist,Album album){return new ResolutionResult(kind.name(),action==null?null:action.name(),request.artistId(),request.albumId(),artist,album,List.of());}
+    private ResolutionResult error(ResolutionRequest request,String code,String summary,String detail){return new ResolutionResult(request==null?null:request.kind(),request==null?null:request.action(),request==null?0:request.artistId(),request==null?null:request.albumId(),null,null,List.of(new ResolutionMessage("ERROR",code,summary,List.of(detail))));}
+    private static boolean hasCause(Throwable error,Class<? extends Throwable> type){for(Throwable current=error;current!=null;current=current.getCause())if(type.isInstance(current))return true;return false;}
+    private static void logAlbumResolution(Kind kind, Action action, Artist artist, Album before, Album result, AlbumProviderLink source) {
+        Object chosen = action == Action.KEEP_LOCAL
+                ? kind == Kind.TITLE ? before.title() : before.releaseYear()
+                : kind == Kind.TITLE ? source.providerTitle() : source.providerReleaseYear();
+        LOG.infof("%s conflict for %s album=%d resolved as %s using %s provider=%s oldTitle=%s oldYear=%s resultTitle=%s resultYear=%s folder=%s -> %s",
+                kind == Kind.TITLE ? "Title" : "Year", artist.name(), before.id(), action, chosen,
+                source == null ? "local" : source.providerId(), before.title(), before.releaseYear(), result.title(), result.releaseYear(),
+                before.localRelativePath(), result.localRelativePath());
     }
 
-    private record MovedFolder(
-            Path source,
-            Path target) {
-    }
+    public enum Kind { TITLE, YEAR, COUNTRY, STATUS }
+    public enum Action { USE_PROVIDER, KEEP_LOCAL, RESET_KEEP_LOCAL }
+    public record ResolutionRequest(String kind,String action,long artistId,Long albumId,Long providerLinkId,String country,Boolean active){}
+    public record ResolutionMessage(String severity,String code,String summary,List<String> details){}
+    public record ResolutionResult(String kind,String action,long artistId,Long albumId,Artist artist,Album album,List<ResolutionMessage> messages){}
+    public record ProviderConflictSnapshot(List<org.kroky.musiclib.model.ArtistCountryConflict> countries,List<org.kroky.musiclib.model.ArtistStatusConflict> statuses,List<org.kroky.musiclib.model.ProviderTitleConflict> titles,List<org.kroky.musiclib.model.ProviderReleaseYearConflict> years){}
+    private record FolderMove(Path source,Path target,String targetRelativePath){}
+    private static final class FolderRenameException extends RuntimeException { private FolderRenameException(Throwable cause){super(cause);} }
 }

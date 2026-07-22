@@ -10,7 +10,7 @@ import * as components from 'vuetify/components'
 import * as directives from 'vuetify/directives'
 
 import App from './App.vue'
-import LibraryView from './views/LibraryView.vue'
+import { useLibraryStore } from './stores/library'
 import CollectionsView from './views/CollectionsView.vue'
 import ArtistsView from './views/ArtistsView.vue'
 import SettingsView from './views/SettingsView.vue'
@@ -61,14 +61,16 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: CollectionsView },
-    { path: '/library', component: LibraryView },
     { path: '/artists', component: ArtistsView },
     { path: '/settings', component: SettingsView },
   ],
 })
 
+const pinia = createPinia()
+await useLibraryStore(pinia).loadUiSettings()
+
 createApp(App)
-  .use(createPinia())
+  .use(pinia)
   .use(router)
   .use(vuetify)
   .mount('#app')

@@ -11,11 +11,27 @@ CREATE TABLE artists (
     UNIQUE (normalized_name)
 );
 
+CREATE TABLE collections (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    type TEXT NOT NULL,
+    last_scan_at TEXT,
+    last_scan_status TEXT,
+    last_scan_message TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (relative_path),
+    CHECK (type IN ('ARTIST', 'TITLE'))
+);
+
 CREATE TABLE albums (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    collection_id TEXT NOT NULL,
     title TEXT NOT NULL,
     normalized_title TEXT NOT NULL,
-    release_date TEXT,
+    local_relative_path TEXT,
+    release_year INTEGER,
     sort_name TEXT,
     normalized_sort_name TEXT,
     sort_name_source TEXT NOT NULL DEFAULT 'AUTO',
@@ -23,13 +39,17 @@ CREATE TABLE albums (
     notes TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
     CHECK (checked IN (0, 1)),
-    CHECK (sort_name_source IN ('AUTO', 'MANUAL'))
+    CHECK (sort_name_source IN ('AUTO', 'MANUAL')),
+    CHECK (release_year IS NULL OR release_year BETWEEN 1000 AND 9999),
+    UNIQUE (collection_id, local_relative_path)
 );
 
+CREATE INDEX idx_albums_collection ON albums(collection_id);
 CREATE INDEX idx_albums_checked ON albums(checked);
-CREATE INDEX idx_albums_release_date ON albums(release_date);
-CREATE INDEX idx_albums_title_release_date ON albums(normalized_title, release_date);
+CREATE INDEX idx_albums_release_year ON albums(release_year);
+CREATE INDEX idx_albums_title_release_year ON albums(normalized_title, release_year);
 CREATE INDEX idx_albums_sort_name ON albums(normalized_sort_name);
 
 CREATE TABLE album_artists (
@@ -43,63 +63,6 @@ CREATE TABLE album_artists (
 );
 
 CREATE INDEX idx_album_artists_artist ON album_artists(artist_id);
-
-CREATE TABLE collections (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    relative_path TEXT NOT NULL,
-    type TEXT NOT NULL DEFAULT 'ARTIST',
-    parser TEXT NOT NULL,
-    last_scan_at TEXT,
-    last_scan_status TEXT,
-    last_scan_message TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (relative_path),
-    CHECK (type IN ('ARTIST', 'TITLE'))
-);
-
-CREATE TABLE artist_collections (
-    artist_id INTEGER NOT NULL,
-    collection_id TEXT NOT NULL,
-    local INTEGER NOT NULL DEFAULT 0,
-    last_local_scan_error_at TEXT,
-    last_local_scan_error_message TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (artist_id, collection_id),
-    FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE,
-    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
-    CHECK (local IN (0, 1))
-);
-
-CREATE INDEX idx_artist_collections_collection ON artist_collections(collection_id);
-
-CREATE TABLE collection_albums (
-    collection_id TEXT NOT NULL,
-    album_id INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (collection_id, album_id),
-    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
-    FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_collection_albums_album ON collection_albums(album_id);
-
-CREATE TABLE album_local_paths (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    album_id INTEGER NOT NULL,
-    collection_id TEXT NOT NULL,
-    relative_path TEXT NOT NULL,
-    first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
-    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
-    UNIQUE (collection_id, relative_path)
-);
-
-CREATE INDEX idx_album_local_paths_album ON album_local_paths(album_id);
-CREATE INDEX idx_album_local_paths_collection ON album_local_paths(collection_id);
 
 CREATE TABLE user_preferences (
     key TEXT PRIMARY KEY,
@@ -150,14 +113,15 @@ CREATE TABLE album_provider_links (
     provider_id TEXT NOT NULL,
     provider_release_group_id TEXT NOT NULL,
     provider_title TEXT NOT NULL,
-    provider_release_date TEXT,
+    provider_release_year INTEGER,
     provider_url TEXT,
-    release_date_resolution TEXT,
+    release_year_resolution TEXT,
     title_resolution TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
-    CHECK (release_date_resolution IN ('KEEP_LOCAL', 'USE_PROVIDER')),
+    CHECK (provider_release_year IS NULL OR provider_release_year BETWEEN 1000 AND 9999),
+    CHECK (release_year_resolution IN ('KEEP_LOCAL', 'USE_PROVIDER', 'USE_OTHER_PROVIDER')),
     CHECK (title_resolution IN ('KEEP_LOCAL', 'USE_PROVIDER', 'USE_OTHER_PROVIDER')),
     UNIQUE (provider_id, provider_release_group_id),
     UNIQUE (album_id, provider_id, provider_release_group_id)

@@ -135,9 +135,7 @@ final class ProviderCandidateEvidenceEvaluator {
         return best;
     }
 
-    static boolean releaseYearsScoreCompatible(String localReleaseDate, String providerReleaseDate) {
-        Integer localYear = releaseYearValue(localReleaseDate);
-        Integer providerYear = releaseYearValue(providerReleaseDate);
+    static boolean releaseYearsScoreCompatible(Integer localYear, Integer providerYear) {
         return localYear == null || providerYear == null || Math.abs(localYear - providerYear) <= 1;
     }
 
@@ -157,16 +155,17 @@ final class ProviderCandidateEvidenceEvaluator {
         LocalAlbumEvidence best = artistAlbums.stream()
                 .map(album -> localAlbumEvidence(album, releaseGroup, providerTitle))
                 .filter(evidence -> !MATCH_NONE.equals(evidence.match().type()))
-                .max(Comparator
-                        .comparingInt(LocalAlbumEvidence::evidenceStrength)
+                .max(Comparator.<LocalAlbumEvidence>comparingInt(
+                        evidence -> matchTypeRank(evidence.match().type()))
+                        .thenComparingInt(LocalAlbumEvidence::compatibleYearRank)
+                        .thenComparingInt(LocalAlbumEvidence::evidenceStrength)
                         .thenComparingInt(LocalAlbumEvidence::localKindRank)
-                        .thenComparingInt(evidence -> evidence.match().score())
-                        .thenComparingInt(LocalAlbumEvidence::compatibleYearRank))
+                        .thenComparingInt(evidence -> evidence.match().score()))
                 .orElse(null);
         if (best == null) {
             return new ArtistProviderCandidateAlbum(
                     providerTitle,
-                    releaseGroup.releaseDate(),
+                    releaseGroup.releaseYear(),
                     releaseGroup.providerUrl(),
                     null,
                     null,
@@ -182,13 +181,13 @@ final class ProviderCandidateEvidenceEvaluator {
         Album album = best.album();
         return new ArtistProviderCandidateAlbum(
                 providerTitle,
-                releaseGroup.releaseDate(),
+                releaseGroup.releaseYear(),
                 releaseGroup.providerUrl(),
                 album.id(),
                 album.title(),
-                album.releaseDate(),
+                album.releaseYear(),
                 album.onDisk(),
-                releaseDateConflict(album.releaseDate(), releaseGroup.releaseDate()),
+                releaseYearConflict(album.releaseYear(), releaseGroup.releaseYear()),
                 best.match().type(),
                 best.match().score(),
                 best.evidenceStrength(),
@@ -204,7 +203,7 @@ final class ProviderCandidateEvidenceEvaluator {
                 album,
                 match,
                 evidenceStrength(album, match, generic),
-                releaseYearsScoreCompatible(album.releaseDate(), releaseGroup.releaseDate()) ? 1 : 0);
+                releaseYearsScoreCompatible(album.releaseYear(), releaseGroup.releaseYear()) ? 1 : 0);
     }
 
     static boolean canAutoLinkAlbum(ArtistProviderCandidateAlbum evidence) {
@@ -215,24 +214,30 @@ final class ProviderCandidateEvidenceEvaluator {
 
     static boolean canAutoLinkProviderImportAlbum(ArtistProviderCandidateAlbum evidence, Album album) {
         if (canAutoLinkAlbum(evidence)) {
-            return true;
+            return !MATCH_FUZZY.equals(evidence.matchType())
+                    || releaseYearsScoreCompatible(evidence.localReleaseYear(), evidence.providerReleaseYear());
         }
         if (evidence == null
                 || album == null
                 || evidence.localAlbumId() == null
                 || album.providerLinks().isEmpty()
-                || !releaseYearsScoreCompatible(album.releaseDate(), evidence.providerReleaseDate())
+                || !releaseYearsScoreCompatible(album.releaseYear(), evidence.providerReleaseYear())
                 || !strongTitleMatch(evidence.matchType(), evidence.titleScore())) {
             return false;
         }
         return !evidence.genericTitle()
-                || knownReleaseYearsEqual(album.releaseDate(), evidence.providerReleaseDate());
+                || knownReleaseYearsEqual(album.releaseYear(), evidence.providerReleaseYear());
     }
 
     private static boolean strongTitleMatch(String matchType, int titleScore) {
         return MATCH_EXACT.equals(matchType)
                 || MATCH_NORMALIZED.equals(matchType)
                 || (MATCH_FUZZY.equals(matchType) && titleScore >= FUZZY_HIGH_CONFIDENCE_THRESHOLD);
+    }
+
+    private static int matchTypeRank(String matchType) {
+        return MATCH_EXACT.equals(matchType) || MATCH_NORMALIZED.equals(matchType) ? 2
+                : MATCH_FUZZY.equals(matchType) ? 1 : 0;
     }
 
     private static int evidenceStrength(Album album, TitleMatch match, boolean genericTitle) {
@@ -265,8 +270,8 @@ final class ProviderCandidateEvidenceEvaluator {
     private static int yearBonus(List<ArtistProviderCandidateAlbum> albumEvidence) {
         int bonus = scoringEvidence(albumEvidence).stream()
                 .filter(evidence -> knownReleaseYearsScoreCompatible(
-                        evidence.localReleaseDate(),
-                        evidence.providerReleaseDate()))
+                        evidence.localReleaseYear(),
+                        evidence.providerReleaseYear()))
                 .mapToInt(evidence -> YEAR_BONUS_PER_ALBUM)
                 .sum();
         return Math.min(MAX_YEAR_BONUS, bonus);
@@ -324,43 +329,18 @@ final class ProviderCandidateEvidenceEvaluator {
                 .size();
     }
 
-    private static boolean knownReleaseYearsScoreCompatible(String localReleaseDate, String providerReleaseDate) {
-        Integer localYear = releaseYearValue(localReleaseDate);
-        Integer providerYear = releaseYearValue(providerReleaseDate);
+    private static boolean knownReleaseYearsScoreCompatible(Integer localYear, Integer providerYear) {
         return localYear != null
                 && providerYear != null
                 && Math.abs(localYear - providerYear) <= 1;
     }
 
-    private static boolean knownReleaseYearsEqual(String localReleaseDate, String providerReleaseDate) {
-        Integer localYear = releaseYearValue(localReleaseDate);
-        Integer providerYear = releaseYearValue(providerReleaseDate);
+    private static boolean knownReleaseYearsEqual(Integer localYear, Integer providerYear) {
         return localYear != null && localYear.equals(providerYear);
     }
 
-    private static boolean releaseDateConflict(String localReleaseDate, String providerReleaseDate) {
-        String localYear = releaseYear(localReleaseDate);
-        String providerYear = releaseYear(providerReleaseDate);
+    private static boolean releaseYearConflict(Integer localYear, Integer providerYear) {
         return localYear != null && providerYear != null && !localYear.equals(providerYear);
-    }
-
-    private static Integer releaseYearValue(String releaseDate) {
-        String year = releaseYear(releaseDate);
-        if (year == null) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(year);
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    private static String releaseYear(String releaseDate) {
-        if (releaseDate == null || releaseDate.length() < 4) {
-            return null;
-        }
-        return releaseDate.substring(0, 4);
     }
 
     private static boolean genericTitle(String localTitle, String providerTitle) {

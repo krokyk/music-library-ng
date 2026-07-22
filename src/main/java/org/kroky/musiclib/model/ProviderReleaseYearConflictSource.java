@@ -1,9 +1,9 @@
 package org.kroky.musiclib.model;
 
-public record ProviderReleaseDateConflictSource(
+public record ProviderReleaseYearConflictSource(
         long providerLinkId,
         String providerId,
         String providerTitle,
-        String providerReleaseDate,
+        Integer providerReleaseYear,
         String providerUrl) {
 }

@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import javax.sql.DataSource;
 
@@ -46,29 +45,17 @@ public class ArtistRepository {
         String sql = selectArtists("""
                 WHERE (? IS NULL OR a.normalized_name LIKE '%' || ? || '%')
                   AND (? IS NULL OR EXISTS (
-                      SELECT 1
-                      FROM collection_albums ca_filter
-                      JOIN album_artists aa_filter ON aa_filter.album_id = ca_filter.album_id
-                      WHERE aa_filter.artist_id = a.id AND ca_filter.collection_id = ?
-                  ) OR EXISTS (
-                      SELECT 1
-                      FROM artist_collections ac_filter
-                      WHERE ac_filter.artist_id = a.id
-                        AND ac_filter.collection_id = ?
-                        AND (ac_filter.local = 1 OR ac_filter.last_local_scan_error_message IS NOT NULL)
-                  ))
+                      SELECT 1 FROM album_artists aa_filter JOIN albums al_filter ON al_filter.id=aa_filter.album_id
+                      WHERE aa_filter.artist_id=a.id AND al_filter.collection_id=?))
                 """);
         try {
             String normalizedSearch = search == null || search.isBlank() ? null : Names.normalize(search);
             String normalizedCollectionId = blankToNull(collectionId);
             List<ArtistRow> rows = queryArtistRows(sql, statement -> {
-                statement.setString(1, normalizedCollectionId);
-                statement.setString(2, normalizedCollectionId);
-                statement.setString(3, normalizedSearch);
-                statement.setString(4, normalizedSearch);
-                statement.setString(5, normalizedCollectionId);
-                statement.setString(6, normalizedCollectionId);
-                statement.setString(7, normalizedCollectionId);
+                statement.setString(1, normalizedCollectionId); statement.setString(2, normalizedCollectionId);
+                statement.setString(3, normalizedCollectionId); statement.setString(4, normalizedCollectionId);
+                statement.setString(5, normalizedSearch); statement.setString(6, normalizedSearch);
+                statement.setString(7, normalizedCollectionId); statement.setString(8, normalizedCollectionId);
             });
             return mapRows(rows, normalizedCollectionId);
         } catch (Exception e) {
@@ -86,9 +73,9 @@ public class ArtistRepository {
         try {
             String normalizedCollectionId = blankToNull(collectionId);
             List<ArtistRow> rows = queryArtistRows(sql, statement -> {
-                statement.setString(1, normalizedCollectionId);
-                statement.setString(2, normalizedCollectionId);
-                statement.setLong(3, id);
+                statement.setString(1, normalizedCollectionId); statement.setString(2, normalizedCollectionId);
+                statement.setString(3, normalizedCollectionId); statement.setString(4, normalizedCollectionId);
+                statement.setLong(5, id);
             });
             if (rows.isEmpty()) {
                 return Optional.empty();
@@ -118,7 +105,7 @@ public class ArtistRepository {
                 """;
         try (Connection connection = dataSource.getConnection()) {
             boolean autoCommit = connection.getAutoCommit();
-            connection.setAutoCommit(false);
+            if (autoCommit) connection.setAutoCommit(false);
             try (PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
                 statement.setString(1, name);
                 statement.setString(2, Names.normalize(name));
@@ -160,7 +147,7 @@ public class ArtistRepository {
                 """;
         try (Connection connection = dataSource.getConnection()) {
             boolean autoCommit = connection.getAutoCommit();
-            connection.setAutoCommit(false);
+            if (autoCommit) connection.setAutoCommit(false);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, name);
                 statement.setString(2, Names.normalize(name));
@@ -170,10 +157,10 @@ public class ArtistRepository {
                 statement.setLong(6, id);
                 int updated = statement.executeUpdate();
                 if (updated == 0) {
-                    connection.rollback();
+                    if (autoCommit) connection.rollback();
                     return Optional.empty();
                 }
-                connection.commit();
+                if (autoCommit) connection.commit();
                 return find(id);
             } catch (Exception e) {
                 rollbackQuietly(connection);
@@ -183,73 +170,6 @@ public class ArtistRepository {
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to update artist " + id, e);
-        }
-    }
-
-    public void assignToCollection(long artistId, String collectionId, boolean local) {
-        String normalizedCollectionId = blankToNull(collectionId);
-        if (normalizedCollectionId == null) {
-            return;
-        }
-        String sql = """
-                INSERT INTO artist_collections (artist_id, collection_id, local)
-                VALUES (?, ?, ?)
-                ON CONFLICT(artist_id, collection_id) DO UPDATE SET
-                    local = CASE
-                        WHEN excluded.local = 1 THEN 1
-                        ELSE artist_collections.local
-                    END
-                """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, artistId);
-            statement.setString(2, normalizedCollectionId);
-            statement.setInt(3, local ? 1 : 0);
-            statement.executeUpdate();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to assign artist " + artistId
-                    + " to collection " + collectionId, e);
-        }
-    }
-
-    public void replaceLocalArtistsForCollection(String collectionId, Set<Long> localArtistIds) {
-        String normalizedCollectionId = blankToNull(collectionId);
-        if (normalizedCollectionId == null) {
-            return;
-        }
-        try (Connection connection = dataSource.getConnection()) {
-            boolean autoCommit = connection.getAutoCommit();
-            connection.setAutoCommit(false);
-            try (PreparedStatement clear = connection.prepareStatement("""
-                    UPDATE artist_collections
-                    SET local = 0
-                    WHERE collection_id = ?
-                    """);
-                    PreparedStatement mark = connection.prepareStatement("""
-                            UPDATE artist_collections
-                            SET local = 1
-                            WHERE artist_id = ? AND collection_id = ?
-                            """)) {
-                clear.setString(1, normalizedCollectionId);
-                clear.executeUpdate();
-                for (Long artistId : localArtistIds) {
-                    if (artistId == null) {
-                        continue;
-                    }
-                    mark.setLong(1, artistId);
-                    mark.setString(2, normalizedCollectionId);
-                    mark.addBatch();
-                }
-                mark.executeBatch();
-                connection.commit();
-            } catch (Exception e) {
-                rollbackQuietly(connection);
-                throw e;
-            } finally {
-                connection.setAutoCommit(autoCommit);
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to replace local artists for collection " + collectionId, e);
         }
     }
 
@@ -282,7 +202,6 @@ public class ArtistRepository {
                     deleteArtist.executeUpdate();
                 }
                 connection.commit();
-                albums.deleteOrphanAlbums();
             } catch (Exception e) {
                 rollbackQuietly(connection);
                 throw e;
@@ -294,111 +213,13 @@ public class ArtistRepository {
         }
     }
 
-    public boolean removeFromCollection(long id, String collectionId) {
-        String normalizedCollectionId = blankToNull(collectionId);
-        if (normalizedCollectionId == null) {
-            return false;
-        }
-        LOG.infof("Removing artist id=%d from collection=%s", id, normalizedCollectionId);
-        albums.removeStaleLocalPathsForArtist(normalizedCollectionId, id);
-        if (albums.hasOnDiskLocalPathForArtist(normalizedCollectionId, id)) {
-            throw new IllegalArgumentException("At least 1 album still present on disk in this collection.");
-        }
-        try (Connection connection = dataSource.getConnection()) {
-            boolean autoCommit = connection.getAutoCommit();
-            connection.setAutoCommit(false);
-            try {
-                int removedAlbums;
-                try (PreparedStatement deleteAlbums = connection.prepareStatement("""
-                        DELETE FROM collection_albums
-                        WHERE collection_id = ?
-                          AND album_id IN (
-                              SELECT aa.album_id
-                              FROM album_artists aa
-                              WHERE aa.artist_id = ?
-                          )
-                        """)) {
-                    deleteAlbums.setString(1, normalizedCollectionId);
-                    deleteAlbums.setLong(2, id);
-                    removedAlbums = deleteAlbums.executeUpdate();
-                }
-                int removedMemberships;
-                try (PreparedStatement deleteMembership = connection.prepareStatement("""
-                        DELETE FROM artist_collections
-                        WHERE artist_id = ? AND collection_id = ?
-                        """)) {
-                    deleteMembership.setLong(1, id);
-                    deleteMembership.setString(2, normalizedCollectionId);
-                    removedMemberships = deleteMembership.executeUpdate();
-                }
-                connection.commit();
-                LOG.infof("Removed artist id=%d from collection=%s membershipRows=%d albumRows=%d",
-                        id, normalizedCollectionId, removedMemberships, removedAlbums);
-                return removedMemberships > 0 || removedAlbums > 0;
-            } catch (Exception e) {
-                rollbackQuietly(connection);
-                throw e;
-            } finally {
-                connection.setAutoCommit(autoCommit);
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to remove artist " + id
-                    + " from collection " + collectionId, e);
-        }
-    }
-
-    public void clearLocalScanErrorsForCollection(String collectionId) {
-        String normalizedCollectionId = blankToNull(collectionId);
-        if (normalizedCollectionId == null) {
-            return;
-        }
-        String sql = """
-                UPDATE artist_collections
-                SET last_local_scan_error_at = NULL,
-                    last_local_scan_error_message = NULL
-                WHERE collection_id = ?
-                """;
+    public int deleteAlbumlessArtists() {
         try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, normalizedCollectionId);
-            statement.executeUpdate();
+                PreparedStatement statement = connection.prepareStatement(
+                        "DELETE FROM artists WHERE NOT EXISTS (SELECT 1 FROM album_artists aa WHERE aa.artist_id=artists.id)")) {
+            return statement.executeUpdate();
         } catch (Exception e) {
-            throw new IllegalStateException("Unable to clear local scan errors for collection " + collectionId, e);
-        }
-    }
-
-    public void markLocalScanError(long artistId, String collectionId, String message) {
-        String normalizedCollectionId = blankToNull(collectionId);
-        if (normalizedCollectionId == null) {
-            return;
-        }
-        String sql = message == null
-                ? """
-                        UPDATE artist_collections
-                        SET last_local_scan_error_at = NULL,
-                            last_local_scan_error_message = NULL
-                        WHERE artist_id = ? AND collection_id = ?
-                        """
-                : """
-                        UPDATE artist_collections
-                        SET last_local_scan_error_at = CURRENT_TIMESTAMP,
-                            last_local_scan_error_message = ?
-                        WHERE artist_id = ? AND collection_id = ?
-                        """;
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            if (message == null) {
-                statement.setLong(1, artistId);
-                statement.setString(2, normalizedCollectionId);
-            } else {
-                statement.setString(1, message);
-                statement.setLong(2, artistId);
-                statement.setString(3, normalizedCollectionId);
-            }
-            statement.executeUpdate();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to update local scan error for artist " + artistId
-                    + " in collection " + collectionId, e);
+            throw new IllegalStateException("Unable to delete albumless artists", e);
         }
     }
 
@@ -446,26 +267,12 @@ public class ArtistRepository {
     private static String selectArtists(String whereClause) {
         return """
                 SELECT a.id, a.name, a.sort_name, a.country_override, a.active_override,
-                       count(al.id) AS album_count,
-                       coalesce(sum(CASE WHEN al.checked = 0 THEN 1 ELSE 0 END), 0) AS unchecked_album_count,
-                       (SELECT ac.last_local_scan_error_message
-                        FROM artist_collections ac
-                        WHERE ac.artist_id = a.id
-                          AND ac.last_local_scan_error_message IS NOT NULL
-                          AND (? IS NULL OR ac.collection_id = ?)
-                        ORDER BY ac.last_local_scan_error_at DESC
-                        LIMIT 1) AS local_scan_error_message,
+                       count(CASE WHEN (? IS NULL OR al.collection_id=?) THEN al.id END) AS album_count,
+                       coalesce(sum(CASE WHEN (? IS NULL OR al.collection_id=?) AND al.checked=0 THEN 1 ELSE 0 END),0) AS unchecked_album_count,
                        (SELECT group_concat(collection_id, ',') FROM (
-                           SELECT ca.collection_id AS collection_id
-                           FROM collection_albums ca
-                           JOIN album_artists aa_collection
-                             ON aa_collection.album_id = ca.album_id
-                            AND aa_collection.artist_id = a.id
-                           UNION
-                           SELECT ac.collection_id AS collection_id
-                           FROM artist_collections ac
-                           WHERE ac.artist_id = a.id
-                             AND (ac.local = 1 OR ac.last_local_scan_error_message IS NOT NULL)
+                           SELECT DISTINCT al_collection.collection_id AS collection_id
+                           FROM albums al_collection JOIN album_artists aa_collection ON aa_collection.album_id=al_collection.id
+                           WHERE aa_collection.artist_id=a.id
                            ORDER BY collection_id
                        )) AS collection_ids
                 FROM artists a
@@ -493,8 +300,7 @@ public class ArtistRepository {
                 albums.countOnDiskLocalAlbumsForArtist(collectionId, row.id()),
                 ArtistProviderMetadata.countryConsensus(providerLinks),
                 ArtistProviderMetadata.activeConsensus(providerLinks),
-                List.copyOf(providerLinks),
-                row.localScanErrorMessage());
+                List.copyOf(providerLinks));
     }
 
     @FunctionalInterface
@@ -510,7 +316,6 @@ public class ArtistRepository {
             Boolean activeOverride,
             int albumCount,
             int uncheckedAlbumCount,
-            String localScanErrorMessage,
             String collectionIds) {
 
         static ArtistRow from(ResultSet rs) throws Exception {
@@ -522,7 +327,6 @@ public class ArtistRepository {
                     nullableBoolean(rs, "active_override"),
                     rs.getInt("album_count"),
                     rs.getInt("unchecked_album_count"),
-                    rs.getString("local_scan_error_message"),
                     rs.getString("collection_ids"));
         }
     }

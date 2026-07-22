@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
+import AppSpinner from '@/components/AppSpinner.vue'
 import type {
   ReportArtifact,
   StatusHistoryEntry,
@@ -10,11 +11,12 @@ import type {
 const store = useLibraryStore()
 const {
   collections,
+  deletingCollectionId,
   artistCountryConflicts,
   artistStatusConflicts,
   manualStatus,
   providerJob,
-  providerReleaseDateConflicts,
+  providerReleaseYearConflicts,
   providerTitleConflicts,
   providerStatus,
   scanJob,
@@ -119,7 +121,7 @@ const statusHistoryOverlayClasses = computed(() => [
 const providerConflictCount = computed(() =>
   artistCountryConflicts.value.length
   + artistStatusConflicts.value.length
-  + providerReleaseDateConflicts.value.length
+  + providerReleaseYearConflicts.value.length
   + providerTitleConflicts.value.length,
 )
 const hasProviderConflicts = computed(() => providerConflictCount.value > 0)
@@ -371,7 +373,7 @@ watch(
       const message = providerJob.value.message ?? `Provider check ${status.toLowerCase()}`
       const state = status === 'FAILED' || providerJob.value.errorCount > 0 ? 'failed'
         : status === 'CANCELLED' ? 'warning'
-          : providerJob.value.releaseDateConflictCount > 0 || providerJob.value.titleConflictCount > 0 ? 'warning'
+          : providerJob.value.releaseYearConflictCount > 0 || providerJob.value.titleConflictCount > 0 ? 'warning'
           : 'done'
       completeStatus(message, state, withElapsed(message, elapsed), providerJob.value.reports)
       void refreshProviderConflicts()
@@ -397,7 +399,6 @@ watch(
 
 onMounted(async () => {
   await Promise.all([
-    store.loadUiSettings(),
     store.loadCollections(),
     store.loadScanJob(),
     store.loadProviderJob(),
@@ -425,7 +426,7 @@ onMounted(async () => {
 
       <v-tabs class="app-tabs" color="primary" density="comfortable">
         <v-tab prepend-icon="mdi-folder-music" to="/">Collections</v-tab>
-        <v-tab to="/artists">
+        <v-tab to="/artists" :disabled="Boolean(deletingCollectionId)">
           <v-icon icon="mdi-account-music" start></v-icon>
           <span>Artists</span>
           <v-tooltip
@@ -444,7 +445,6 @@ onMounted(async () => {
             </template>
           </v-tooltip>
         </v-tab>
-        <v-tab prepend-icon="mdi-music-box-multiple" to="/library">Library</v-tab>
         <v-tab prepend-icon="mdi-cog" to="/settings">Settings</v-tab>
       </v-tabs>
 
@@ -462,12 +462,9 @@ onMounted(async () => {
       >
         <Transition name="status-content" mode="out-in">
           <span :key="statusTransitionKey" class="global-status-bar__content">
-            <v-progress-circular
+            <AppSpinner
               v-if="statusState === 'running'"
-              indeterminate
-              size="16"
-              width="2"
-            ></v-progress-circular>
+            />
             <v-icon
               v-else
               :icon="statusIcon"
@@ -487,12 +484,9 @@ onMounted(async () => {
       >
         <Transition name="status-content" mode="out-in">
           <span :key="statusTransitionKey" class="global-status-bar__content">
-            <v-progress-circular
+            <AppSpinner
               v-if="statusState === 'running'"
-              indeterminate
-              size="16"
-              width="2"
-            ></v-progress-circular>
+            />
             <v-icon
               v-else
               :icon="statusIcon"
@@ -569,7 +563,10 @@ onMounted(async () => {
                   {{ entry.state }}
                 </v-chip>
                 <span class="status-history-entry__time">{{ entry.createdAt }}</span>
-                <span class="status-history-entry__message">{{ entry.message }}</span>
+                <span class="status-history-entry__message">
+                  <v-icon v-if="entryHasDetail(entry)" icon="mdi-file-document-outline" size="15"></v-icon>
+                  <span>{{ entry.message }}</span>
+                </span>
               </button>
               <div v-if="statusHistory.length === 0" class="pane-empty pane-empty--compact">
                 No status history yet.

@@ -11,7 +11,7 @@ class ProviderCheckReport {
     private final List<String> errors = new ArrayList<>();
     private final List<String> addedAsUnchecked = new ArrayList<>();
     private final List<String> alreadyInLibrary = new ArrayList<>();
-    private final List<String> releaseDateConflicts = new ArrayList<>();
+    private final List<String> releaseYearConflicts = new ArrayList<>();
     private final List<String> titleConflicts = new ArrayList<>();
     private final List<String> ignoredProviderRecords = new ArrayList<>();
     private final List<String> artistsSkipped = new ArrayList<>();
@@ -25,7 +25,7 @@ class ProviderCheckReport {
     private int providerAlbumsFound;
     private int alreadyInLibraryCount;
     private int addedAsUncheckedCount;
-    private int releaseDateConflictCount;
+    private int releaseYearConflictCount;
     private int titleConflictCount;
     private int ignoredProviderRecordCount;
     private int errorCount;
@@ -36,7 +36,7 @@ class ProviderCheckReport {
     }
 
     void finish(String status, int artistsChecked, int artistsSkippedCount, int providerAlbumsFound,
-            int alreadyInLibraryCount, int addedAsUncheckedCount, int releaseDateConflictCount,
+            int alreadyInLibraryCount, int addedAsUncheckedCount, int releaseYearConflictCount,
             int titleConflictCount, int ignoredProviderRecordCount, int errorCount, String summaryMessage) {
         this.finishedAt = Instant.now();
         this.status = status;
@@ -45,7 +45,7 @@ class ProviderCheckReport {
         this.providerAlbumsFound = providerAlbumsFound;
         this.alreadyInLibraryCount = alreadyInLibraryCount;
         this.addedAsUncheckedCount = addedAsUncheckedCount;
-        this.releaseDateConflictCount = releaseDateConflictCount;
+        this.releaseYearConflictCount = releaseYearConflictCount;
         this.titleConflictCount = titleConflictCount;
         this.ignoredProviderRecordCount = ignoredProviderRecordCount;
         this.errorCount = errorCount;
@@ -64,8 +64,8 @@ class ProviderCheckReport {
         alreadyInLibrary.add(row);
     }
 
-    void releaseDateConflict(String row) {
-        releaseDateConflicts.add(row);
+    void releaseYearConflict(String row) {
+        releaseYearConflicts.add(row);
     }
 
     void titleConflict(String row) {
@@ -124,8 +124,8 @@ class ProviderCheckReport {
         return addedAsUncheckedCount;
     }
 
-    int releaseDateConflictCount() {
-        return releaseDateConflictCount;
+    int releaseYearConflictCount() {
+        return releaseYearConflictCount;
     }
 
     int titleConflictCount() {
@@ -156,8 +156,8 @@ class ProviderCheckReport {
         return alreadyInLibrary;
     }
 
-    List<String> releaseDateConflicts() {
-        return releaseDateConflicts;
+    List<String> releaseYearConflicts() {
+        return releaseYearConflicts;
     }
 
     List<String> titleConflicts() {

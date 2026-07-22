@@ -5,7 +5,7 @@ import java.nio.file.Path;
 public record ParsedAlbum(
         String artistName,
         String title,
-        String releaseDate,
+        Integer releaseYear,
         String sortName,
         Path relativePath,
         String collectionId) {

@@ -44,6 +44,9 @@ public class ArtistProviderMatchService {
     public List<ArtistProviderCandidate> searchCandidates(long artistId, String providerId) throws ProviderException {
         Artist artist = artists.find(artistId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown artist: " + artistId));
+        if (albums.majorArtistCollection(artistId) == null) {
+            throw new IllegalArgumentException("Provider matching is not available for title-centric artists.");
+        }
         List<Album> artistAlbums = albums.list(artist.id(), null, null, null, null);
         return searchProviderResults(artist.name(), providerId).stream()
                 .map(result -> candidate(artist, artistAlbums, result))
@@ -134,7 +137,7 @@ public class ArtistProviderMatchService {
                         result.providerId(),
                         album.sourceUrl() == null || album.sourceUrl().isBlank() ? album.title() : album.sourceUrl(),
                         album.title(),
-                        album.releaseDate(),
+                        album.releaseYear(),
                         "Album",
                         List.of(),
                         album.sourceUrl()))
@@ -165,7 +168,7 @@ public class ArtistProviderMatchService {
         return ProviderCandidateEvidenceEvaluator.titleMatch(album.title(), releaseGroup.title()).score() >= 92;
     }
 
-    static boolean releaseYearsScoreCompatible(String localReleaseDate, String providerReleaseDate) {
-        return ProviderCandidateEvidenceEvaluator.releaseYearsScoreCompatible(localReleaseDate, providerReleaseDate);
+    static boolean releaseYearsScoreCompatible(Integer localReleaseYear, Integer providerReleaseYear) {
+        return ProviderCandidateEvidenceEvaluator.releaseYearsScoreCompatible(localReleaseYear, providerReleaseYear);
     }
 }

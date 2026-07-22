@@ -2,17 +2,17 @@ package org.kroky.musiclib.model;
 
 import java.util.List;
 
-public record ProviderReleaseDateConflict(
+public record ProviderReleaseYearConflict(
         long albumId,
         long providerLinkId,
         long artistId,
         String artistName,
         String albumTitle,
-        String localReleaseDate,
+        Integer localReleaseYear,
         String providerTitle,
-        String providerReleaseDate,
+        Integer providerReleaseYear,
         String providerId,
         String providerUrl,
         String localRelativePath,
-        List<ProviderReleaseDateConflictSource> sources) {
+        List<ProviderReleaseYearConflictSource> sources) {
 }

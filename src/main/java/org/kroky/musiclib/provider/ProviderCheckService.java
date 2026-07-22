@@ -45,7 +45,7 @@ public class ProviderCheckService {
         }
 
         default void itemFinished(ArtistProviderLink link, int itemProcessed, int skippedArtists,
-                int foundAlbums, int newAlbums, int existingAlbums, int releaseDateConflicts, int titleConflicts,
+                int foundAlbums, int newAlbums, int existingAlbums, int releaseYearConflicts, int titleConflicts,
                 int errors) {
         }
 
@@ -76,8 +76,15 @@ public class ProviderCheckService {
     ProviderDiscographyReconciliationService discographyReconciliation;
 
     public ProviderCheckSummary checkArtist(long artistId, String collectionId) {
-        if (collectionId != null && collections.find(collectionId).isEmpty()) {
-            throw new IllegalArgumentException("Unknown collection: " + collectionId);
+        if (collectionId != null) {
+            MusicCollection target = collections.find(collectionId)
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown collection: " + collectionId));
+            if (target.type() != org.kroky.musiclib.model.CollectionType.ARTIST) {
+                throw new IllegalArgumentException("Provider checks are not available for title-centric collections.");
+            }
+        }
+        if (albums.majorArtistCollection(artistId) == null) {
+            throw new IllegalArgumentException("Provider checks are not available for title-centric artists.");
         }
         List<ArtistProviderLink> links = providerLinks.listByArtist(artistId).stream()
                 .filter(ArtistProviderLink::enabled)
@@ -95,6 +102,9 @@ public class ProviderCheckService {
             ProgressListener progress) {
         MusicCollection collection = collections.find(collectionId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown collection: " + collectionId));
+        if (collection.type() != org.kroky.musiclib.model.CollectionType.ARTIST) {
+            throw new IllegalArgumentException("Provider checks are not available for title-centric collections.");
+        }
         List<ArtistProviderLink> links = providerLinks.listEnabledByCollection(collection.id());
         int artistCount = artists.list(null, collection.id()).size();
         int artistsWithProviders = (int) links.stream().map(ArtistProviderLink::artistId).distinct().count();
@@ -117,7 +127,7 @@ public class ProviderCheckService {
         int foundAlbums = 0;
         int newAlbums = 0;
         int existingAlbums = 0;
-        int releaseDateConflicts = 0;
+        int releaseYearConflicts = 0;
         int titleConflicts = 0;
         int ignoredProviderRecords = 0;
         int errors = 0;
@@ -164,10 +174,10 @@ public class ProviderCheckService {
                 reportReconciliation(link, result, report);
                 newAlbums += result.createdAlbumCount();
                 existingAlbums += result.existingAlbumCount();
-                releaseDateConflicts += result.releaseDateConflictCount();
+                releaseYearConflicts += result.releaseYearConflictCount();
                 titleConflicts += result.titleConflictCount();
                 if (result.createdAlbumCount() == 0
-                        && result.releaseDateConflictCount() == 0
+                        && result.releaseYearConflictCount() == 0
                         && result.titleConflictCount() == 0
                         && fetched.ignoredCount() == 0
                         && !result.changedLibraryMetadata()) {
@@ -185,25 +195,24 @@ public class ProviderCheckService {
             }
             processedItems++;
             progress.itemFinished(link, processedItems, skippedArtists, foundAlbums, newAlbums, existingAlbums,
-                    releaseDateConflicts, titleConflicts, errors);
+                    releaseYearConflicts, titleConflicts, errors);
         }
 
         String status = errors == 0 ? "DONE" : "FAILED";
         String message = "Checked " + processedArtists + " provider links, found " + foundAlbums
                 + " provider albums, added " + newAlbums + " unchecked albums"
-                + (releaseDateConflicts > 0 ? ", " + releaseDateConflicts + " release date conflicts" : "")
+                + (releaseYearConflicts > 0 ? ", " + releaseYearConflicts + " release year conflicts" : "")
                 + (titleConflicts > 0 ? ", " + titleConflicts + " title conflicts" : "")
                 + skippedSummary(skippedArtists, initialSkippedArtists, recentlySkippedArtists) + ".";
         messages.add(message);
         return providerSummary(report, status, processedArtists, skippedArtists, foundAlbums, newAlbums,
-                existingAlbums, releaseDateConflicts, titleConflicts, ignoredProviderRecords, errors, messages);
+                existingAlbums, releaseYearConflicts, titleConflicts, ignoredProviderRecords, errors, messages);
     }
 
     void removeStaleLocalPaths(ArtistProviderLink link) {
-        List<String> stalePaths = albums.list(link.artistId(), null, null, null, null).stream()
-                .flatMap(album -> album.localPaths().stream())
-                .filter(localPath -> !localPath.onDisk())
-                .map(localPath -> localPath.resolvedPath())
+        List<String> stalePaths = albums.list(link.artistId(), null, null, true, null).stream()
+                .filter(album -> !album.onDisk())
+                .map(Album::resolvedPath)
                 .toList();
         if (stalePaths.isEmpty()) {
             return;
@@ -220,13 +229,13 @@ public class ProviderCheckService {
     }
 
     private ProviderCheckSummary providerSummary(ProviderCheckReport report, String status, int processedArtists,
-            int skippedArtists, int foundAlbums, int newAlbums, int existingAlbums, int releaseDateConflicts,
+            int skippedArtists, int foundAlbums, int newAlbums, int existingAlbums, int releaseYearConflicts,
             int titleConflicts, int ignoredProviderRecords, int errors, List<String> messages) {
         String message = messages.isEmpty() ? null : messages.get(messages.size() - 1);
         report.finish(status, processedArtists, skippedArtists, foundAlbums, existingAlbums, newAlbums,
-                releaseDateConflicts, titleConflicts, ignoredProviderRecords, errors, message);
+                releaseYearConflicts, titleConflicts, ignoredProviderRecords, errors, message);
         return new ProviderCheckSummary(processedArtists, skippedArtists, foundAlbums, newAlbums, existingAlbums,
-                releaseDateConflicts, titleConflicts, errors, messages, writeReport(report));
+                releaseYearConflicts, titleConflicts, errors, messages, writeReport(report));
     }
 
     private List<ReportArtifact> writeReport(ProviderCheckReport report) {
@@ -302,7 +311,7 @@ public class ProviderCheckService {
                 providerId,
                 providerReleaseGroupId,
                 remoteAlbum.title(),
-                remoteAlbum.releaseDate(),
+                remoteAlbum.releaseYear(),
                 "Album",
                 List.of(),
                 remoteAlbum.sourceUrl());
@@ -315,16 +324,16 @@ public class ProviderCheckService {
                 report.addedAsUnchecked(providerAlbumRow(link, outcome.release(), outcome.album()));
                 continue;
             }
-            if (outcome.releaseDateConflict()) {
-                report.releaseDateConflict(releaseDateConflictRow(link, outcome.album(), outcome.release()));
+            if (outcome.releaseYearConflict()) {
+                report.releaseYearConflict(releaseYearConflictRow(link, outcome.album(), outcome.release()));
             }
             if (outcome.titleConflict()) {
                 report.titleConflict(titleConflictRow(link, outcome.album(), outcome.release()));
             }
-            if (!outcome.releaseDateConflict() && !outcome.titleConflict()) {
+            if (!outcome.releaseYearConflict() && !outcome.titleConflict()) {
                 String row = providerAlbumRow(link, outcome.release(), outcome.album());
-                report.alreadyInLibrary(outcome.releaseDateFilled()
-                        ? row + " | filled missing local release date"
+                report.alreadyInLibrary(outcome.releaseYearFilled()
+                        ? row + " | filled missing local release year"
                         : row);
             }
         }
@@ -343,22 +352,26 @@ public class ProviderCheckService {
         return value == null || value.isBlank() ? "<blank>" : value;
     }
 
-    private static String releaseDateConflictRow(ArtistProviderLink link, Album album, RemoteReleaseGroup release) {
+    private static String blankValue(Integer value) {
+        return value == null ? "<blank>" : value.toString();
+    }
+
+    private static String releaseYearConflictRow(ArtistProviderLink link, Album album, RemoteReleaseGroup release) {
         return link.artistName() + " (" + providerLabel(link.providerId()) + "): " + album.title()
-                + " | local: " + blankValue(album.releaseDate())
-                + " | provider: " + blankValue(release.releaseDate())
+                + " | local: " + blankValue(album.releaseYear())
+                + " | provider: " + blankValue(release.releaseYear())
                 + " | provider title: " + blankValue(release.title());
     }
 
     private static String titleConflictRow(ArtistProviderLink link, Album album, RemoteReleaseGroup release) {
         return link.artistName() + " (" + providerLabel(link.providerId()) + "): " + album.title()
                 + " | provider title: " + blankValue(release.title())
-                + " | release: " + blankValue(release.releaseDate());
+                + " | release year: " + blankValue(release.releaseYear());
     }
 
     private static String providerAlbumRow(ArtistProviderLink link, RemoteReleaseGroup release, Album album) {
         return link.artistName() + " (" + providerLabel(link.providerId()) + "): " + blankValue(release.title())
-                + " | release: " + blankValue(release.releaseDate())
+                + " | release year: " + blankValue(release.releaseYear())
                 + (album == null ? "" : " | local album: " + album.title());
     }
 

@@ -12,6 +12,7 @@ import org.kroky.musiclib.model.ArtistProviderCandidate;
 import org.kroky.musiclib.model.ArtistProviderLink;
 import org.kroky.musiclib.repository.ArtistProviderLinkRepository;
 import org.kroky.musiclib.repository.ArtistRepository;
+import org.kroky.musiclib.repository.AlbumRepository;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -29,6 +30,9 @@ public class ArtistProviderBulkMatchService {
     ArtistRepository artists;
 
     @Inject
+    AlbumRepository albums;
+
+    @Inject
     ArtistProviderLinkRepository providerLinks;
 
     @Inject
@@ -39,6 +43,9 @@ public class ArtistProviderBulkMatchService {
         List<ArtistProviderBulkMatchItem> items = new ArrayList<>();
         for (Long artistId : artistIds) {
             if (artistId == null) {
+                continue;
+            }
+            if (albums.majorArtistCollection(artistId) == null) {
                 continue;
             }
             items.add(matchArtist(providerId, artistId));

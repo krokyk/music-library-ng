@@ -76,7 +76,6 @@ public class ScanReportWriter {
         line(text, "Kind: " + report.kind());
         line(text, "Collection: " + report.collection().name() + " (" + report.collection().id() + ")");
         line(text, "Collection type: " + report.collection().type());
-        line(text, "Parser: " + report.collection().parser());
         line(text, "Root: " + report.collectionRoot());
         line(text, "Started: " + DISPLAY_TIMESTAMP.format(report.startedAt()));
         line(text, "Finished: " + (report.finishedAt() == null ? "" : DISPLAY_TIMESTAMP.format(report.finishedAt())));

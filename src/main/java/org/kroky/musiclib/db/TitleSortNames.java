@@ -5,13 +5,13 @@ public final class TitleSortNames {
     private TitleSortNames() {
     }
 
-    public static String create(String title, String releaseDate) {
-        return create(title, releaseDate, null);
+    public static String create(String title, Integer releaseYear) {
+        return create(title, releaseYear, null);
     }
 
-    public static String create(String baseTitle, String releaseDate, String subtitle) {
+    public static String create(String baseTitle, Integer releaseYear, String subtitle) {
         String titlePart = clean(baseTitle);
-        String releasePart = clean(releaseDate);
+        String releasePart = releaseYear == null ? null : releaseYear.toString();
         String subtitlePart = clean(subtitle);
         if (releasePart == null && subtitlePart == null) {
             return titlePart;

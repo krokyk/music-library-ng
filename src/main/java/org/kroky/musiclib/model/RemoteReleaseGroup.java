@@ -6,7 +6,7 @@ public record RemoteReleaseGroup(
         String providerId,
         String providerReleaseGroupId,
         String title,
-        String releaseDate,
+        Integer releaseYear,
         String primaryType,
         List<String> secondaryTypes,
         String providerUrl) {

@@ -25,7 +25,7 @@ class MusicBrainzClientTest {
                 MusicBrainzClient.PROVIDER_ID,
                 "release-group-id",
                 "Title",
-                "2024",
+                2024,
                 primaryType,
                 secondaryTypes,
                 "https://musicbrainz.org/release-group/release-group-id");

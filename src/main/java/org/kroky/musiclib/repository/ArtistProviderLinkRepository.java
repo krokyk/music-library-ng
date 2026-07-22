@@ -90,25 +90,15 @@ public class ArtistProviderLinkRepository {
     public List<ArtistProviderLink> listEnabledByCollection(String collectionId) {
         String sql = baseSelect() + """
                  WHERE apl.enabled = 1
-                   AND (EXISTS (
-                       SELECT 1
-                       FROM collection_albums ca
-                       JOIN album_artists aa ON aa.album_id = ca.album_id
-                       WHERE aa.artist_id = apl.artist_id
-                         AND ca.collection_id = ?
-                   ) OR EXISTS (
-                       SELECT 1
-                       FROM artist_collections ac
-                       WHERE ac.artist_id = apl.artist_id
-                         AND ac.collection_id = ?
-                         AND (ac.local = 1 OR ac.last_local_scan_error_message IS NOT NULL)
-                   ))
+                   AND EXISTS (
+                       SELECT 1 FROM albums a JOIN album_artists aa ON aa.album_id=a.id
+                       WHERE aa.artist_id=apl.artist_id AND a.collection_id=?
+                   )
                  ORDER BY ar.name, apl.provider_id
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, collectionId);
-            statement.setString(2, collectionId);
             try (ResultSet rs = statement.executeQuery()) {
                 List<ArtistProviderLink> links = new ArrayList<>();
                 while (rs.next()) {
@@ -152,6 +142,9 @@ public class ArtistProviderLinkRepository {
     public ArtistProviderLink upsertForArtist(long artistId, String providerId, String providerArtistId,
             String providerArtistName, String providerUrl, String providerCountry,
             String providerDisambiguation, Boolean providerActive, boolean enabled) {
+        if (!hasArtistCollectionAlbum(artistId)) {
+            throw new IllegalArgumentException("Provider links are not available for title-centric artists.");
+        }
         String sql = """
                 INSERT INTO artist_provider_links (
                     artist_id,
@@ -192,6 +185,19 @@ public class ArtistProviderLinkRepository {
         } catch (Exception e) {
             throw new IllegalStateException("Unable to upsert provider for artist " + artistId, e);
         }
+    }
+
+    private boolean hasArtistCollectionAlbum(long artistId) {
+        String sql = """
+                SELECT 1 FROM album_artists aa
+                JOIN albums a ON a.id=aa.album_id
+                JOIN collections c ON c.id=a.collection_id AND c.type='ARTIST'
+                WHERE aa.artist_id=? LIMIT 1
+                """;
+        try (Connection connection=dataSource.getConnection();PreparedStatement statement=connection.prepareStatement(sql)) {
+            statement.setLong(1,artistId);
+            try(ResultSet rs=statement.executeQuery()){return rs.next();}
+        } catch(Exception e){throw new IllegalStateException("Unable to check provider eligibility",e);}
     }
 
     public void updateProviderMetadata(long id, String providerCountry, Boolean providerActive) {

@@ -7,11 +7,13 @@ Project-specific instructions for AI agents and other contributors working in th
 Every new Codex session should read these shared source-of-truth files before broad work:
 
 - `docs/current-application.md`
+- `docs/ui-guide.md`
 - `docs/codex-ui-workflow-guide.md`
 
-For small, targeted questions or one-file fixes, read those two files plus only the files needed for the task.
+For small, targeted questions or one-file fixes, read those three files plus only the files needed for the task.
 `docs/evolution-*.md` files are preserved historical decision records for archaeology only.
 Do not use them as current source-of-truth documentation or required startup context.
+When a proposal would reverse or remove a current architectural constraint, search the evolution documents for prior rationale and tell the user about any relevant earlier design before implementing the reversal.
 
 ## Agent skills
 
@@ -35,7 +37,8 @@ Music Library NG is a local-first music collection app for one user running on o
 Important paths:
 
 - `docs/current-application.md`: current app behavior, model, API, and constraints.
-- `docs/codex-ui-workflow-guide.md`: current UI, workflow, and verification rules.
+- `docs/ui-guide.md`: current visual language and interaction rules.
+- `docs/codex-ui-workflow-guide.md`: frontend working process and verification rules.
 - `docs/ideas.md`: unimplemented ideas only.
 - `src/main/java/org/kroky/musiclib/resource`: HTTP resources.
 - `src/main/java/org/kroky/musiclib/repository`: SQLite access.
@@ -49,10 +52,13 @@ Important paths:
 
 ## Workflow And UI Rules
 
-`codex-ui-workflow-guide.md` owns working style, frontend layout rules, UI smoke-test workflow, settings behavior, scan/status UI behavior, and final verification rules.
+`ui-guide.md` owns frontend visual language, layout rules, control behavior, settings UI behavior, and scan/status UI behavior.
+`codex-ui-workflow-guide.md` owns working style, UI smoke-test workflow, and final verification rules.
 Keep those rules there instead of duplicating them here.
 `current-application.md` owns current app behavior, data model, API semantics, and current constraints.
 Keep current behavior there instead of scattering it through evolution docs.
+Do not design special UI, workflow branches, or tests for implausible single-user local races, such as a folder disappearing between listing and an immediate click.
+Let existing generic error handling cover them unless the user reports the case or data loss is possible.
 
 If there is doubt about whether the requested action should remove data, delete data, mutate files on disk, or change a broader workflow than stated, ask before implementing.
 Do not guess on destructive or domain-ambiguous actions.
@@ -64,7 +70,8 @@ Document behavior that a maintainer or user needs to know.
 - Update `README.md` when setup, build, runtime behavior, native packaging, config, or user-visible workflows change.
 - Update this file when repository conventions or agent workflow expectations change.
 - Update `docs/current-application.md` when current behavior, data model, API surface, provider behavior, scan behavior, settings behavior, or current constraints change.
-- Update `docs/codex-ui-workflow-guide.md` when UI rules, workflow rules, verification expectations, or reusable layout contracts change.
+- Update `docs/ui-guide.md` when visual rules, interaction behavior, or reusable layout contracts change.
+- Update `docs/codex-ui-workflow-guide.md` when frontend workflow or verification expectations change.
 - Update `docs/ideas.md` when an unimplemented idea is implemented, rejected, split, or materially redefined.
 - Remove implemented or rejected ideas from `docs/ideas.md` instead of leaving stale backlog text behind.
 - Keep docs practical.
@@ -108,29 +115,31 @@ Document behavior that a maintainer or user needs to know.
 - Mutation endpoints should refresh or return canonical model state when the frontend depends on updated counts, memberships, or derived fields.
 - Counts and presence flags must be scoped deliberately.
   Global counts and selected-collection counts are not interchangeable.
-- Use existing normalization helpers such as `Names`, `ReleaseDates`, and parser utilities instead of duplicating normalization logic.
+- Use existing normalization helpers such as `Names`, `ReleaseYears`, and parser utilities instead of duplicating normalization logic.
 - For a fresh-start schema change, edit `V1__init.sql` when the current development state allows starting from scratch.
   Add migrations only when preserving existing DBs is required.
 
 ## Collection Types And Parsing
 
-- Keep collection type separate from folder parser/layout.
+- Keep collection type separate from per-folder parser/layout detection.
 - Collection type answers what the primary browsing entity is: `ARTIST` or `TITLE`.
-- Parser/layout answers how folders encode metadata, for example `FLAT_ARTIST_YEAR_ALBUM`, `NESTED_ARTIST_ALBUM`, or `TITLE_PIPELINE`.
+- Artist collections dynamically accept flat `Artist - Year - Album` folders and nested `Artist/Year - Album` folders in the same scan.
+- Collection type is inferred once when a folder is added, can be corrected while the collection has no albums, and is locked after its first album.
 - Do not normalize by renaming folders on disk.
   Keep raw folder/path values as evidence and normalize into DB metadata fields.
 - Parsed metadata should be user-editable.
   Track whether metadata came from automatic parsing or manual override so later scans do not overwrite manual fixes.
 - Title-centric collections such as soundtracks need a parser pipeline, not one regex.
-  Parse the final metadata suffix first, e.g. `Title (Artist, Release Date)`, while preserving inner parentheses in titles.
-- Release date is stored as canonical text.
-  `releaseDate` may be a year, year-month, or full date such as `2006-03-13`; year display, chronological sorting, and filtering derive from that value.
+  Parse the final metadata suffix first, e.g. `Title (Artist, Year)`, while preserving inner parentheses in titles.
+- Release year is stored as a nullable integer from `1000` through `9999`.
+  Folder parsing, display, sorting, filtering, and provider comparison use year precision only.
+  Audio tags may retain higher precision when their existing value begins with the correct four-digit year.
 - Album ownership is many-to-many through album/artist links.
   Do not reintroduce a single `artist_id` owner on albums.
 - Title items also store `sortName`/`sort_name` for chronology/grouping.
   Auto sort names can be regenerated from parsed title metadata, but manually edited sort names must be preserved across scans.
 - Ambiguous title folders should be stored with partial metadata and a parse status instead of forcing bad artist/release values.
-- Future artist-centric nested layouts should be handled by adding a new parser/layout while keeping type `ARTIST`.
+- Future artist-centric layouts should be handled by extending per-folder detection while keeping type `ARTIST`.
 
 ## Build And Test Commands
 

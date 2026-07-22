@@ -13,7 +13,6 @@ import org.kroky.musiclib.db.Names;
 import org.kroky.musiclib.db.ArtistNames;
 import org.kroky.musiclib.model.CollectionType;
 import org.kroky.musiclib.model.MusicCollection;
-import org.kroky.musiclib.model.ParserType;
 import org.kroky.musiclib.model.ParsedAlbum;
 import org.kroky.musiclib.model.ReportArtifact;
 import org.kroky.musiclib.model.ScanSummary;
@@ -81,7 +80,7 @@ public class ScanService {
         try {
             Path collectionRoot = musicRootService.resolveCollection(collection.relativePath());
             report = new ScanReport("COLLECTION", collection, collectionRoot);
-            LOG.infof("Scanning collection %s at %s using %s", collection.id(), collectionRoot, collection.parser());
+            LOG.infof("Scanning %s collection %s at %s", collection.type(), collection.id(), collectionRoot);
             if (!Files.isDirectory(collectionRoot)) {
                 String message = "Collection directory does not exist: " + collectionRoot;
                 messages.add(message);
@@ -121,18 +120,18 @@ public class ScanService {
                     UpsertResult result = albumRepository.upsertTitleScanned(
                             artistIds,
                             parsedTitle.title(),
-                            parsedTitle.releaseDate(),
+                            parsedTitle.releaseYear(),
                             parsedTitle.sortName(),
                             folder.getFileName().toString(),
                             collection.id());
                     if (result.created()) {
                         created++;
                         report.created(titleReportRow(folder, parsedTitle.title(), parsedTitle.artistName(),
-                                parsedTitle.releaseDate()));
+                                parsedTitle.releaseYear()));
                     } else {
                         existing++;
                         report.existing(titleReportRow(folder, parsedTitle.title(), parsedTitle.artistName(),
-                                parsedTitle.releaseDate()));
+                                parsedTitle.releaseYear()));
                     }
                     processedFolders++;
                     report.scannedDirs(processedFolders);
@@ -157,7 +156,7 @@ public class ScanService {
                         existing, missing, skipped, messages, report);
             }
 
-            ArtistDeltaScanPlan plan = artistDeltaScanPlan(folders, collection, knownPaths);
+            ArtistDeltaScanPlan plan = artistDeltaScanPlan(folders, knownPaths, collection.id());
             seenArtistIds.addAll(plan.unchangedArtistIds());
             report.totalDirs(plan.itemTotal());
             report.note(snapshotNote(knownPaths.size(), plan.diskPaths().size(), plan.itemTotal(),
@@ -173,7 +172,7 @@ public class ScanService {
                     return cancelledScanSummary(collection, report, seenArtistIds, parsed, created, existing,
                             missing, skipped, messages);
                 }
-                Optional<ParsedAlbum> parsedAlbum = parser.parse(folder.folder(), collection.parser(), collection.id());
+                Optional<ParsedAlbum> parsedAlbum = parser.parseFlatArtistAlbum(folder.folder(), collection.id());
                 if (parsedAlbum.isEmpty()) {
                     skipped++;
                     processedFolders++;
@@ -186,12 +185,11 @@ public class ScanService {
                 String parsedArtistName = parsedAlbum.get().artistName();
                 UpsertResult artistResult = artistRepository.upsertByName(parsedArtistName);
                 progress.artistStarted(collection.id(), artistResult.id(), parsedArtistName);
-                artistRepository.assignToCollection(artistResult.id(), collection.id(), true);
                 seenArtistIds.add(artistResult.id());
                 UpsertResult albumResult = albumRepository.upsertScanned(
                         artistResult.id(),
                         parsedAlbum.get().title(),
-                        parsedAlbum.get().releaseDate(),
+                        parsedAlbum.get().releaseYear(),
                         folder.relativePath(),
                         collection.id());
                 parsed++;
@@ -199,11 +197,11 @@ public class ScanService {
                 if (albumResult.created()) {
                     created++;
                     report.created(albumReportRow(folder.relativePath(), parsedArtistName, parsedAlbum.get().title(),
-                            parsedAlbum.get().releaseDate()));
+                            parsedAlbum.get().releaseYear()));
                 } else {
                     existing++;
                     report.existing(albumReportRow(folder.relativePath(), parsedArtistName, parsedAlbum.get().title(),
-                            parsedAlbum.get().releaseDate()));
+                            parsedAlbum.get().releaseYear()));
                 }
                 report.scannedDirs(processedFolders);
                 progress.itemProcessed(collection.id(), processedFolders);
@@ -221,16 +219,9 @@ public class ScanService {
                     report.skipped("Unmatched folder: " + nestedFolder.folder().getFileName());
                     continue;
                 }
-                UpsertResult artistResult = artistRepository.upsertByName(nestedFolder.artistName());
-                progress.artistStarted(collection.id(), artistResult.id(), nestedFolder.artistName());
-                artistRepository.assignToCollection(artistResult.id(), collection.id(), true);
-                seenArtistIds.add(artistResult.id());
-                nestedArtistContexts.put(nestedFolder.folder(),
-                        new ArtistScanContext(artistResult.id(), nestedFolder.artistName(), artistResult.created()));
                 if (nestedFolder.albumFolders().isEmpty()) {
-                    report.note((artistResult.created() ? "Created" : "Existing")
-                            + " artist without parsed albums: " + nestedFolder.artistName()
-                            + " | folder: " + nestedFolder.folder().getFileName());
+                    skipped++;
+                    report.skipped("Artist folder has no album folders: " + nestedFolder.folder().getFileName());
                 }
             }
 
@@ -238,15 +229,6 @@ public class ScanService {
                 if (progress.isCancelled()) {
                     return cancelledScanSummary(collection, report, seenArtistIds, parsed, created, existing,
                             missing, skipped, messages);
-                }
-                ArtistScanContext artist = nestedArtistContexts.get(folder.artistFolder());
-                if (artist == null) {
-                    skipped++;
-                    processedFolders++;
-                    report.skipped("Unmatched nested album folder: " + folder.relativePath());
-                    report.scannedDirs(processedFolders);
-                    progress.itemProcessed(collection.id(), processedFolders);
-                    continue;
                 }
                 Optional<ParsedAlbum> parsedAlbum = parser.parseNestedArtistAlbum(
                         folder.artistFolder(), folder.albumFolder(), collection.id());
@@ -258,10 +240,18 @@ public class ScanService {
                     progress.itemProcessed(collection.id(), processedFolders);
                     continue;
                 }
+                ArtistScanContext artist = nestedArtistContexts.get(folder.artistFolder());
+                if (artist == null) {
+                    UpsertResult artistResult = artistRepository.upsertByName(parsedAlbum.get().artistName());
+                    artist = new ArtistScanContext(artistResult.id(), parsedAlbum.get().artistName());
+                    nestedArtistContexts.put(folder.artistFolder(), artist);
+                    progress.artistStarted(collection.id(), artist.id(), artist.name());
+                    seenArtistIds.add(artist.id());
+                }
                 UpsertResult albumResult = albumRepository.upsertScanned(
                         artist.id(),
                         parsedAlbum.get().title(),
-                        parsedAlbum.get().releaseDate(),
+                        parsedAlbum.get().releaseYear(),
                         folder.relativePath(),
                         collection.id());
                 parsed++;
@@ -269,11 +259,11 @@ public class ScanService {
                 if (albumResult.created()) {
                     created++;
                     report.created(albumReportRow(folder.relativePath(), artist.name(),
-                            parsedAlbum.get().title(), parsedAlbum.get().releaseDate()));
+                            parsedAlbum.get().title(), parsedAlbum.get().releaseYear()));
                 } else {
                     existing++;
                     report.existing(albumReportRow(folder.relativePath(), artist.name(),
-                            parsedAlbum.get().title(), parsedAlbum.get().releaseDate()));
+                            parsedAlbum.get().title(), parsedAlbum.get().releaseYear()));
                 }
                 report.scannedDirs(processedFolders);
                 progress.itemProcessed(collection.id(), processedFolders);
@@ -285,8 +275,6 @@ public class ScanService {
             }
 
             missing = albumRepository.removeUnseenLocalPaths(collection.id(), plan.diskPaths());
-            artistRepository.replaceLocalArtistsForCollection(collection.id(), seenArtistIds);
-            artistRepository.clearLocalScanErrorsForCollection(collection.id());
 
             String message = "Scanned " + collection.name() + ": "
                     + countWithLabel(seenArtistIds.size(), "artist", "artists")
@@ -301,6 +289,11 @@ public class ScanService {
             return scanSummary(collection.id(), "DONE", seenArtistIds.size(), parsed, created, existing,
                     missing, skipped, messages, report);
         } catch (Exception e) {
+            try {
+                artistRepository.deleteAlbumlessArtists();
+            } catch (Exception cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
             String message = "Scan failed for " + collection.name() + ": " + e.getMessage();
             messages.add(message);
             if (report != null) {
@@ -326,47 +319,37 @@ public class ScanService {
                 missing, skipped, messages, report);
     }
 
-    private ArtistDeltaScanPlan artistDeltaScanPlan(List<Path> folders, MusicCollection collection,
-            Map<String, LocalPathSnapshot> knownPaths) throws Exception {
-        if (collection.parser() == ParserType.NESTED_ARTIST_ALBUM) {
-            return nestedArtistDeltaScanPlan(folders, knownPaths);
-        }
-
-        Set<String> diskPaths = directRelativePaths(folders);
-        Set<Long> unchangedArtistIds = new HashSet<>();
-        int unchanged = addKnownPathArtists(knownPaths, diskPaths, unchangedArtistIds);
-        List<FlatArtistFolder> flatFolders = directFoldersToProcess(folders, knownPaths).stream()
-                .map(folder -> new FlatArtistFolder(folder, folder.getFileName().toString()))
-                .toList();
-        return new ArtistDeltaScanPlan(
-                diskPaths,
-                unchangedArtistIds,
-                unchanged,
-                flatFolders.size(),
-                flatFolders,
-                List.of(),
-                List.of());
-    }
-
-    private ArtistDeltaScanPlan nestedArtistDeltaScanPlan(List<Path> folders,
-            Map<String, LocalPathSnapshot> knownPaths) throws Exception {
+    private ArtistDeltaScanPlan artistDeltaScanPlan(List<Path> folders,
+            Map<String, LocalPathSnapshot> knownPaths, String collectionId) throws Exception {
         Set<String> diskPaths = new HashSet<>();
+        List<FlatArtistFolder> flatFolders = new ArrayList<>();
         List<NestedArtistDiskFolder> nestedFolders = new ArrayList<>();
         List<NestedAlbumFolder> albumsToProcess = new ArrayList<>();
-        for (Path artistFolder : folders) {
-            List<Path> albumFolders = directChildDirectories(artistFolder);
-            boolean artistFolderHasAlbums = !albumFolders.isEmpty();
-            boolean isArtistFolder = artistFolderHasAlbums || !hasDirectRegularFile(artistFolder);
-            String artistName = isArtistFolder ? Names.chicagoStyle(cleanFolderName(artistFolder)) : null;
-            nestedFolders.add(new NestedArtistDiskFolder(artistFolder, artistName, isArtistFolder, albumFolders));
-            if (!isArtistFolder) {
+        for (Path folder : folders) {
+            String directPath = folder.getFileName().toString();
+            if (parser.parseFlatArtistAlbum(folder, collectionId).isPresent()) {
+                diskPaths.add(directPath);
+                if (!knownPaths.containsKey(directPath)) flatFolders.add(new FlatArtistFolder(folder, directPath));
                 continue;
             }
+
+            List<Path> albumFolders = directChildDirectories(folder);
+            boolean nested = albumFolders.stream()
+                    .anyMatch(album -> parser.parseNestedArtistAlbum(folder, album, collectionId).isPresent());
+            boolean emptyArtistFolder = albumFolders.isEmpty() && !hasDirectRegularFile(folder);
+            if (!nested && !emptyArtistFolder) {
+                diskPaths.add(directPath);
+                if (!knownPaths.containsKey(directPath)) flatFolders.add(new FlatArtistFolder(folder, directPath));
+                continue;
+            }
+
+            nestedFolders.add(new NestedArtistDiskFolder(folder,
+                    Names.chicagoStyle(cleanFolderName(folder)), true, albumFolders));
             for (Path albumFolder : albumFolders) {
-                String relativePath = nestedRelativePath(artistFolder, albumFolder);
+                String relativePath = nestedRelativePath(folder, albumFolder);
                 diskPaths.add(relativePath);
                 if (!knownPaths.containsKey(relativePath)) {
-                    albumsToProcess.add(new NestedAlbumFolder(artistFolder, albumFolder, relativePath));
+                    albumsToProcess.add(new NestedAlbumFolder(folder, albumFolder, relativePath));
                 }
             }
         }
@@ -377,8 +360,8 @@ public class ScanService {
                 diskPaths,
                 unchangedArtistIds,
                 unchanged,
-                albumsToProcess.size(),
-                List.of(),
+                flatFolders.size() + albumsToProcess.size(),
+                flatFolders,
                 nestedFolders,
                 albumsToProcess);
     }
@@ -468,22 +451,26 @@ public class ScanService {
         }
     }
 
-    private static String titleReportRow(Path folder, String title, String artistName, String releaseDate) {
+    private static String titleReportRow(Path folder, String title, String artistName, Integer releaseYear) {
         return "Title: " + title
                 + " | artist: " + blankValue(artistName)
-                + " | release: " + blankValue(releaseDate)
+                + " | release year: " + blankValue(releaseYear)
                 + " | folder: " + folder.getFileName();
     }
 
-    private static String albumReportRow(String folder, String artistName, String title, String releaseDate) {
+    private static String albumReportRow(String folder, String artistName, String title, Integer releaseYear) {
         return "Artist: " + artistName
                 + " | album: " + title
-                + " | release: " + blankValue(releaseDate)
+                + " | release year: " + blankValue(releaseYear)
                 + " | folder: " + folder;
     }
 
     private static String blankValue(String value) {
         return value == null || value.isBlank() ? "<blank>" : value;
+    }
+
+    private static String blankValue(Integer value) {
+        return value == null ? "<blank>" : value.toString();
     }
 
     private static String countWithLabel(int count, String singular, String plural) {
@@ -527,8 +514,7 @@ public class ScanService {
 
     private record ArtistScanContext(
             long id,
-            String name,
-            boolean created) {
+            String name) {
     }
 
     public interface ProgressListener {

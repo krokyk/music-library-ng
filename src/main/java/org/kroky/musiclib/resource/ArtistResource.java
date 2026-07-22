@@ -1,6 +1,5 @@
 package org.kroky.musiclib.resource;
 
-import java.net.URI;
 import java.util.List;
 
 import org.jboss.logging.Logger;
@@ -8,11 +7,9 @@ import org.kroky.musiclib.model.Artist;
 import org.kroky.musiclib.repository.ArtistRepository;
 
 import jakarta.inject.Inject;
-import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
-import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -40,14 +37,6 @@ public class ArtistResource {
         return artists.find(id, collectionId).orElseThrow(NotFoundException::new);
     }
 
-    @POST
-    public Response create(ArtistRequest request) {
-        LOG.infof("Create artist request name='%s'", request.name());
-        Artist artist = artists.create(request.name(), request.sortName(), request.countryOverride(),
-                request.activeOverride());
-        return Response.created(URI.create("/api/artists/" + artist.id())).entity(artist).build();
-    }
-
     @PUT
     @Path("/{id}")
     public Artist update(@PathParam("id") long id, ArtistRequest request) {
@@ -55,19 +44,6 @@ public class ArtistResource {
         return artists.update(id, request.name(), request.sortName(), request.countryOverride(),
                 request.activeOverride())
                 .orElseThrow(NotFoundException::new);
-    }
-
-    @DELETE
-    @Path("/{id}/collections/{collectionId}")
-    public Response removeFromCollection(@PathParam("id") long id, @PathParam("collectionId") String collectionId) {
-        LOG.infof("Remove artist from collection request id=%d collectionId=%s", id, collectionId);
-        artists.find(id).orElseThrow(NotFoundException::new);
-        try {
-            artists.removeFromCollection(id, collectionId);
-        } catch (IllegalArgumentException e) {
-            throw new BadRequestException(e.getMessage(), e);
-        }
-        return Response.noContent().build();
     }
 
     @DELETE

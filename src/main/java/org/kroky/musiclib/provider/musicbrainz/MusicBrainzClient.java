@@ -14,7 +14,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.kroky.musiclib.config.MusicLibraryConfig;
-import org.kroky.musiclib.model.ReleaseDates;
+import org.kroky.musiclib.model.ReleaseYears;
 import org.kroky.musiclib.model.RemoteReleaseGroup;
 import org.kroky.musiclib.provider.ProviderException;
 
@@ -120,7 +120,7 @@ public class MusicBrainzClient {
                 PROVIDER_ID,
                 id,
                 text(item, "title"),
-                normalizeDate(text(item, "first-release-date")),
+                releaseYear(text(item, "first-release-date")),
                 text(item, "primary-type"),
                 secondaryTypes,
                 siteUrl() + "/release-group/" + id);
@@ -245,19 +245,7 @@ public class MusicBrainzClient {
         return !lifeSpan.path("ended").asBoolean(false);
     }
 
-    private static String normalizeDate(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        String trimmed = value.trim();
-        int timeMarker = trimmed.indexOf('T');
-        if (timeMarker > 0) {
-            trimmed = trimmed.substring(0, timeMarker);
-        }
-        try {
-            return ReleaseDates.normalize(trimmed);
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
+    private static Integer releaseYear(String value) {
+        return ReleaseYears.fromDate(value);
     }
 }

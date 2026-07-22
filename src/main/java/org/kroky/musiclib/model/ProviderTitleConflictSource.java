@@ -4,6 +4,6 @@ public record ProviderTitleConflictSource(
         long providerLinkId,
         String providerId,
         String providerTitle,
-        String providerReleaseDate,
+        Integer providerReleaseYear,
         String providerUrl) {
 }

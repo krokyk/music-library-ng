@@ -64,16 +64,20 @@ public class ArtistProviderResource {
         } else {
             providerUrl = normalizedProviderUrl;
         }
-        return providerLinks.upsertForArtist(
-                artistId,
-                request.providerId(),
-                providerArtistId,
-                request.providerArtistName(),
-                providerUrl,
-                request.providerCountry(),
-                request.providerDisambiguation(),
-                request.providerActive(),
-                request.enabledOrDefault());
+        try {
+            return providerLinks.upsertForArtist(
+                    artistId,
+                    request.providerId(),
+                    providerArtistId,
+                    request.providerArtistName(),
+                    providerUrl,
+                    request.providerCountry(),
+                    request.providerDisambiguation(),
+                    request.providerActive(),
+                    request.enabledOrDefault());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException(e.getMessage(), e);
+        }
     }
 
     @DELETE

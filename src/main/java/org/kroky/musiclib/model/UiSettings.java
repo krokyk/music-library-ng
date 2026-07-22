@@ -6,7 +6,6 @@ public record UiSettings(
         boolean artistScanSpinnerEnabled,
         int providerBatchRescanDelayMinutes,
         String statusHistoryDateFormat,
-        String releaseDateDisplayFormat,
         String statusBarLocation,
         WorkspaceColumnWidths workspaceColumnDefaults,
         ArtistsScreenColumnWidths artistsScreenColumnDefaults,
@@ -31,17 +30,16 @@ public record UiSettings(
 
     public record AlbumColumns(
             int name,
-            int releaseDate,
+            int releaseYear,
             int checked,
-            int collections,
+            int home,
             int action) {
     }
 
     public record TitleColumns(
             int title,
             int artist,
-            int releaseDate,
-            int action) {
+            int releaseYear) {
     }
 
     public record ArtistsScreenColumnWidths(

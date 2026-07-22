@@ -87,7 +87,7 @@ public class ProviderCheckReportWriter {
         line(text, "Artists skipped: " + report.artistsSkippedCount());
         line(text, "Provider albums found: " + report.providerAlbumsFound());
         line(text, "Already in library: " + report.alreadyInLibraryCount());
-        line(text, "Release date conflicts: " + report.releaseDateConflictCount());
+        line(text, "Release year conflicts: " + report.releaseYearConflictCount());
         line(text, "Title conflicts: " + report.titleConflictCount());
         line(text, "Added as unchecked: " + report.addedAsUncheckedCount());
         line(text, "Provider records ignored: " + report.ignoredProviderRecordCount());
@@ -97,7 +97,7 @@ public class ProviderCheckReportWriter {
         section(text, "Errors", report.errors());
         section(text, "Added As Unchecked", report.addedAsUnchecked());
         section(text, "Already In Library", report.alreadyInLibrary());
-        section(text, "Release Date Conflicts", report.releaseDateConflicts());
+        section(text, "Release Year Conflicts", report.releaseYearConflicts());
         section(text, "Title Conflicts", report.titleConflicts());
         section(text, "Provider Records Ignored", report.ignoredProviderRecords());
         section(text, "Artists Skipped", report.artistsSkipped());

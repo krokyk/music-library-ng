@@ -37,6 +37,9 @@ class ArtistProviderLinkRepositoryTest {
                         name TEXT NOT NULL
                     )
                     """);
+            statement.execute("CREATE TABLE collections (id TEXT PRIMARY KEY, type TEXT NOT NULL)");
+            statement.execute("CREATE TABLE albums (id INTEGER PRIMARY KEY, collection_id TEXT NOT NULL)");
+            statement.execute("CREATE TABLE album_artists (album_id INTEGER NOT NULL, artist_id INTEGER NOT NULL)");
             statement.execute("""
                     CREATE TABLE artist_provider_links (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,6 +62,9 @@ class ArtistProviderLinkRepositoryTest {
                     )
                     """);
             statement.execute("INSERT INTO artists (id, name) VALUES (1, 'Ancient Bards')");
+            statement.execute("INSERT INTO collections (id, type) VALUES ('metal', 'ARTIST')");
+            statement.execute("INSERT INTO albums (id, collection_id) VALUES (1, 'metal')");
+            statement.execute("INSERT INTO album_artists (album_id, artist_id) VALUES (1, 1)");
             statement.execute("""
                     INSERT INTO providers (id, name)
                     VALUES ('musicbrainz', 'MusicBrainz'),

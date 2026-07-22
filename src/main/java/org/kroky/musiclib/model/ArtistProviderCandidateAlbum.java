@@ -2,13 +2,13 @@ package org.kroky.musiclib.model;
 
 public record ArtistProviderCandidateAlbum(
         String title,
-        String providerReleaseDate,
+        Integer providerReleaseYear,
         String providerUrl,
         Long localAlbumId,
         String localTitle,
-        String localReleaseDate,
+        Integer localReleaseYear,
         boolean localOnDisk,
-        boolean releaseDateConflict,
+        boolean releaseYearConflict,
         String matchType,
         int titleScore,
         int evidenceStrength,

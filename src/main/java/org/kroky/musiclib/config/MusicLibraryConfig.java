@@ -28,21 +28,6 @@ public interface MusicLibraryConfig {
 
     Providers providers();
 
-    Release release();
-
-    interface Release {
-        Date date();
-    }
-
-    interface Date {
-        Display display();
-    }
-
-    interface Display {
-        @WithDefault("yyyy-MM-dd")
-        String format();
-    }
-
     interface RootDetection {
         List<String> candidates();
 
@@ -132,13 +117,13 @@ public interface MusicLibraryConfig {
         int name();
 
         @WithDefault("100")
-        int releaseDate();
+        int releaseYear();
 
         @WithDefault("120")
         int checked();
 
         @WithDefault("180")
-        int collections();
+        int home();
 
         @WithDefault("122")
         int action();
@@ -152,10 +137,7 @@ public interface MusicLibraryConfig {
         int artist();
 
         @WithDefault("120")
-        int releaseDate();
-
-        @WithDefault("178")
-        int action();
+        int releaseYear();
     }
 
     interface ArtistsScreenColumnWidths {

@@ -1,23 +1,20 @@
 package org.kroky.musiclib.resource;
 
-import java.net.URI;
 import java.util.List;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.model.Album;
-import org.kroky.musiclib.model.ReleaseDates;
+import org.kroky.musiclib.model.ReleaseYears;
 import org.kroky.musiclib.repository.AlbumRepository;
 
 import jakarta.inject.Inject;
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
-import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.QueryParam;
-import jakarta.ws.rs.core.Response;
 
 @Path("/api/albums")
 public class AlbumResource {
@@ -43,39 +40,43 @@ public class AlbumResource {
         return albums.find(id).orElseThrow(NotFoundException::new);
     }
 
-    @POST
-    public Response create(AlbumRequest request) {
-        LOG.infof("Create album request artistId=%d title='%s' releaseDate='%s' checked=%s",
-                request.artistId(), request.title(), request.releaseDate(), request.checkedOrDefault());
-        Album album = albums.create(request.artistId(), request.title(), request.normalizedReleaseDate(),
-                request.checkedOrDefault(), request.notes());
-        return Response.created(URI.create("/api/albums/" + album.id())).entity(album).build();
-    }
-
     @PUT
     @Path("/{id}")
     public Album update(@PathParam("id") long id, AlbumRequest request) {
-        LOG.infof("Update album request id=%d title='%s' releaseDate='%s' checked=%s",
-                id, request.title(), request.releaseDate(), request.checkedOrDefault());
+        LOG.infof("Update album request id=%d title='%s' releaseYear='%s' checked=%s",
+                id, request.title(), request.releaseYear(), request.checkedOrDefault());
         Album existing = albums.find(id).orElseThrow(NotFoundException::new);
         if (!request.checkedOrDefault() && existing.onDisk()) {
             throw new BadRequestException("Cannot uncheck album while it is still present on disk.");
         }
-        return albums.update(id, request.title(), request.normalizedReleaseDate(),
+        return albums.update(id, request.title(), request.normalizedReleaseYear(),
                 request.checkedOrDefault(), request.notes()).orElseThrow(NotFoundException::new);
     }
 
-    public record AlbumRequest(long artistId, String title, String releaseDate, Boolean checked, String notes) {
+    @PUT
+    @Path("/{id}/collection")
+    public Album rehome(@PathParam("id") long id, CollectionRequest request) {
+        if (request == null || request.collectionId() == null || request.collectionId().isBlank()) {
+            throw new BadRequestException("collectionId is required");
+        }
+        LOG.infof("Reassign nonlocal album id=%d collection=%s", id, request.collectionId());
+        try { return albums.reassignCollection(id, request.collectionId()); }
+        catch (IllegalArgumentException e) { throw new BadRequestException(e.getMessage(), e); }
+    }
+
+    public record AlbumRequest(String title, Integer releaseYear, Boolean checked, String notes) {
         boolean checkedOrDefault() {
             return checked == null || checked;
         }
 
-        String normalizedReleaseDate() {
+        Integer normalizedReleaseYear() {
             try {
-                return ReleaseDates.normalize(releaseDate);
+                return ReleaseYears.normalize(releaseYear);
             } catch (IllegalArgumentException ex) {
                 throw new BadRequestException(ex.getMessage(), ex);
             }
         }
     }
+
+    public record CollectionRequest(String collectionId) { }
 }

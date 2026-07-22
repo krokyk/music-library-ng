@@ -39,11 +39,11 @@ const providerBatchRescanOptions = [
 ]
 
 const uiForm = reactive<UiForm>({
-  statusCompleteVisibleMs: 10000,
-  scanPollIntervalMs: 200,
-  artistScanSpinnerEnabled: true,
-  providerBatchRescanDelayMinutes: 60,
-  statusBarLocation: 'top',
+  statusCompleteVisibleMs: uiSettings.value.statusCompleteVisibleMs,
+  scanPollIntervalMs: uiSettings.value.scanPollIntervalMs,
+  artistScanSpinnerEnabled: uiSettings.value.artistScanSpinnerEnabled,
+  providerBatchRescanDelayMinutes: uiSettings.value.providerBatchRescanDelayMinutes,
+  statusBarLocation: uiSettings.value.statusBarLocation,
 })
 const savingUiSettings = ref(false)
 const uiSaveTimer = ref<number | null>(null)
@@ -223,7 +223,7 @@ async function resetUiSettings() {
 }
 
 onMounted(async () => {
-  await Promise.all([store.loadSettings(), store.loadUiSettings(), store.loadScanJob(), store.loadProviderJob()])
+  await Promise.all([store.loadSettings(), store.loadScanJob(), store.loadProviderJob()])
   if (scanIsRunning.value) {
     store.startScanJobPolling()
   }

@@ -189,15 +189,15 @@ class ArtistProviderBulkMatchServiceTest {
                 releaseGroups);
     }
 
-    private static org.kroky.musiclib.model.Album localAlbum(long id, String title, String releaseDate) {
-        return ArtistProviderMatchServiceTest.album(id, title, releaseDate, true, true);
+    private static org.kroky.musiclib.model.Album localAlbum(long id, String title, String yearText) {
+        return ArtistProviderMatchServiceTest.album(id, title, yearText, true, true);
     }
 
-    private static org.kroky.musiclib.model.Album checkedAlbum(long id, String title, String releaseDate) {
-        return ArtistProviderMatchServiceTest.album(id, title, releaseDate, true, false);
+    private static org.kroky.musiclib.model.Album checkedAlbum(long id, String title, String yearText) {
+        return ArtistProviderMatchServiceTest.album(id, title, yearText, true, false);
     }
 
-    private static RemoteReleaseGroup releaseGroup(String title, String releaseDate) {
-        return ArtistProviderMatchServiceTest.releaseGroup(title, releaseDate);
+    private static RemoteReleaseGroup releaseGroup(String title, String yearText) {
+        return ArtistProviderMatchServiceTest.releaseGroup(title, yearText);
     }
 }

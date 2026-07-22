@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
-import org.kroky.musiclib.model.ParserType;
 
 class FolderNameParserTest {
 
@@ -15,13 +14,12 @@ class FolderNameParserTest {
 
     @Test
     void parsesArtistYearAlbumFolders() {
-        var parsed = parser.parse(Path.of("Dark Tranquillity - 2007 - Fiction"),
-                ParserType.FLAT_ARTIST_YEAR_ALBUM, "metal");
+        var parsed = parser.parseFlatArtistAlbum(Path.of("Dark Tranquillity - 2007 - Fiction"), "metal");
 
         assertTrue(parsed.isPresent());
         assertEquals("Dark Tranquillity", parsed.get().artistName());
         assertEquals("Fiction", parsed.get().title());
-        assertEquals("2007", parsed.get().releaseDate());
+        assertEquals(2007, parsed.get().releaseYear());
         assertEquals("Fiction | 2007", parsed.get().sortName());
     }
 
@@ -35,21 +33,18 @@ class FolderNameParserTest {
         assertTrue(parsed.isPresent());
         assertEquals("Globus", parsed.get().artistName());
         assertEquals("Epicon", parsed.get().title());
-        assertEquals("2006", parsed.get().releaseDate());
+        assertEquals(2006, parsed.get().releaseYear());
         assertEquals("Epicon | 2006", parsed.get().sortName());
     }
 
     @Test
-    void parsesNestedArtistAlbumFoldersWithFullReleaseDate() {
+    void rejectsNestedArtistAlbumFoldersWithoutYearOnlyToken() {
         var parsed = parser.parseNestedArtistAlbum(
                 Path.of("BASIL POLEDOURIS"),
                 Path.of("1982-05-14 - Conan the Barbarian"),
                 "soundtracks");
 
-        assertTrue(parsed.isPresent());
-        assertEquals("Basil Poledouris", parsed.get().artistName());
-        assertEquals("Conan the Barbarian", parsed.get().title());
-        assertEquals("1982-05-14", parsed.get().releaseDate());
+        assertTrue(parsed.isEmpty());
     }
 
     @Test
@@ -60,19 +55,19 @@ class FolderNameParserTest {
 
         assertEquals("Kevin Kiner", parsed.artistName());
         assertEquals("Ahsoka - Vol. 1 (Episodes 1-4)", parsed.title());
-        assertEquals("2023", parsed.releaseDate());
+        assertEquals(2023, parsed.releaseYear());
         assertEquals("Ahsoka - Vol. 1 (Episodes 1-4) | 2023", parsed.sortName());
     }
 
     @Test
-    void parsesTitleFoldersWithFullReleaseDate() {
+    void keepsTitleFoldersWithFullDateSuffixAsTitleOnly() {
         var parsed = parser.parseTitleAlbum(
                 Path.of("V for Vendetta (Dario Marianelli, 2006-03-13)"),
                 "soundtracks");
 
-        assertEquals("V for Vendetta", parsed.title());
-        assertEquals("Dario Marianelli", parsed.artistName());
-        assertEquals("2006-03-13", parsed.releaseDate());
+        assertEquals("V for Vendetta (Dario Marianelli, 2006-03-13)", parsed.title());
+        assertNull(parsed.artistName());
+        assertNull(parsed.releaseYear());
     }
 
     @Test
@@ -83,18 +78,18 @@ class FolderNameParserTest {
 
         assertEquals("Ad Astra", parsed.title());
         assertEquals("Max Richter, Lorne Balfe", parsed.artistName());
-        assertEquals("2019", parsed.releaseDate());
+        assertEquals(2019, parsed.releaseYear());
     }
 
     @Test
-    void parsesTitleFoldersWithPartialReleaseMonth() {
+    void keepsTitleFoldersWithYearMonthSuffixAsTitleOnly() {
         var parsed = parser.parseTitleAlbum(
                 Path.of("Example Score (Composer Name, 2006-03)"),
                 "soundtracks");
 
-        assertEquals("Example Score", parsed.title());
-        assertEquals("Composer Name", parsed.artistName());
-        assertEquals("2006-03", parsed.releaseDate());
+        assertEquals("Example Score (Composer Name, 2006-03)", parsed.title());
+        assertNull(parsed.artistName());
+        assertNull(parsed.releaseYear());
     }
 
     @Test
@@ -102,7 +97,7 @@ class FolderNameParserTest {
         var parsed = parser.parseTitleAlbum(Path.of("Conan the Barbarian (2011)"), "soundtracks");
 
         assertEquals("Conan the Barbarian", parsed.title());
-        assertEquals("2011", parsed.releaseDate());
+        assertEquals(2011, parsed.releaseYear());
     }
 
     @Test
@@ -110,7 +105,7 @@ class FolderNameParserTest {
         var parsed = parser.parseTitleAlbum(Path.of("World of Warcraft - 2007 - The Burning Crusade"), "soundtracks");
 
         assertEquals("World of Warcraft - The Burning Crusade", parsed.title());
-        assertEquals("2007", parsed.releaseDate());
+        assertEquals(2007, parsed.releaseYear());
         assertEquals("World of Warcraft | 2007 | The Burning Crusade", parsed.sortName());
     }
 
@@ -120,13 +115,12 @@ class FolderNameParserTest {
 
         assertEquals("Wojciech Kilar - The Best", parsed.title());
         assertNull(parsed.artistName());
-        assertNull(parsed.releaseDate());
+        assertNull(parsed.releaseYear());
     }
 
     @Test
     void convertsAllCapsScannedArtistsToChicagoStyle() {
-        var parsed = parser.parse(Path.of("AS I LAY DYING - 2007 - An Ocean Between Us"),
-                ParserType.FLAT_ARTIST_YEAR_ALBUM, "metal");
+        var parsed = parser.parseFlatArtistAlbum(Path.of("AS I LAY DYING - 2007 - An Ocean Between Us"), "metal");
 
         assertTrue(parsed.isPresent());
         assertEquals("As I Lay Dying", parsed.get().artistName());

@@ -16,7 +16,7 @@ import org.kroky.musiclib.model.CollectionMetadata;
 import org.kroky.musiclib.model.CollectionType;
 import org.kroky.musiclib.model.CollectionFolderCandidate;
 import org.kroky.musiclib.model.MusicCollection;
-import org.kroky.musiclib.model.ParserType;
+import org.kroky.musiclib.scan.FolderNameParser;
 import org.kroky.musiclib.scan.MusicRootService;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -33,10 +33,13 @@ public class MusicCollectionRepository {
     @Inject
     MusicRootService musicRootService;
 
+    @Inject
+    FolderNameParser folderNameParser;
+
     public List<MusicCollection> list() {
         LOG.debug("Listing music collections");
         String sql = """
-                SELECT id, name, relative_path, type, parser, last_scan_at, last_scan_status, last_scan_message
+                SELECT id, name, relative_path, type, last_scan_at, last_scan_status, last_scan_message
                 FROM collections
                 ORDER BY name
                 """;
@@ -56,7 +59,7 @@ public class MusicCollectionRepository {
     public Optional<MusicCollection> find(String id) {
         LOG.tracef("Finding music collection id=%s", id);
         String sql = """
-                SELECT id, name, relative_path, type, parser, last_scan_at, last_scan_status, last_scan_message
+                SELECT id, name, relative_path, type, last_scan_at, last_scan_status, last_scan_message
                 FROM collections
                 WHERE id = ?
                 """;
@@ -95,40 +98,16 @@ public class MusicCollectionRepository {
         }
         String sql = """
                 SELECT
-                    (SELECT count(*)
-                     FROM (
-                         SELECT aa.artist_id
-                         FROM collection_albums ca
-                         JOIN album_artists aa ON aa.album_id = ca.album_id
-                         WHERE ca.collection_id = ?
-                         UNION
-                         SELECT ac.artist_id
-                         FROM artist_collections ac
-                         WHERE ac.collection_id = ?
-                           AND (ac.local = 1 OR ac.last_local_scan_error_message IS NOT NULL)
-                     )) AS artist_count,
-                    (SELECT count(DISTINCT aa.artist_id)
-                     FROM collection_albums ca
-                     JOIN album_artists aa ON aa.album_id = ca.album_id
-                     WHERE ca.collection_id = ?) AS contributor_artist_count,
-                    (SELECT count(DISTINCT lp.album_id)
-                     FROM album_local_paths lp
-                     WHERE lp.collection_id = ?) AS local_album_count,
-                    (SELECT count(*)
-                     FROM collection_albums ca
-                     WHERE ca.collection_id = ?) AS known_album_count,
-                    (SELECT count(*)
-                     FROM collection_albums ca
-                     JOIN albums a ON a.id = ca.album_id
-                     WHERE ca.collection_id = ? AND a.checked = 0) AS unchecked_album_count,
-                    (SELECT count(*)
-                     FROM collection_albums ca
-                     JOIN albums a ON a.id = ca.album_id
-                     WHERE ca.collection_id = ? AND a.checked = 1) AS checked_album_count
+                  (SELECT count(DISTINCT aa.artist_id) FROM albums a JOIN album_artists aa ON aa.album_id=a.id WHERE a.collection_id=?) artist_count,
+                  (SELECT count(DISTINCT aa.artist_id) FROM albums a JOIN album_artists aa ON aa.album_id=a.id WHERE a.collection_id=?) contributor_artist_count,
+                  (SELECT count(*) FROM albums WHERE collection_id=? AND local_relative_path IS NOT NULL) local_album_count,
+                  (SELECT count(*) FROM albums WHERE collection_id=?) known_album_count,
+                  (SELECT count(*) FROM albums WHERE collection_id=? AND checked=0) unchecked_album_count,
+                  (SELECT count(*) FROM albums WHERE collection_id=? AND checked=1) checked_album_count
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
-            for (int i = 1; i <= 7; i++) {
+            for (int i = 1; i <= 6; i++) {
                 statement.setString(i, id);
             }
             try (ResultSet rs = statement.executeQuery()) {
@@ -173,21 +152,19 @@ public class MusicCollectionRepository {
         }
         String id = uniqueId(Names.slug(folder));
         String name = Names.chicagoStyle(folder);
-        CollectionType type = CollectionType.ARTIST;
-        ParserType parser = defaultParser(type);
-        LOG.infof("Creating collection id=%s name='%s' relativePath='%s' type=%s parser=%s",
-                id, name, folder, type, parser);
+        CollectionType effectiveType = inferType(musicRootService.resolveCollection(folder));
+        LOG.infof("Creating collection id=%s name='%s' relativePath='%s' type=%s",
+                id, name, folder, effectiveType);
         String sql = """
-                INSERT INTO collections (id, name, relative_path, type, parser)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO collections (id, name, relative_path, type)
+                VALUES (?, ?, ?, ?)
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, id);
             statement.setString(2, name);
             statement.setString(3, folder);
-            statement.setString(4, type.name());
-            statement.setString(5, parser.name());
+            statement.setString(4, effectiveType.name());
             statement.executeUpdate();
             return find(id).orElseThrow();
         } catch (Exception e) {
@@ -195,52 +172,51 @@ public class MusicCollectionRepository {
         }
     }
 
-    public Optional<MusicCollection> update(String id, String name, CollectionType type, ParserType parser) {
-        CollectionType resolvedType = type == null ? null : type;
-        ParserType resolvedParser = parser != null ? parser : defaultParser(resolvedType);
-        LOG.infof("Updating collection id=%s name='%s' type=%s parser=%s", id, name, resolvedType, resolvedParser);
-        String sql = """
-                UPDATE collections
-                SET name = COALESCE(?, name),
-                    type = COALESCE(?, type),
-                    parser = COALESCE(?, parser),
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """;
+    public Optional<MusicCollection> update(String id, String name, CollectionType type) {
+        MusicCollection current = find(id).orElse(null);
+        if (current == null) return Optional.empty();
+        CollectionType effectiveType = type == null ? current.type() : type;
+        if (effectiveType != current.type() && albumCount(id) > 0) {
+            throw new IllegalArgumentException("Collection type cannot change after albums have been added.");
+        }
+        LOG.infof("Updating collection id=%s name='%s' type=%s", id, name, effectiveType);
         try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
+                PreparedStatement statement = connection.prepareStatement("UPDATE collections SET name=?, type=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")) {
             statement.setString(1, blankToNull(name));
-            statement.setString(2, resolvedType == null ? null : resolvedType.name());
-            statement.setString(3, resolvedParser == null ? null : resolvedParser.name());
-            statement.setString(4, id);
-            int updated = statement.executeUpdate();
-            return updated == 0 ? Optional.empty() : find(id);
+            statement.setString(2, effectiveType.name());
+            statement.setString(3, id);
+            statement.executeUpdate();
+            return find(id);
         } catch (Exception e) {
             throw new IllegalStateException("Unable to update collection " + id, e);
         }
     }
 
-    public void delete(String id) {
+    public DeletePreview deletePreview(String id) {
+        if (find(id).isEmpty()) throw new IllegalArgumentException("Unknown collection: " + id);
+        String sql = """
+                SELECT (SELECT count(*) FROM albums WHERE collection_id=?) album_count,
+                       (SELECT count(*) FROM artists ar WHERE EXISTS (SELECT 1 FROM album_artists aa JOIN albums a ON a.id=aa.album_id WHERE aa.artist_id=ar.id AND a.collection_id=?) AND NOT EXISTS (SELECT 1 FROM album_artists aa JOIN albums a ON a.id=aa.album_id WHERE aa.artist_id=ar.id AND a.collection_id<>?)) artist_count
+                """;
+        try (Connection connection=dataSource.getConnection();PreparedStatement statement=connection.prepareStatement(sql)) {
+            statement.setString(1,id);statement.setString(2,id);statement.setString(3,id);
+            try(ResultSet rs=statement.executeQuery()){rs.next();return new DeletePreview(id,rs.getInt(1),rs.getInt(2));}
+        } catch(Exception e){throw new IllegalStateException("Unable to preview collection delete " + id,e);}
+    }
+
+    public DeleteResult delete(String id) {
         LOG.infof("Deleting collection id=%s", id);
+        DeletePreview preview = deletePreview(id);
         try (Connection connection = dataSource.getConnection()) {
             boolean autoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
-            try (PreparedStatement deleteLocalPaths = connection.prepareStatement(
-                    "DELETE FROM album_local_paths WHERE collection_id = ?");
-                    PreparedStatement deleteCollectionAlbums = connection.prepareStatement(
-                            "DELETE FROM collection_albums WHERE collection_id = ?");
-                    PreparedStatement deleteArtistMemberships = connection.prepareStatement(
-                            "DELETE FROM artist_collections WHERE collection_id = ?");
-                    PreparedStatement deleteCollection = connection.prepareStatement(
+            try (PreparedStatement deleteCollection = connection.prepareStatement(
                             "DELETE FROM collections WHERE id = ?")) {
-                deleteLocalPaths.setString(1, id);
-                deleteLocalPaths.executeUpdate();
-                deleteCollectionAlbums.setString(1, id);
-                deleteCollectionAlbums.executeUpdate();
-                deleteArtistMemberships.setString(1, id);
-                deleteArtistMemberships.executeUpdate();
                 deleteCollection.setString(1, id);
                 deleteCollection.executeUpdate();
+                try (PreparedStatement orphaned = connection.prepareStatement("DELETE FROM artists WHERE NOT EXISTS (SELECT 1 FROM album_artists aa WHERE aa.artist_id=artists.id)")) {
+                    orphaned.executeUpdate();
+                }
                 connection.commit();
             } catch (Exception e) {
                 rollbackQuietly(connection);
@@ -251,6 +227,7 @@ public class MusicCollectionRepository {
         } catch (Exception e) {
             throw new IllegalStateException("Unable to delete collection " + id, e);
         }
+        return new DeleteResult(id, preview.albumCount(), preview.artistCount());
     }
 
     private MusicCollection map(ResultSet rs) throws Exception {
@@ -261,7 +238,6 @@ public class MusicCollectionRepository {
                 resolvedCollectionPath(rs.getString("relative_path")),
                 collectionExists(rs.getString("relative_path")),
                 CollectionType.valueOf(rs.getString("type")),
-                ParserType.valueOf(rs.getString("parser")),
                 rs.getString("last_scan_at"),
                 rs.getString("last_scan_status"),
                 rs.getString("last_scan_message"));
@@ -295,15 +271,42 @@ public class MusicCollectionRepository {
         return candidate;
     }
 
-    public static ParserType defaultParser(CollectionType type) {
-        if (type == CollectionType.TITLE) {
-            return ParserType.TITLE_PIPELINE;
+    private int albumCount(String collectionId) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement("SELECT count(*) FROM albums WHERE collection_id=?")) {
+            statement.setString(1, collectionId);
+            try (ResultSet rs = statement.executeQuery()) { rs.next(); return rs.getInt(1); }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to count collection albums " + collectionId, e);
         }
-        if (type == CollectionType.ARTIST) {
-            return ParserType.FLAT_ARTIST_YEAR_ALBUM;
-        }
-        return null;
     }
+
+    private CollectionType inferType(java.nio.file.Path root) {
+        int artistItems = 0;
+        int titleItems = 0;
+        try (var folders = Files.list(root)) {
+            for (var folder : folders.filter(Files::isDirectory).toList()) {
+                if (folderNameParser.parseFlatArtistAlbum(folder, "").isPresent()) {
+                    artistItems++;
+                    continue;
+                }
+                int nestedAlbums;
+                try (var children = Files.list(folder)) {
+                    nestedAlbums = (int) children.filter(Files::isDirectory)
+                            .filter(child -> folderNameParser.parseNestedArtistAlbum(folder, child, "").isPresent())
+                            .count();
+                }
+                if (nestedAlbums > 0) artistItems += nestedAlbums;
+                else titleItems++;
+            }
+        } catch (Exception e) {
+            LOG.debugf("Unable to infer collection type for %s: %s", root, e.getMessage());
+        }
+        return artistItems >= titleItems ? CollectionType.ARTIST : CollectionType.TITLE;
+    }
+
+    public record DeletePreview(String collectionId, int albumCount, int artistCount) { }
+    public record DeleteResult(String collectionId, int albumsDeleted, int artistsDeleted) { }
 
     private static void rollbackQuietly(Connection connection) {
         try {

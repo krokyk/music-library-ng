@@ -112,7 +112,6 @@ public class SettingsResource {
         boolean defaultArtistSpinner = config.ui().defaultArtistScanSpinnerEnabled();
         int defaultProviderBatchRescanDelay = providerSettings.defaultBatchRescanDelayMinutes();
         String defaultDateFormat = config.ui().defaultStatusHistoryDateFormat();
-        String defaultReleaseDateDisplayFormat = config.release().date().display().format();
         String defaultStatusBarLocation = defaultStatusBarLocation();
         int tableGridColumnMinWidth = Math.max(1, config.ui().tableGridColumnMinWidth());
 
@@ -136,7 +135,6 @@ public class SettingsResource {
                                 ProviderSettingsService.BATCH_RESCAN_DELAY_MAX))
                         .orElse(defaultProviderBatchRescanDelay),
                 defaultDateFormat,
-                defaultReleaseDateDisplayFormat,
                 statusBarLocation.map(value -> normalizeStatusBarLocation(value.value(), defaultStatusBarLocation))
                         .orElse(defaultStatusBarLocation),
                 defaultWorkspaceColumnWidths(),
@@ -155,15 +153,14 @@ public class SettingsResource {
                         defaults.artist().name()),
                 new UiSettings.AlbumColumns(
                         defaults.album().name(),
-                        defaults.album().releaseDate(),
+                        defaults.album().releaseYear(),
                         defaults.album().checked(),
-                        defaults.album().collections(),
+                        defaults.album().home(),
                         defaults.album().action()),
                 new UiSettings.TitleColumns(
                         defaults.title().title(),
                         defaults.title().artist(),
-                        defaults.title().releaseDate(),
-                        defaults.title().action()));
+                        defaults.title().releaseYear()));
     }
 
     private UiSettings.ArtistsScreenColumnWidths defaultArtistsScreenColumnWidths() {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import AppSpinner from '@/components/AppSpinner.vue'
 import ProviderChip from '@/components/ProviderChip.vue'
 import { countryName } from '@/countries'
 import { providerDefinition, providerDefinitions, providerExternalArtistUrl, type ProviderId } from '@/providers'
@@ -126,9 +127,9 @@ function albumTitleDisplayPoints(album: ArtistProviderCandidateAlbum) {
 }
 
 function albumYearDisplayPoints(album: ArtistProviderCandidateAlbum) {
-  const providerYear = releaseYear(album.providerReleaseDate)
-  const localYear = releaseYear(album.localReleaseDate)
-  if (!providerYear || !localYear) {
+  const providerYear = album.providerReleaseYear
+  const localYear = album.localReleaseYear
+  if (providerYear == null || localYear == null) {
     return 0
   }
   return providerYear === localYear ? 2 : 1
@@ -148,9 +149,9 @@ function albumEvidencePriority(album: ArtistProviderCandidateAlbum) {
 }
 
 function albumYearDistance(album: ArtistProviderCandidateAlbum) {
-  const providerYear = releaseYear(album.providerReleaseDate)
-  const localYear = releaseYear(album.localReleaseDate)
-  if (!providerYear || !localYear) {
+  const providerYear = album.providerReleaseYear
+  const localYear = album.localReleaseYear
+  if (providerYear == null || localYear == null) {
     return Number.MAX_SAFE_INTEGER
   }
   return Math.abs(Number(providerYear) - Number(localYear))
@@ -217,21 +218,21 @@ function albumTitleTooltip(album: ArtistProviderCandidateAlbum) {
 }
 
 function albumYearTooltip(album: ArtistProviderCandidateAlbum) {
-  const providerYear = releaseYear(album.providerReleaseDate)
-  const localYear = releaseYear(album.localReleaseDate)
-  if (providerYear && localYear && providerYear === localYear) {
+  const providerYear = album.providerReleaseYear
+  const localYear = album.localReleaseYear
+  if (providerYear != null && localYear != null && providerYear === localYear) {
     return 'Year: 100% match'
   }
-  if (providerYear && localYear) {
+  if (providerYear != null && localYear != null) {
     return `Year: conflict (${localYear} vs ${providerYear})`
   }
   if (album.localEvidenceKind === 'provider-only') {
     return providerYear ? `Year: provider ${providerYear}` : 'Year: unknown'
   }
-  if (providerYear) {
+  if (providerYear != null) {
     return `Year: local unknown, provider ${providerYear}`
   }
-  if (localYear) {
+  if (localYear != null) {
     return `Year: local ${localYear}, provider unknown`
   }
   return 'Year: unknown'
@@ -246,9 +247,9 @@ function albumTitleFullMatch(album: ArtistProviderCandidateAlbum) {
 }
 
 function albumYearFullMatch(album: ArtistProviderCandidateAlbum) {
-  const providerYear = releaseYear(album.providerReleaseDate)
-  const localYear = releaseYear(album.localReleaseDate)
-  return Boolean(providerYear && localYear && providerYear === localYear)
+  const providerYear = album.providerReleaseYear
+  const localYear = album.localReleaseYear
+  return providerYear != null && localYear != null && providerYear === localYear
 }
 
 function albumTitleConflict(album: ArtistProviderCandidateAlbum) {
@@ -256,9 +257,9 @@ function albumTitleConflict(album: ArtistProviderCandidateAlbum) {
 }
 
 function albumYearConflict(album: ArtistProviderCandidateAlbum) {
-  const providerYear = releaseYear(album.providerReleaseDate)
-  const localYear = releaseYear(album.localReleaseDate)
-  return album.releaseDateConflict || Boolean(providerYear && localYear && providerYear !== localYear)
+  const providerYear = album.providerReleaseYear
+  const localYear = album.localReleaseYear
+  return album.releaseYearConflict || (providerYear != null && localYear != null && providerYear !== localYear)
 }
 
 function albumHasDisplayConflict(album: ArtistProviderCandidateAlbum) {
@@ -267,10 +268,6 @@ function albumHasDisplayConflict(album: ArtistProviderCandidateAlbum) {
 
 function albumIsPerfectMatch(album: ArtistProviderCandidateAlbum) {
   return albumHasLocalEvidence(album) && albumTitleFullMatch(album) && albumYearFullMatch(album)
-}
-
-function releaseYear(releaseDate: string | null | undefined) {
-  return releaseDate && /^\d{4}/.test(releaseDate) ? releaseDate.slice(0, 4) : null
 }
 
 function useCandidate(candidate: ArtistProviderCandidate) {
@@ -330,13 +327,10 @@ function refreshAll() {
                 @click="selectProvider(provider.id)"
               >
                 <template #prepend>
-                  <v-progress-circular
+                  <AppSpinner
                     v-if="providerLoading(provider.id)"
-                    indeterminate
-                    size="14"
-                    width="2"
                     class="provider-action-chip__spinner"
-                  ></v-progress-circular>
+                  />
                   <img
                     v-else-if="provider.iconSrc"
                     class="provider-chip__icon"
@@ -397,7 +391,7 @@ function refreshAll() {
               <div v-if="candidateAlbums(candidate).length" class="provider-candidate-albums">
                 <v-tooltip
                   v-for="album in visibleCandidateAlbums(candidate)"
-                  :key="`${album.title}:${album.providerReleaseDate ?? ''}:${album.localAlbumId ?? 'provider'}`"
+                  :key="`${album.title}:${album.providerReleaseYear ?? ''}:${album.localAlbumId ?? 'provider'}`"
                   :text="albumTooltip(album)"
                   location="top"
                 >

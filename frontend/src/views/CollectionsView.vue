@@ -2,11 +2,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
+import AppSpinner from '@/components/AppSpinner.vue'
 import ProviderChip from '@/components/ProviderChip.vue'
 import ProviderMatchDialog from '@/components/ProviderMatchDialog.vue'
-import { formatDateWithJavaPattern } from '@/dateFormat'
 import { providerDefinition, validateProviderUrl, type ProviderId } from '@/providers'
-import type { Album, Artist, ArtistProviderCandidate, CollectionFolderCandidate, MusicCollection } from '@/types'
+import type { Album, Artist, ArtistProviderCandidate, CollectionDeletePreview, CollectionFolderCandidate, MusicCollection } from '@/types'
 import type { CSSProperties } from 'vue'
 
 interface ArtistRowMeasurement {
@@ -30,10 +30,14 @@ interface CollectionRowFit {
   actionLabels: boolean
 }
 
+type CollectionRow =
+  | { key: string, name: string, pending: true }
+  | { key: string, name: string, pending: false, collection: MusicCollection }
+
 type SortDirection = 'asc' | 'desc'
 type ArtistSortKey = 'name'
-type AlbumSortKey = 'name' | 'releaseDate'
-type TitleSortKey = 'title' | 'artist' | 'releaseDate'
+type AlbumSortKey = 'name' | 'releaseYear'
+type TitleSortKey = 'title' | 'artist' | 'releaseYear'
 type TitleSortMode = 'title' | 'sortName'
 type PresenceFilter = 'local' | 'nonLocal'
 type ArtistUncheckedFilter = 'unchecked'
@@ -44,6 +48,8 @@ const store = useLibraryStore()
 const {
   collections,
   collectionCandidates,
+  pendingCollectionCandidates,
+  deletingCollectionId,
   collectionArtists,
   collectionAlbums,
   collectionTitleItems,
@@ -61,17 +67,18 @@ const {
 } = storeToRefs(store)
 
 const providerSetupDialog = ref(false)
+const viewReady = ref(false)
 const providerSetupSaving = ref(false)
 const providerSetupMatching = ref(false)
 const providerSetupArtist = ref<Artist | null>(null)
 const providerSetupProviderId = ref<ProviderId>('musicbrainz')
 const providerSetupUrl = ref('')
 const providerCandidates = ref<ArtistProviderCandidate[]>([])
-const removeAlbumDialog = ref(false)
 const addCollectionDropdownOpen = ref(false)
 const deleteCollectionDialog = ref(false)
-const albumToRemove = ref<Album | null>(null)
 const collectionToDelete = ref<MusicCollection | null>(null)
+const collectionDeletePreview = ref<CollectionDeletePreview | null>(null)
+const collectionDeletePreviewLoading = ref(false)
 const collectionEditOpenId = ref<string | null>(null)
 const collectionEditTarget = ref<HTMLElement | undefined>(undefined)
 const threePaneElement = ref<HTMLElement | null>(null)
@@ -104,12 +111,6 @@ const paneLayoutCache = reactive<Record<PaneLayoutKind, number[]>>({
   title: [...defaultPanePercents],
 })
 const paneNames = ['collections', 'artists', 'albums'] as const
-const titleItemDialog = ref(false)
-const titleItemSaving = ref(false)
-const titleItemToEdit = ref<Album | null>(null)
-const albumEditDialog = ref(false)
-const albumEditSaving = ref(false)
-const albumToEdit = ref<Album | null>(null)
 let paneWidthObserver: ResizeObserver | null = null
 const collectionListElement = ref<HTMLElement | null>(null)
 
@@ -125,34 +126,16 @@ const collectionEditForm = reactive({
   type: 'ARTIST' as MusicCollection['type'],
 })
 
-const titleItemForm = reactive({
-  title: '',
-  artistName: '',
-  releaseDate: '',
-  sortName: '',
-})
-
-const albumEditForm = reactive({
-  title: '',
-})
-
 const artistColumnWidths = reactive({
-  name: 280,
+  ...uiSettings.value.workspaceColumnDefaults.artist,
 })
 
 const albumColumnWidths = reactive({
-  name: 360,
-  releaseDate: 140,
-  checked: 120,
-  collections: 180,
-  action: 122,
+  ...uiSettings.value.workspaceColumnDefaults.album,
 })
 
 const titleColumnWidths = reactive({
-  title: 460,
-  artist: 220,
-  releaseDate: 150,
-  action: 178,
+  ...uiSettings.value.workspaceColumnDefaults.title,
 })
 
 const artistSort = reactive<{ key: ArtistSortKey; direction: SortDirection }>({
@@ -161,7 +144,7 @@ const artistSort = reactive<{ key: ArtistSortKey; direction: SortDirection }>({
 })
 
 const albumSort = reactive<{ key: AlbumSortKey; direction: SortDirection }>({
-  key: 'releaseDate',
+  key: 'releaseYear',
   direction: 'asc',
 })
 
@@ -184,6 +167,7 @@ const hoveredArtistRowId = ref<number | null>(null)
 const focusedArtistRowId = ref<number | null>(null)
 const selectedAlbumRowId = ref<number | null>(null)
 const selectedTitleRowId = ref<number | null>(null)
+const albumMoveMenuOpenId = ref<number | null>(null)
 const albumGridScrollTop = ref(0)
 const albumGridViewportHeight = ref(0)
 const titleGridScrollTop = ref(0)
@@ -203,16 +187,15 @@ const columnWidthPreferenceKeys = {
   },
   album: {
     name: 'collections-screen.albums-pane.name',
-    releaseDate: 'collections-screen.albums-pane.release-date',
+    releaseYear: 'collections-screen.albums-pane.release-year',
     checked: 'collections-screen.albums-pane.checked',
-    collections: 'collections-screen.albums-pane.also-in',
+    home: 'collections-screen.albums-pane.home',
     action: 'collections-screen.albums-pane.action',
   },
   title: {
     title: 'collections-screen.titles-pane.title',
     artist: 'collections-screen.titles-pane.artist',
-    releaseDate: 'collections-screen.titles-pane.release-date',
-    action: 'collections-screen.titles-pane.action',
+    releaseYear: 'collections-screen.titles-pane.release-year',
   },
 } as const
 
@@ -233,7 +216,6 @@ const paneHeaderMinimumWidths = {
 const actionColumnWidths = {
   artist: { icon: 148 },
   album: { icon: 136 },
-  title: { icon: 84 },
 } as const
 const sortableColumnMinimumWidth = 62
 const checkboxColumnMinimumWidth = 44
@@ -250,6 +232,7 @@ const rowActionButtonWidths = {
   remove: 90,
   untrack: 86,
   delete: 76,
+  move: 82,
 } as const
 
 const collectionAddLabelMinimumWidth = 260
@@ -279,13 +262,27 @@ const artistIssueColumnWidths = {
 
 const tableColumnOrders = {
   artist: ['name'],
-  album: ['name', 'releaseDate', 'checked', 'collections', 'action'],
-  title: ['title', 'artist', 'releaseDate', 'action'],
+  album: ['name', 'releaseYear', 'checked', 'home', 'action'],
+  title: ['title', 'artist', 'releaseYear', 'spacer'],
 } as const
 
 const selectedCollection = computed(() =>
   collections.value.find((collection) => collection.id === selectedCollectionId.value) ?? null,
 )
+
+const collectionRows = computed<CollectionRow[]>(() => [
+  ...collections.value.map((collection) => ({
+    key: `collection:${collection.id}`,
+    name: collection.name,
+    pending: false as const,
+    collection,
+  })),
+  ...pendingCollectionCandidates.value.map((candidate) => ({
+    key: `pending:${candidate.relativePath}`,
+    name: candidate.collectionName,
+    pending: true as const,
+  })),
+].sort((left, right) => left.name.localeCompare(right.name)))
 
 const collectionToEdit = computed(() =>
   collections.value.find((collection) => collection.id === collectionEditOpenId.value) ?? null,
@@ -298,6 +295,12 @@ const collectionEditDialogOpen = computed({
       closeCollectionEdit()
     }
   },
+})
+
+const collectionTypeEditable = computed(() => {
+  const collection = collectionToEdit.value
+  if (!collection) return false
+  return collectionMetadata.value[collection.id]?.knownAlbumCount === 0
 })
 
 const selectedCollectionIsTitle = computed(() => selectedCollection.value?.type === 'TITLE')
@@ -339,8 +342,8 @@ const providerSetupDefinition = computed(() =>
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
 const providerJobIsRunning = computed(() => providerJob.value?.status === 'RUNNING')
 const providerIsRunning = computed(() => providerJobIsRunning.value || providerStatus.value.running)
-const scanActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value)
-const writeActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value)
+const scanActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value || Boolean(deletingCollectionId.value))
+const writeActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value || Boolean(deletingCollectionId.value))
 const paneLayoutPreferenceKeys = {
   artist: 'collections-screen.artist-layout.panes',
   title: 'collections-screen.title-layout.panes',
@@ -348,12 +351,6 @@ const paneLayoutPreferenceKeys = {
 
 const artistUncheckedEnabled = computed(() => artistUnchecked.value.includes('unchecked'))
 const albumShowAllEnabled = computed(() => albumShowAll.value.includes('showAll'))
-const noCollectionAlbums = computed(() =>
-  selectedArtist.value && albumShowAllEnabled.value
-    ? collectionAlbums.value.filter((album) => album.collections.length === 0)
-    : [],
-)
-
 const sortedCollectionArtists = computed(() =>
   collectionArtists.value
     .filter((artist) => matchesPresenceFilter(artistIsLocalToSelectedCollection(artist), artistPresence.value))
@@ -394,34 +391,30 @@ const artistVirtualBottomSpacerHeight = computed(() =>
 
 const filteredCollectionAlbums = computed(() =>
   collectionAlbums.value.filter((album) =>
-    albumShowAllEnabled.value || albumIsInSelectedCollection(album),
+    albumShowAllEnabled.value || album.collection.id === selectedCollectionId.value,
   ),
 )
 
 const sortedCollectionAlbums = computed(() =>
   [...filteredCollectionAlbums.value].sort((left, right) => {
-    const result = albumSort.key === 'releaseDate'
-      ? compareReleaseDates(
-        releaseDateSortValue(left.releaseDate),
-        releaseDateSortValue(right.releaseDate),
+    const result = albumSort.key === 'releaseYear'
+      ? compareReleaseYears(
+        left.releaseYear,
+        right.releaseYear,
         albumSort.direction,
       )
       : compareText(left.title, right.title)
-    return albumSort.key === 'releaseDate'
+    return albumSort.key === 'releaseYear'
       ? result || compareText(left.title, right.title)
-      : applyDirection(result || compareReleaseDates(
-        releaseDateSortValue(left.releaseDate),
-        releaseDateSortValue(right.releaseDate),
+      : applyDirection(result || compareReleaseYears(
+        left.releaseYear,
+        right.releaseYear,
         'asc',
       ), albumSort.direction)
   }),
 )
 
-const showAlbumCollectionsColumn = computed(() =>
-  sortedCollectionAlbums.value.some((album) =>
-    albumDisplayedCollections(album).length > 0 || albumShowsNoCollectionChip(album),
-  ),
-)
+const showAlbumCollectionsColumn = computed(() => albumShowAllEnabled.value)
 
 const albumVirtualViewportHeight = computed(() =>
   Math.max(albumGridViewportHeight.value, albumGridFallbackViewportHeight),
@@ -469,14 +462,14 @@ const sortedCollectionTitleItems = computed(() =>
         : compareText(left.title, right.title)
     } else if (titleSort.key === 'artist') {
       result = compareText(left.artistName ?? '', right.artistName ?? '')
-    } else if (titleSort.key === 'releaseDate') {
-      result = compareReleaseDates(
-        releaseDateSortValue(left.releaseDate),
-        releaseDateSortValue(right.releaseDate),
+    } else if (titleSort.key === 'releaseYear') {
+      result = compareReleaseYears(
+        left.releaseYear,
+        right.releaseYear,
         titleSort.direction,
       )
     }
-    return titleSort.key === 'releaseDate'
+    return titleSort.key === 'releaseYear'
       ? result || compareText(left.sortName, right.sortName) || compareText(left.title, right.title)
       : applyDirection(result || compareText(left.sortName, right.sortName) || compareText(left.title, right.title), titleSort.direction)
   }),
@@ -521,14 +514,7 @@ function artistIssueLabel(artist: Artist) {
 }
 
 function artistFailureTooltip(artist: Artist) {
-  const localFailed = Boolean(artist.localScanErrorMessage)
   const providerFailed = Boolean(providerForArtist(artist)?.lastErrorMessage)
-  if (localFailed && providerFailed) {
-    return 'Local and provider scans failed'
-  }
-  if (localFailed) {
-    return 'Local scan failed'
-  }
   if (providerFailed) {
     return 'Provider scan failed'
   }
@@ -552,48 +538,17 @@ function compareText(left: string | null | undefined, right: string | null | und
   return (left ?? '').localeCompare(right ?? '', undefined, { numeric: true, sensitivity: 'base' })
 }
 
-function compareReleaseDates(left: string | null, right: string | null, direction: SortDirection) {
+function compareReleaseYears(left: number | null | undefined, right: number | null | undefined, direction: SortDirection) {
+  left ??= null
+  right ??= null
   if (left === null && right === null) return 0
   if (left === null) return 1
   if (right === null) return -1
-  return applyDirection(compareText(left, right), direction)
+  return applyDirection(left - right, direction)
 }
 
 function applyDirection(result: number, direction: SortDirection) {
   return direction === 'asc' ? result : -result
-}
-
-function releaseDateSortValue(releaseDate: string | null | undefined) {
-  if (releaseDate && releaseDate.trim()) {
-    return releaseDate.trim()
-  }
-  return null
-}
-
-function releaseDateYearLabel(releaseDate: string | null | undefined) {
-  if (releaseDate && /^\d{4}/.test(releaseDate)) {
-    return releaseDate.slice(0, 4)
-  }
-  return ''
-}
-
-function releaseDateTooltip(releaseDate: string | null | undefined) {
-  if (!releaseDate || releaseDate.length <= 4) {
-    return ''
-  }
-  return formatReleaseDate(releaseDate)
-}
-
-function formatReleaseDate(releaseDate: string) {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(releaseDate)) {
-    const [year, month, day] = releaseDate.split('-').map(Number)
-    return formatDateWithJavaPattern(
-      new Date(year, month - 1, day),
-      uiSettings.value.releaseDateDisplayFormat,
-      'yyyy-MM-dd',
-    )
-  }
-  return releaseDate
 }
 
 function toggleArtistSort(key: ArtistSortKey) {
@@ -822,81 +777,87 @@ function titleSortModeIcon() {
 
 function titleSortModeTooltip() {
   return titleSortMode.value === 'sortName'
-    ? 'Title sorting uses Sort as'
-    : 'Title sorting uses display title'
+    ? 'Sort related titles by series name, then release year and subtitle'
+    : 'Sort alphabetically by the displayed title'
 }
 
 function albumDiskTitle(album: Album) {
-  if (album.localPaths.length > 0) {
-    return album.localPaths.map((path) => path.relativePath).join('\n')
+  if (album.localRelativePath) {
+    return album.resolvedPath ?? album.localRelativePath
   }
   return 'No local folder'
 }
 
 function albumIsInSelectedCollection(album: Album) {
-  return Boolean(
-    selectedCollectionId.value
-    && album.collections.some((collection) => collection.id === selectedCollectionId.value),
-  )
-}
-
-function albumExtraCollections(album: Album) {
-  return album.collections.filter((collection) => collection.id !== selectedCollectionId.value)
-}
-
-function albumDisplayedCollections(album: Album) {
-  if (albumShowAllEnabled.value) {
-    return album.collections
-  }
-  return albumExtraCollections(album)
-}
-
-function albumShowsNoCollectionChip(album: Album) {
-  return albumShowAllEnabled.value && album.collections.length === 0
-}
-
-function albumRemoveDisabled(album: Album) {
-  return writeActionsDisabled.value
-    || !albumIsInSelectedCollection(album)
-    || albumIsLocalToSelectedCollection(album)
-}
-
-function albumRemoveTooltip(album: Album) {
-  if (albumIsLocalToSelectedCollection(album)) {
-    return 'Album present on disk in this collection'
-  }
-  if (!albumIsInSelectedCollection(album)) {
-    return 'Album is not in this collection'
-  }
-  return 'Remove from collection'
-}
-
-function titleRemoveDisabled(item: Album) {
-  return writeActionsDisabled.value
-    || !selectedCollectionId.value
-    || albumIsLocalToSelectedCollection(item)
-}
-
-function titleRemoveTooltip(item: Album) {
-  if (albumIsLocalToSelectedCollection(item)) {
-    return 'Album present on disk in this collection'
-  }
-  return 'Remove from collection'
+  return album.collection.id === selectedCollectionId.value
 }
 
 function albumCollectionsColumnLabel() {
-  return albumShowAllEnabled.value ? 'In' : 'Also in'
+  return 'Collection'
+}
+
+async function rehomeAlbum(album: Album, collectionId: string | null) {
+  if (!collectionId || collectionId === album.collection.id || album.onDisk || writeActionsDisabled.value) {
+    return
+  }
+  try {
+    const updated = await store.rehomeAlbum(album, collectionId)
+    store.showStatus(`Moved ${album.title} to ${collections.value.find((collection) => collection.id === collectionId)?.name ?? 'collection'}.`, 'done')
+    return updated
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to change album home collection')
+  }
+}
+
+function albumMoveDestinations(album: Album) {
+  const type = collections.value.find((collection) => collection.id === album.collection.id)?.type
+  return collections.value.filter((collection) => collection.type === type && collection.id !== album.collection.id)
+}
+
+function albumMoveDisabled(album: Album) {
+  return writeActionsDisabled.value || album.onDisk || albumMoveDestinations(album).length === 0
+}
+
+function albumMoveTooltip(album: Album) {
+  if (album.onDisk) {
+    return 'Album present on disk; move the folder to change its collection.'
+  }
+  return albumMoveDestinations(album).length === 0
+    ? 'No other collections available.'
+    : 'Move to another collection'
+}
+
+async function moveAlbumTo(album: Album, collectionId: string) {
+  albumMoveMenuOpenId.value = null
+  await rehomeAlbum(album, collectionId)
+}
+
+function scrollVirtualGridToIndex(element: HTMLElement | null, index: number, rowHeight: number, headerHeight = 0) {
+  if (!element || index < 0) return
+  element.scrollTop = headerHeight + index * rowHeight
+}
+
+async function navigateToAlbumHome(album: Album) {
+  if (album.collection.id === selectedCollectionId.value) return
+  const artistId = selectedArtistId.value
+  if (!artistId) return
+  await store.selectCollection(album.collection.id)
+  const artistIndex = sortedCollectionArtists.value.findIndex((artist) => artist.id === artistId)
+  artistGridScrollTop.value = Math.max(0, artistIndex * artistGridRowHeight)
+  scrollVirtualGridToIndex(artistGridElement.value, artistIndex, artistGridRowHeight)
+  await nextTick()
+  await store.selectArtist(artistId)
+  selectedAlbumRowId.value = album.id
+  const albumIndex = sortedCollectionAlbums.value.findIndex((item) => item.id === album.id)
+  albumGridScrollTop.value = Math.max(0, albumGridHeaderHeight + albumIndex * albumGridRowHeight)
+  scrollVirtualGridToIndex(albumGridElement.value, albumIndex, albumGridRowHeight, albumGridHeaderHeight)
+  await nextTick()
 }
 
 function albumShowAllTooltip() {
   return albumShowAllEnabled.value
     ? 'Showing all albums. Turn off to show only albums in this collection.'
     : 'Show all albums for this artist, including provider-only albums and albums local to other collections.'
-}
-
-function addNoCollectionAlbumsTooltip() {
-  const collectionName = selectedCollection.value?.name ?? 'active collection'
-  return `Add all orphans to ${collectionName}`
 }
 
 function albumPaneEmptyMessage() {
@@ -910,37 +871,11 @@ function albumIsLocalToSelectedCollection(album: Album) {
   if (!selectedCollectionId.value) {
     return false
   }
-  return album.localPaths.some((path) =>
-    path.collectionId === selectedCollectionId.value
-    && path.onDisk,
-  )
+  return album.collection.id === selectedCollectionId.value && album.onDisk
 }
 
 function artistIsLocalToSelectedCollection(artist: Artist) {
   return selectedCollectionIsArtist.value && artist.localAlbumCount > 0
-}
-
-function artistRemoveVisible(artist: Artist) {
-  return Boolean(
-    selectedCollectionIsArtist.value
-    && selectedCollectionId.value
-    && artist.collectionIds.includes(selectedCollectionId.value),
-  )
-}
-
-function artistRemoveBlockedByLocalAlbum(artist: Artist) {
-  return artistRemoveVisible(artist) && artist.localAlbumCount > 0
-}
-
-function artistRemoveDisabled(artist: Artist) {
-  return writeActionsDisabled.value || artistRemoveBlockedByLocalAlbum(artist)
-}
-
-function artistRemoveTooltip(artist: Artist) {
-  if (artistRemoveBlockedByLocalAlbum(artist)) {
-    return 'At least 1 album still present on disk in this collection'
-  }
-  return 'Remove from collection'
 }
 
 function artistRowClass(artist: Artist) {
@@ -995,8 +930,8 @@ function includeNonLocal(filter: { value: PresenceFilter[] }) {
 function albumPresenceClass(album: Album) {
   const inSelectedCollection = albumIsInSelectedCollection(album)
   const local = albumIsLocalToSelectedCollection(album)
-  const otherCollection = !inSelectedCollection && album.collections.length > 0
-  const libraryOnly = albumIsLibraryOnly(album, local, otherCollection)
+  const otherCollection = album.onDisk && !inSelectedCollection
+  const libraryOnly = !local && !otherCollection
   return {
     'album-presence-text--local': local,
     'album-presence-text--current-collection': inSelectedCollection,
@@ -1012,14 +947,13 @@ function albumTitleClasses(album: Album) {
   }
 }
 
-function albumReleaseDateChipClasses(_album: Album) {
+function albumReleaseYearChipClasses(_album: Album) {
   return {}
 }
 
 function albumRowClass(album: Album) {
   return {
     'is-selected': album.id === selectedAlbumRowId.value,
-    'workspace-row--album-no-collection': album.collections.length === 0,
   }
 }
 
@@ -1027,11 +961,6 @@ function titleRowClass(item: Album) {
   return {
     'is-selected': item.id === selectedTitleRowId.value,
   }
-}
-
-function albumIsLibraryOnly(album: Album, local = albumIsLocalToSelectedCollection(album), otherCollection?: boolean) {
-  const belongsToOtherCollection = otherCollection ?? (!albumIsInSelectedCollection(album) && album.collections.length > 0)
-  return !local && !belongsToOtherCollection
 }
 
 function collectionTypeIcon(collection: MusicCollection) {
@@ -1402,13 +1331,23 @@ function resolveElement(value: unknown) {
   return null
 }
 
-function askDeleteCollection(collection: MusicCollection) {
+async function askDeleteCollection(collection: MusicCollection) {
   selectCollection(collection)
   if (writeActionsDisabled.value) {
     return
   }
   collectionToDelete.value = collection
+  collectionDeletePreview.value = null
   deleteCollectionDialog.value = true
+  collectionDeletePreviewLoading.value = true
+  try {
+    collectionDeletePreview.value = await store.loadCollectionDeletePreview(collection.id)
+  } catch (error) {
+    deleteCollectionDialog.value = false
+    store.showErrorStatus(error, 'Unable to preview collection deletion')
+  } finally {
+    collectionDeletePreviewLoading.value = false
+  }
 }
 
 async function deleteCollection() {
@@ -1418,10 +1357,14 @@ async function deleteCollection() {
   if (!collectionToDelete.value) {
     return
   }
+  const collectionId = collectionToDelete.value.id
+  const collectionName = collectionToDelete.value.name
+  deleteCollectionDialog.value = false
+  collectionToDelete.value = null
+  collectionDeletePreview.value = null
   try {
-    await store.deleteCollection(collectionToDelete.value.id)
-    deleteCollectionDialog.value = false
-    collectionToDelete.value = null
+    const result = await store.deleteCollection(collectionId)
+    store.showStatus(`Deleted collection "${collectionName}" (${result.albumsDeleted} album${result.albumsDeleted === 1 ? '' : 's'} and ${result.artistsDeleted} artist${result.artistsDeleted === 1 ? '' : 's'}).`, 'done')
   } catch (error) {
     store.showErrorStatus(error, 'Unable to delete collection')
   }
@@ -1440,15 +1383,11 @@ async function toggleAddCollectionDropdown() {
   }
 }
 
-async function addCollection(candidate: CollectionFolderCandidate) {
+function addCollection(candidate: CollectionFolderCandidate) {
   if (writeActionsDisabled.value) {
     return
   }
-  try {
-    await store.createCollection(candidate.relativePath)
-  } catch (error) {
-    store.showErrorStatus(error, 'Unable to add collection')
-  }
+  store.queueCollectionCreation(candidate)
 }
 
 function closeAddCollectionDropdown() {
@@ -1464,6 +1403,7 @@ function openCollectionEdit(collection: MusicCollection, event?: MouseEvent) {
   collectionEditForm.type = collection.type
   collectionEditTarget.value = event?.currentTarget instanceof HTMLElement ? event.currentTarget : undefined
   collectionEditOpenId.value = collection.id
+  void store.loadCollectionMetadata(collection.id, true)
   void nextTick(() => {
     const input = document.querySelector<HTMLInputElement>('.collection-edit-card input')
     input?.focus()
@@ -1893,7 +1833,13 @@ function isPaneLayoutObject(value: unknown): value is Record<(typeof paneNames)[
 function applyColumnWidthDefaults() {
   const defaults = uiSettings.value.workspaceColumnDefaults
   Object.assign(artistColumnWidths, defaults.artist)
-  Object.assign(albumColumnWidths, defaults.album)
+  Object.assign(albumColumnWidths, {
+    name: defaults.album.name,
+    releaseYear: defaults.album.releaseYear,
+    checked: defaults.album.checked,
+    home: defaults.album.home,
+    action: defaults.album.action,
+  })
   Object.assign(titleColumnWidths, defaults.title)
 }
 
@@ -2070,7 +2016,7 @@ function columnGridStyle(table: keyof typeof columnWidthPreferenceKeys) {
 
 function tableColumnKeys(table: keyof typeof columnWidthPreferenceKeys) {
   if (table === 'album' && !showAlbumCollectionsColumn.value) {
-    return tableColumnOrders.album.filter((key) => key !== 'collections') as readonly string[]
+    return tableColumnOrders.album.filter((key) => key !== 'home') as readonly string[]
   }
   return tableColumnOrders[table] as readonly string[]
 }
@@ -2086,9 +2032,6 @@ function gridLabeledActionWidth(table: keyof typeof columnWidthPreferenceKeys) {
   if (table === 'album') {
     return albumLabeledActionWidth()
   }
-  if (table === 'title') {
-    return actionSetWidth([rowActionButtonWidths.edit, rowActionButtonWidths.delete])
-  }
   return artistLabeledActionWidthForCollection()
 }
 
@@ -2101,15 +2044,7 @@ function collectionIconActionWidth() {
 }
 
 function artistLabeledActionWidth(artist: Artist) {
-  const widths: number[] = [
-    rowActionButtonWidths.local,
-    artistProviderActionWidth(artist, true),
-    rowActionButtonWidths.edit,
-  ]
-  if (artistRemoveVisible(artist)) {
-    widths.push(rowActionButtonWidths.remove)
-  }
-  return actionSetWidth(widths)
+  return artistProviderActionWidth(artist, true)
 }
 
 function artistLabeledActionWidthForCollection() {
@@ -2120,15 +2055,7 @@ function artistLabeledActionWidthForCollection() {
 }
 
 function artistIconActionWidth(artist: Artist) {
-  const widths = [
-    artistIconActionButtonWidth,
-    artistProviderActionWidth(artist, false),
-    artistIconActionButtonWidth,
-  ]
-  if (artistRemoveVisible(artist)) {
-    widths.push(artistIconActionButtonWidth)
-  }
-  return actionSetWidth(widths)
+  return artistProviderActionWidth(artist, false)
 }
 
 function artistProviderActionWidth(artist: Artist, labeled: boolean) {
@@ -2140,17 +2067,16 @@ function artistProviderActionWidth(artist: Artist, labeled: boolean) {
 
 function artistIconActionWidthForCollection() {
   return Math.max(
-    actionSetWidth(Array(3).fill(artistIconActionButtonWidth)),
+    artistIconActionButtonWidth,
     ...sortedCollectionArtists.value.map((artist) => artistIconActionWidth(artist)),
   )
 }
 
 function albumLabeledActionWidth() {
-  const widths: number[] = [rowActionButtonWidths.edit, rowActionButtonWidths.delete]
-  if (sortedCollectionAlbums.value.some((album) => album.localPaths.length > 0)) {
-    widths.unshift(rowActionButtonWidths.info)
-  }
-  return actionSetWidth(widths)
+  return actionSetWidth([
+    rowActionButtonWidths.move,
+    ...(sortedCollectionAlbums.value.some((album) => album.localRelativePath) ? [rowActionButtonWidths.info] : []),
+  ])
 }
 
 function actionSetWidth(widths: number[]) {
@@ -2284,8 +2210,11 @@ function saveColumnWidth(table: keyof typeof columnWidthPreferenceKeys, key: str
 }
 
 function columnMinimumWidth(table: keyof typeof columnWidthPreferenceKeys, key: string) {
+  if (key === 'spacer') {
+    return 0
+  }
   if (key === 'action') {
-    return actionColumnWidths[table].icon
+    return table === 'album' ? actionColumnWidths.album.icon : actionColumnWidths.artist.icon
   }
   if (table === 'album' && key === 'checked') {
     return checkboxColumnMinimumWidth
@@ -2293,7 +2222,7 @@ function columnMinimumWidth(table: keyof typeof columnWidthPreferenceKeys, key: 
   if (isSortableColumn(table, key)) {
     return sortableColumnMinimumWidth
   }
-  if (table === 'album' && key === 'collections') {
+  if (table === 'album' && key === 'home') {
     return 90
   }
   return Math.max(1, uiSettings.value.tableGridColumnMinWidth)
@@ -2301,10 +2230,10 @@ function columnMinimumWidth(table: keyof typeof columnWidthPreferenceKeys, key: 
 
 function isSortableColumn(table: keyof typeof columnWidthPreferenceKeys, key: string) {
   if (table === 'album') {
-    return key === 'name' || key === 'releaseDate'
+    return key === 'name' || key === 'releaseYear'
   }
   if (table === 'title') {
-    return key === 'title' || key === 'artist' || key === 'releaseDate'
+    return key === 'title' || key === 'artist' || key === 'releaseYear'
   }
   return false
 }
@@ -2327,18 +2256,6 @@ function handleDocumentKeyDown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     closeAddCollectionDropdown()
     closeCollectionEdit()
-  }
-}
-
-async function removeArtistFromCollection(artist: Artist) {
-  selectArtistRow(artist)
-  if (artistRemoveDisabled(artist)) {
-    return
-  }
-  try {
-    await store.removeArtistFromSelectedCollection(artist.id)
-  } catch (error) {
-    store.showErrorStatus(error, 'Unable to remove artist from collection')
   }
 }
 
@@ -2539,19 +2456,6 @@ async function updateAlbumChecked(album: Album, checked: boolean) {
   }
 }
 
-async function addNoCollectionAlbumsToSelectedCollection() {
-  if (writeActionsDisabled.value || !selectedCollectionId.value || noCollectionAlbums.value.length === 0) {
-    return
-  }
-  const albumIds = noCollectionAlbums.value.map((album) => album.id)
-  try {
-    await store.addAlbumsToCollection(selectedCollectionId.value, albumIds)
-    store.showStatus(`Added ${albumIds.length} orphan album${albumIds.length === 1 ? '' : 's'} to ${selectedCollection.value?.name ?? 'collection'}.`, 'done')
-  } catch (error) {
-    store.showErrorStatus(error, 'Unable to add orphan albums')
-  }
-}
-
 function albumCheckedValue(album: Album) {
   return album.onDisk || album.checked
 }
@@ -2560,128 +2464,9 @@ function albumCheckedToggleDisabled(album: Album) {
   return album.onDisk
 }
 
-function openAlbumEditDialog(album: Album) {
-  selectAlbumRow(album)
-  if (writeActionsDisabled.value) {
-    return
-  }
-  albumToEdit.value = album
-  albumEditForm.title = album.title
-  albumEditDialog.value = true
-  void nextTick(() => {
-    const input = document.querySelector<HTMLInputElement>('.album-edit-dialog input')
-    input?.select()
-  })
-}
-
-async function saveAlbumTitle() {
-  if (writeActionsDisabled.value) {
-    return
-  }
-  if (!albumToEdit.value || !albumEditForm.title.trim()) {
-    return
-  }
-  albumEditSaving.value = true
-  try {
-    await store.updateAlbum({
-      ...albumToEdit.value,
-      title: albumEditForm.title.trim(),
-    })
-    albumEditDialog.value = false
-    albumToEdit.value = null
-  } catch (error) {
-    store.showErrorStatus(error, 'Unable to save album title')
-  } finally {
-    albumEditSaving.value = false
-  }
-}
-
-function askRemoveAlbumFromCollection(album: Album) {
-  selectAlbumRow(album)
-  if (albumRemoveDisabled(album)) {
-    return
-  }
-  albumToRemove.value = album
-  removeAlbumDialog.value = true
-}
-
-async function removeAlbumFromCollection() {
-  if (writeActionsDisabled.value) {
-    return
-  }
-  if (!albumToRemove.value) {
-    return
-  }
-  try {
-    await store.removeAlbumFromSelectedCollection(albumToRemove.value)
-    removeAlbumDialog.value = false
-    albumToRemove.value = null
-  } catch (error) {
-    store.showErrorStatus(error, 'Unable to remove album from collection')
-  }
-}
-
-function openTitleItemDialog(item?: Album) {
-  if (item) {
-    selectTitleRow(item)
-  }
-  if (writeActionsDisabled.value) {
-    return
-  }
-  titleItemToEdit.value = item ?? null
-  titleItemForm.title = item?.title ?? ''
-  titleItemForm.artistName = item?.artistName ?? ''
-  titleItemForm.releaseDate = item?.releaseDate ?? ''
-  titleItemForm.sortName = item?.sortName ?? ''
-  titleItemDialog.value = true
-}
-
-async function saveTitleItem() {
-  if (writeActionsDisabled.value) {
-    return
-  }
-  if (!titleItemForm.title.trim() || !selectedCollectionId.value) {
-    return
-  }
-  titleItemSaving.value = true
-  try {
-    const payload = {
-      title: titleItemForm.title.trim(),
-      artistName: titleItemForm.artistName.trim() || null,
-      releaseDate: titleItemForm.releaseDate.trim() || null,
-      sortName: titleItemForm.sortName.trim() || null,
-    }
-    if (titleItemToEdit.value) {
-      await store.updateTitleItem(titleItemToEdit.value, payload)
-    } else {
-      await store.createTitleItem(selectedCollectionId.value, payload)
-      includeNonLocal(titlePresence)
-    }
-    titleItemDialog.value = false
-    titleItemToEdit.value = null
-  } catch (error) {
-    store.showErrorStatus(error, titleItemToEdit.value ? 'Unable to save title' : 'Unable to add title')
-  } finally {
-    titleItemSaving.value = false
-  }
-}
-
-async function removeTitleFromCollection(item: Album) {
-  selectTitleRow(item)
-  if (titleRemoveDisabled(item)) {
-    return
-  }
-  try {
-    await store.removeTitleFromSelectedCollection(item)
-  } catch (error) {
-    store.showErrorStatus(error, 'Unable to remove title from collection')
-  }
-}
-
 onMounted(async () => {
   document.addEventListener('pointerdown', handleDocumentPointerDown)
   document.addEventListener('keydown', handleDocumentKeyDown)
-  await store.loadUiSettings()
   applyColumnWidthDefaults()
   await loadColumnWidths()
   await loadPresenceFilters()
@@ -2692,6 +2477,7 @@ onMounted(async () => {
   if (scanIsRunning.value) {
     store.startScanJobPolling()
   }
+  viewReady.value = true
   await nextTick()
   setupPaneWidthObserver()
   scheduleArtistRowMeasurement()
@@ -2721,6 +2507,7 @@ watch(selectedCollectionIsTitle, () => {
 })
 
 watch(selectedCollectionId, () => {
+  albumMoveMenuOpenId.value = null
   hoveredCollectionId.value = null
   focusedCollectionId.value = null
   hoveredArtistRowId.value = null
@@ -2814,7 +2601,7 @@ watch(sortedCollectionTitleItems, (items) => {
 </script>
 
 <template>
-  <v-container fluid class="app-page collections-workspace">
+  <v-container v-if="viewReady" fluid class="app-page collections-workspace">
     <div ref="threePaneElement" class="three-pane">
       <v-sheet ref="collectionsPaneElement" class="pane collections-pane" :style="paneStyle(0)">
         <div class="pane-header">
@@ -2860,111 +2647,133 @@ watch(sortedCollectionTitleItems, (items) => {
         </div>
 
         <div ref="collectionListElement" class="collection-list">
-          <div
-            v-for="collection in collections"
-            :key="collection.id"
-            class="nav-row"
-            :class="{
-              'is-selected': collection.id === selectedCollectionId,
-            }"
-            @click.capture="selectCollection(collection)"
-            @focusin="focusedCollectionId = collection.id"
-            @focusout="handleCollectionRowFocusOut(collection, $event)"
-            @mouseenter="hoveredCollectionId = collection.id"
-            @mouseleave="hoveredCollectionId = null"
-          >
-            <span class="nav-row__title">
-              <v-tooltip :text="collectionTypeLabel(collection)" location="top">
-                <template #activator="{ props }">
-                  <v-icon
-                    v-bind="props"
-                    :icon="collectionTypeIcon(collection)"
-                    size="16"
-                    class="collection-type-icon"
-                    :class="collection.type === 'TITLE' ? 'collection-type-icon--title' : 'collection-type-icon--artist'"
-                  ></v-icon>
-                </template>
-              </v-tooltip>
-              <span class="nav-row__name">{{ collection.name }}</span>
-            </span>
-            <span class="nav-row__trailing">
-              <span class="nav-row__info" @click.stop>
-                <v-tooltip location="end" :open-on-hover="true" @update:model-value="(open) => loadCollectionInfo(collection, open)">
+          <template v-for="row in collectionRows" :key="row.key">
+            <div
+              v-if="row.pending"
+              class="nav-row nav-row--pending"
+              aria-disabled="true"
+            >
+              <span class="nav-row__title">
+                <AppSpinner
+                  color="primary"
+                  class="collection-type-spinner"
+                />
+                <span class="nav-row__name">{{ row.name }}</span>
+              </span>
+            </div>
+            <div
+              v-else
+              class="nav-row"
+              :class="{
+                'is-selected': row.collection.id === selectedCollectionId,
+                'nav-row--pending': row.collection.id === deletingCollectionId,
+              }"
+              :aria-disabled="row.collection.id === deletingCollectionId"
+              @click.capture="selectCollection(row.collection)"
+              @focusin="focusedCollectionId = row.collection.id"
+              @focusout="handleCollectionRowFocusOut(row.collection, $event)"
+              @mouseenter="hoveredCollectionId = row.collection.id"
+              @mouseleave="hoveredCollectionId = null"
+            >
+              <span class="nav-row__title">
+                <AppSpinner
+                  v-if="row.collection.id === deletingCollectionId"
+                  class="collection-type-spinner"
+                />
+                <v-tooltip v-else :text="collectionTypeLabel(row.collection)" location="top">
                   <template #activator="{ props }">
                     <v-icon
                       v-bind="props"
-                      icon="mdi-information-outline"
+                      :icon="collectionTypeIcon(row.collection)"
                       size="16"
-                      class="collection-info-icon"
+                      class="collection-type-icon"
+                      :class="row.collection.type === 'TITLE' ? 'collection-type-icon--title' : 'collection-type-icon--artist'"
                     ></v-icon>
                   </template>
-                  <div class="collection-info-tooltip">
-                    <div
-                      v-if="collectionMetadataLoading[collection.id] && !collectionMetadata[collection.id]"
-                      class="collection-info-tooltip__loading"
-                    >
-                      <v-progress-circular indeterminate size="14" width="2"></v-progress-circular>
-                      <span>Loading info</span>
-                    </div>
-                    <template v-else-if="collectionMetadata[collection.id]">
-                      <div v-for="line in collectionInfoLines(collection)" :key="line">{{ line }}</div>
+                </v-tooltip>
+                <span class="nav-row__name">
+                  {{ row.collection.id === deletingCollectionId ? `Deleting ${row.collection.name}…` : row.collection.name }}
+                </span>
+              </span>
+              <span v-if="row.collection.id !== deletingCollectionId" class="nav-row__trailing">
+                <span class="nav-row__info" @click.stop>
+                  <v-tooltip location="end" :open-on-hover="true" @update:model-value="(open) => loadCollectionInfo(row.collection, open)">
+                    <template #activator="{ props }">
+                      <v-icon
+                        v-bind="props"
+                        icon="mdi-information-outline"
+                        size="16"
+                        class="collection-info-icon"
+                      ></v-icon>
                     </template>
-                    <div v-else>Info not loaded</div>
-                  </div>
-                </v-tooltip>
+                    <div class="collection-info-tooltip">
+                      <div
+                        v-if="collectionMetadataLoading[row.collection.id] && !collectionMetadata[row.collection.id]"
+                        class="collection-info-tooltip__loading"
+                      >
+                        <AppSpinner />
+                        <span>Loading info</span>
+                      </div>
+                      <template v-else-if="collectionMetadata[row.collection.id]">
+                        <div v-for="line in collectionInfoLines(row.collection)" :key="line">{{ line }}</div>
+                      </template>
+                      <div v-else>Info not loaded</div>
+                    </div>
+                  </v-tooltip>
+                </span>
+                <span class="nav-row__actions">
+                  <v-tooltip text="Edit collection" location="top">
+                    <template #activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        prepend-icon="mdi-pencil"
+                        size="x-small"
+                        variant="text"
+                        color="primary"
+                        :class="collectionRowActionClass(row.collection)"
+                        :disabled="writeActionsDisabled"
+                        @click.stop="openCollectionEdit(row.collection, $event)"
+                      >
+                        <span v-if="showCollectionRowActionLabels(row.collection)">Edit</span>
+                      </v-btn>
+                    </template>
+                  </v-tooltip>
+                  <v-tooltip text="Scan collection" location="top">
+                    <template #activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        prepend-icon="mdi-refresh"
+                        size="x-small"
+                        variant="text"
+                        color="primary"
+                        :class="collectionRowActionClass(row.collection)"
+                        :disabled="scanActionsDisabled"
+                        @click.stop="startScan(row.collection.id)"
+                      >
+                        <span v-if="showCollectionRowActionLabels(row.collection)">Scan</span>
+                      </v-btn>
+                    </template>
+                  </v-tooltip>
+                  <v-tooltip text="Delete collection" location="top">
+                    <template #activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        prepend-icon="mdi-trash-can-outline"
+                        size="x-small"
+                        variant="text"
+                        color="error"
+                        :class="collectionRowActionClass(row.collection)"
+                        :disabled="writeActionsDisabled"
+                        @click.stop="askDeleteCollection(row.collection)"
+                      >
+                        <span v-if="showCollectionRowActionLabels(row.collection)">Delete</span>
+                      </v-btn>
+                    </template>
+                  </v-tooltip>
+                </span>
               </span>
-              <span class="nav-row__actions">
-                <v-tooltip text="Edit collection" location="top">
-                  <template #activator="{ props }">
-                    <v-btn
-                      v-bind="props"
-                      prepend-icon="mdi-pencil"
-                      size="x-small"
-                      variant="text"
-                      color="primary"
-                      :class="collectionRowActionClass(collection)"
-                      :disabled="writeActionsDisabled"
-                      @click.stop="openCollectionEdit(collection, $event)"
-                    >
-                      <span v-if="showCollectionRowActionLabels(collection)">Edit</span>
-                    </v-btn>
-                  </template>
-                </v-tooltip>
-                <v-tooltip text="Scan collection" location="top">
-                  <template #activator="{ props }">
-                    <v-btn
-                      v-bind="props"
-                      prepend-icon="mdi-refresh"
-                      size="x-small"
-                      variant="text"
-                      color="primary"
-                      :class="collectionRowActionClass(collection)"
-                      :disabled="scanActionsDisabled"
-                      @click.stop="startScan(collection.id)"
-                    >
-                      <span v-if="showCollectionRowActionLabels(collection)">Scan</span>
-                    </v-btn>
-                  </template>
-                </v-tooltip>
-                <v-tooltip text="Delete collection" location="top">
-                  <template #activator="{ props }">
-                    <v-btn
-                      v-bind="props"
-                      prepend-icon="mdi-trash-can-outline"
-                      size="x-small"
-                      variant="text"
-                      color="error"
-                      :class="collectionRowActionClass(collection)"
-                      :disabled="writeActionsDisabled"
-                      @click.stop="askDeleteCollection(collection)"
-                    >
-                      <span v-if="showCollectionRowActionLabels(collection)">Delete</span>
-                    </v-btn>
-                  </template>
-                </v-tooltip>
-              </span>
-            </span>
-          </div>
+            </div>
+          </template>
         </div>
       </v-sheet>
 
@@ -3001,7 +2810,7 @@ watch(sortedCollectionTitleItems, (items) => {
                 density="compact"
                 color="primary"
                 class="app-toolbar-toggle collection-type-toggle"
-                :disabled="writeActionsDisabled"
+                :disabled="writeActionsDisabled || !collectionTypeEditable"
               >
                 <v-btn value="ARTIST" size="small">
                   <v-icon
@@ -3047,24 +2856,6 @@ watch(sortedCollectionTitleItems, (items) => {
             <div class="pane-header__primary">
               <span class="pane-header__title">Titles</span>
             </div>
-            <div class="pane-header__actions">
-              <v-tooltip text="Add title" location="top">
-                <template #activator="{ props }">
-                  <v-btn
-                    v-bind="props"
-                    prepend-icon="mdi-plus"
-                    size="small"
-                    variant="text"
-                    color="primary"
-                    :class="[actionLabelClass('titles'), 'app-toolbar-button']"
-                    :disabled="writeActionsDisabled || !selectedCollectionId"
-                    @click="openTitleItemDialog()"
-                  >
-                    <span v-if="showActionLabels('titles')">Add</span>
-                  </v-btn>
-                </template>
-              </v-tooltip>
-            </div>
           </div>
           <div class="pane-filter-bar">
             <span class="pane-filter-bar__label">Filter</span>
@@ -3088,7 +2879,7 @@ watch(sortedCollectionTitleItems, (items) => {
 
           <div v-if="!selectedCollection" class="pane-empty">Select a collection.</div>
           <div v-else-if="selectedCollectionTitlesLoading" class="pane-loading">
-            <v-progress-circular indeterminate size="60" width="5"></v-progress-circular>
+            <AppSpinner variant="pane" />
           </div>
           <div
             v-else
@@ -3149,22 +2940,23 @@ watch(sortedCollectionTitleItems, (items) => {
               </div>
               <div
                 class="workspace-grid__cell workspace-grid__header-cell sortable-header"
-                data-column="title.releaseDate"
-                @click="handleTitleHeaderClick('releaseDate', $event)"
+                data-column="title.releaseYear"
+                @click="handleTitleHeaderClick('releaseYear', $event)"
               >
-                <span class="sortable-header__label">Release date</span>
+                <span class="sortable-header__label">Year</span>
                 <v-icon
-                  v-if="titleSort.key === 'releaseDate'"
+                  v-if="titleSort.key === 'releaseYear'"
                   :icon="sortIcon(titleSort.direction)"
                   size="14"
                   class="sort-direction-icon"
                 ></v-icon>
-                  <span
-                    class="column-resize-handle"
-                    @pointerdown="startColumnResize('title', 'releaseDate', $event)"
-                    @click="suppressHeaderSortClick($event)"
-                  ></span>
+                <span
+                  class="column-resize-handle"
+                  @pointerdown="startColumnResize('title', 'releaseYear', $event)"
+                  @click="suppressHeaderSortClick($event)"
+                ></span>
               </div>
+              <div class="workspace-grid__cell workspace-grid__header-cell" data-column="title.spacer"></div>
             </div>
             <div
               v-if="titleVirtualTopSpacerHeight > 0"
@@ -3185,55 +2977,12 @@ watch(sortedCollectionTitleItems, (items) => {
                 <div data-column="title.artist" class="workspace-grid__cell truncate-cell">
                   <span>{{ item.artistName ?? '' }}</span>
                 </div>
-                <div data-column="title.releaseDate" class="workspace-grid__cell release-date-cell">
-                  <v-tooltip v-if="releaseDateTooltip(item.releaseDate)" :text="releaseDateTooltip(item.releaseDate)" location="top">
-                    <template #activator="{ props }">
-                      <v-chip v-bind="props" class="release-date-chip" :class="albumReleaseDateChipClasses(item)" variant="tonal">
-                        {{ releaseDateYearLabel(item.releaseDate) }}
-                      </v-chip>
-                    </template>
-                  </v-tooltip>
-                  <v-chip v-else-if="releaseDateYearLabel(item.releaseDate)" class="release-date-chip" :class="albumReleaseDateChipClasses(item)" variant="tonal">
-                    {{ releaseDateYearLabel(item.releaseDate) }}
+                <div data-column="title.releaseYear" class="workspace-grid__cell release-year-cell">
+                  <v-chip v-if="item.releaseYear" class="album-metadata-chip" :class="albumReleaseYearChipClasses(item)" variant="tonal">
+                    {{ item.releaseYear }}
                   </v-chip>
                 </div>
-                <div class="workspace-grid__cell row-action-cell">
-                  <div class="row-actions">
-                    <v-tooltip text="Edit title metadata" location="top">
-                      <template #activator="{ props }">
-                      <v-btn
-                        v-bind="props"
-                          prepend-icon="mdi-pencil"
-                          size="x-small"
-                          variant="text"
-                          color="primary"
-                          :class="gridRowActionClass('title')"
-                          :disabled="writeActionsDisabled"
-                          @click.stop="openTitleItemDialog(item)"
-                        >
-                          <span v-if="showGridActionLabels('title')">Edit</span>
-                        </v-btn>
-                      </template>
-                    </v-tooltip>
-                    <v-tooltip :text="titleRemoveTooltip(item)" location="top">
-                      <template #activator="{ props }">
-                        <span v-bind="props" class="row-action-tooltip-anchor">
-                          <v-btn
-                            prepend-icon="mdi-link-variant-off"
-                            size="x-small"
-                            variant="text"
-                            color="error"
-                            :class="gridRowActionClass('title')"
-                            :disabled="titleRemoveDisabled(item)"
-                            @click.stop="removeTitleFromCollection(item)"
-                          >
-                            <span v-if="showGridActionLabels('title')">Remove</span>
-                          </v-btn>
-                        </span>
-                      </template>
-                    </v-tooltip>
-                  </div>
-                </div>
+                <div data-column="title.spacer" class="workspace-grid__cell"></div>
             </div>
             <div
               v-if="titleVirtualBottomSpacerHeight > 0"
@@ -3321,7 +3070,7 @@ watch(sortedCollectionTitleItems, (items) => {
 
         <div v-if="!selectedCollection" class="pane-empty">Select a collection.</div>
         <div v-else-if="selectedCollectionArtistsLoading" class="pane-loading">
-          <v-progress-circular indeterminate size="60" width="5"></v-progress-circular>
+          <AppSpinner variant="pane" />
         </div>
         <div
           v-else
@@ -3350,13 +3099,10 @@ watch(sortedCollectionTitleItems, (items) => {
           >
             <div data-column="artist.name" class="workspace-grid__cell">
               <div class="artist-cell">
-                <v-progress-circular
+                <AppSpinner
                   v-if="artistScanIsRunning(artist)"
-                  indeterminate
-                  size="14"
-                  width="2"
                   class="artist-cell__spinner"
-                ></v-progress-circular>
+                />
                 <v-tooltip v-if="artistFailureTooltip(artist)" :text="artistFailureTooltip(artist)" location="top">
                   <template #activator="{ props }">
                     <v-icon
@@ -3424,27 +3170,6 @@ watch(sortedCollectionTitleItems, (items) => {
                         </v-btn>
                       </template>
                     </v-tooltip>
-                    <v-tooltip
-                      v-if="artistRemoveVisible(artist)"
-                      :text="artistRemoveTooltip(artist)"
-                      location="top"
-                    >
-                      <template #activator="{ props }">
-                        <span v-bind="props" class="row-action-tooltip-anchor">
-                          <v-btn
-                            prepend-icon="mdi-account-remove-outline"
-                            size="x-small"
-                            variant="text"
-                            color="error"
-                            :class="artistRowActionClass(artist)"
-                            :disabled="artistRemoveDisabled(artist)"
-                            @click.stop="removeArtistFromCollection(artist)"
-                          >
-                            <span v-if="showArtistRowActionLabels(artist)">Remove</span>
-                          </v-btn>
-                        </span>
-                      </template>
-                    </v-tooltip>
                   </div>
                 </div>
               </div>
@@ -3467,24 +3192,6 @@ watch(sortedCollectionTitleItems, (items) => {
             <span class="pane-header__title">Albums</span>
             <span v-if="selectedArtist" class="pane-header__meta">{{ selectedArtist.name }}</span>
           </div>
-          <div class="pane-header__actions">
-            <v-tooltip v-if="selectedArtist && albumShowAllEnabled && noCollectionAlbums.length > 0" :text="addNoCollectionAlbumsTooltip()" location="top">
-              <template #activator="{ props }">
-                <v-btn
-                  v-bind="props"
-                  prepend-icon="mdi-plus"
-                  size="small"
-                  variant="tonal"
-                  color="warning"
-                  class="app-toolbar-button"
-                  :disabled="writeActionsDisabled"
-                  @click="addNoCollectionAlbumsToSelectedCollection"
-                >
-                  Add orphans
-                </v-btn>
-              </template>
-            </v-tooltip>
-          </div>
         </div>
         <div class="pane-filter-bar">
           <span class="pane-filter-bar__label">Filter</span>
@@ -3504,7 +3211,7 @@ watch(sortedCollectionTitleItems, (items) => {
 
         <div v-if="!selectedArtist" class="pane-empty">Select an artist.</div>
         <div v-else-if="selectedArtistAlbumsLoading" class="pane-loading">
-          <v-progress-circular indeterminate size="60" width="5"></v-progress-circular>
+          <AppSpinner variant="pane" />
         </div>
         <div v-else-if="sortedCollectionAlbums.length === 0" class="pane-empty pane-empty--action">
           <span>{{ albumPaneEmptyMessage() }}</span>
@@ -3570,19 +3277,19 @@ watch(sortedCollectionTitleItems, (items) => {
             </div>
             <div
               class="workspace-grid__cell workspace-grid__header-cell sortable-header"
-              data-column="album.releaseDate"
-              @click="handleAlbumHeaderClick('releaseDate', $event)"
+              data-column="album.releaseYear"
+              @click="handleAlbumHeaderClick('releaseYear', $event)"
             >
-              <span class="sortable-header__label">Release date</span>
+              <span class="sortable-header__label">Year</span>
               <v-icon
-                v-if="albumSort.key === 'releaseDate'"
+                v-if="albumSort.key === 'releaseYear'"
                 :icon="sortIcon(albumSort.direction)"
                 size="14"
                 class="sort-direction-icon"
               ></v-icon>
                 <span
                   class="column-resize-handle"
-                  @pointerdown="startColumnResize('album', 'releaseDate', $event)"
+                  @pointerdown="startColumnResize('album', 'releaseYear', $event)"
                   @click="suppressHeaderSortClick($event)"
                 ></span>
             </div>
@@ -3597,12 +3304,12 @@ watch(sortedCollectionTitleItems, (items) => {
             <div
               v-if="showAlbumCollectionsColumn"
               class="workspace-grid__cell workspace-grid__header-cell"
-              data-column="album.collections"
+              data-column="album.home"
             >
               <span class="sortable-header__label">{{ albumCollectionsColumnLabel() }}</span>
                 <span
                   class="column-resize-handle"
-                  @pointerdown="startColumnResize('album', 'collections', $event)"
+                  @pointerdown="startColumnResize('album', 'home', $event)"
                   @click="suppressHeaderSortClick($event)"
                 ></span>
             </div>
@@ -3625,16 +3332,9 @@ watch(sortedCollectionTitleItems, (items) => {
                   <span :class="albumTitleClasses(album)">{{ album.title }}</span>
                 </div>
               </div>
-              <div data-column="album.releaseDate" class="workspace-grid__cell release-date-cell">
-                <v-tooltip v-if="releaseDateTooltip(album.releaseDate)" :text="releaseDateTooltip(album.releaseDate)" location="top">
-                  <template #activator="{ props }">
-                    <v-chip v-bind="props" class="release-date-chip" :class="albumReleaseDateChipClasses(album)" variant="tonal">
-                      {{ releaseDateYearLabel(album.releaseDate) }}
-                    </v-chip>
-                  </template>
-                </v-tooltip>
-                <v-chip v-else-if="releaseDateYearLabel(album.releaseDate)" class="release-date-chip" :class="albumReleaseDateChipClasses(album)" variant="tonal">
-                  {{ releaseDateYearLabel(album.releaseDate) }}
+              <div data-column="album.releaseYear" class="workspace-grid__cell release-year-cell">
+                <v-chip v-if="album.releaseYear" class="album-metadata-chip" :class="albumReleaseYearChipClasses(album)" variant="tonal">
+                  {{ album.releaseYear }}
                 </v-chip>
               </div>
               <div data-column="album.checked" class="workspace-grid__cell checkbox-cell">
@@ -3668,29 +3368,74 @@ watch(sortedCollectionTitleItems, (items) => {
               </div>
               <div
                 v-if="showAlbumCollectionsColumn"
-                data-column="album.collections"
+                data-column="album.home"
                 class="workspace-grid__cell album-collections-cell"
               >
-                <div v-if="albumDisplayedCollections(album).length" class="album-collection-chips">
+                <div class="album-collection-chips">
                   <v-chip
-                    v-for="collection in albumDisplayedCollections(album)"
-                    :key="collection.id"
+                    v-if="album.collection.id !== selectedCollectionId"
                     size="x-small"
                     variant="tonal"
                     color="primary"
+                    class="album-home-chip album-home-chip--navigation"
+                    @click.stop="navigateToAlbumHome(album)"
                   >
-                    {{ collection.name }}
+                    {{ album.collection.name }}
                   </v-chip>
-                </div>
-                <div v-else-if="albumShowsNoCollectionChip(album)" class="album-collection-chips">
-                  <v-chip size="x-small" variant="tonal" color="warning" class="album-no-collection-chip">
-                    No collection
+                  <v-chip
+                    v-else
+                    size="x-small"
+                    variant="tonal"
+                    class="album-home-chip album-home-chip--current"
+                  >
+                    {{ album.collection.name }}
                   </v-chip>
                 </div>
               </div>
               <div class="workspace-grid__cell row-action-cell">
                 <div class="row-actions">
-                  <v-tooltip v-if="album.localPaths.length" :text="albumDiskTitle(album)" location="top">
+                  <v-menu
+                    :model-value="albumMoveMenuOpenId === album.id"
+                    location="bottom end"
+                    :offset="4"
+                    @update:model-value="(open) => albumMoveMenuOpenId = open ? album.id : null"
+                  >
+                    <template #activator="{ props: menuProps }">
+                      <v-tooltip :text="albumMoveTooltip(album)" location="top">
+                        <template #activator="{ props: tooltipProps }">
+                          <span v-bind="tooltipProps" class="row-action-tooltip-anchor">
+                            <v-btn
+                              v-bind="menuProps"
+                              prepend-icon="mdi-folder-move-outline"
+                              size="x-small"
+                              variant="text"
+                              color="primary"
+                              :class="gridRowActionClass('album')"
+                              :disabled="albumMoveDisabled(album)"
+                              @click.stop
+                            >
+                              <span v-if="showGridActionLabels('album')">Move to</span>
+                            </v-btn>
+                          </span>
+                        </template>
+                      </v-tooltip>
+                    </template>
+                    <v-card class="album-move-menu" @click.stop>
+                      <div class="album-move-menu__chips">
+                        <v-chip
+                          v-for="collection in albumMoveDestinations(album)"
+                          :key="collection.id"
+                          size="small"
+                          variant="tonal"
+                          color="primary"
+                          @click.stop="moveAlbumTo(album, collection.id)"
+                        >
+                          {{ collection.name }}
+                        </v-chip>
+                      </div>
+                    </v-card>
+                  </v-menu>
+                  <v-tooltip v-if="album.localRelativePath" :text="albumDiskTitle(album)" location="top">
                     <template #activator="{ props }">
                       <v-btn
                         v-bind="props"
@@ -3700,39 +3445,6 @@ watch(sortedCollectionTitleItems, (items) => {
                         class="album-info-button"
                         @click.stop="selectAlbumRow(album)"
                       ></v-btn>
-                    </template>
-                  </v-tooltip>
-                  <v-tooltip text="Edit album title" location="top">
-                    <template #activator="{ props }">
-                      <v-btn
-                        v-bind="props"
-                        prepend-icon="mdi-pencil-outline"
-                        size="x-small"
-                        variant="text"
-                        color="primary"
-                        :class="gridRowActionClass('album')"
-                        :disabled="writeActionsDisabled"
-                        @click.stop="openAlbumEditDialog(album)"
-                      >
-                        <span v-if="showGridActionLabels('album')">Edit</span>
-                      </v-btn>
-                    </template>
-                  </v-tooltip>
-                  <v-tooltip :text="albumRemoveTooltip(album)" location="top">
-                    <template #activator="{ props }">
-                      <span v-bind="props" class="row-action-tooltip-anchor">
-                        <v-btn
-                          prepend-icon="mdi-link-variant-off"
-                          size="x-small"
-                          variant="text"
-                          color="error"
-                          :class="gridRowActionClass('album')"
-                          :disabled="albumRemoveDisabled(album)"
-                          @click.stop="askRemoveAlbumFromCollection(album)"
-                        >
-                          <span v-if="showGridActionLabels('album')">Remove</span>
-                        </v-btn>
-                      </span>
                     </template>
                   </v-tooltip>
                 </div>
@@ -3767,86 +3479,22 @@ watch(sortedCollectionTitleItems, (items) => {
       @close="closeProviderSetup"
     />
 
-    <v-dialog v-model="titleItemDialog" max-width="640">
-      <v-card class="dialog-card">
-        <v-card-title>{{ titleItemToEdit ? 'Title Metadata' : 'Add Title' }}</v-card-title>
-        <v-card-text class="edit-form">
-          <div v-if="titleItemToEdit?.localPaths.length" class="cell-muted edit-form__meta">
-            {{ titleItemToEdit.localPaths[0]?.relativePath }}
-          </div>
-          <v-row dense class="edit-form__grid">
-            <v-col cols="12">
-              <v-text-field v-model="titleItemForm.title" label="Title" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
-            </v-col>
-            <v-col cols="12" md="8">
-              <v-text-field v-model="titleItemForm.artistName" label="Artist" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
-            </v-col>
-            <v-col cols="12" md="4">
-              <v-text-field v-model="titleItemForm.releaseDate" label="Release date" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
-            </v-col>
-            <v-col cols="12">
-              <v-text-field v-model="titleItemForm.sortName" label="Sort as" :disabled="writeActionsDisabled" hide-details="auto"></v-text-field>
-            </v-col>
-          </v-row>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer></v-spacer>
-          <v-btn variant="text" @click="titleItemDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="titleItemSaving" :disabled="writeActionsDisabled" @click="saveTitleItem">Save</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
     <v-dialog v-model="deleteCollectionDialog" max-width="460">
       <v-card class="dialog-card">
         <v-card-title>Delete Collection</v-card-title>
-        <v-card-text>
-          Delete {{ collectionToDelete?.name }}?
+        <v-card-text class="edit-form">
+          <div>Delete {{ collectionToDelete?.name }}?</div>
+          <div v-if="collectionDeletePreviewLoading" class="pane-loading pane-loading--compact">
+            <AppSpinner variant="control" />
+          </div>
+          <div v-else-if="collectionDeletePreview" class="cell-muted">
+            This deletes {{ collectionDeletePreview.albumCount }} album{{ collectionDeletePreview.albumCount === 1 ? '' : 's' }} and {{ collectionDeletePreview.artistCount }} artist{{ collectionDeletePreview.artistCount === 1 ? '' : 's' }} that would otherwise have no albums.
+          </div>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="deleteCollectionDialog = false">Cancel</v-btn>
-          <v-btn color="error" :disabled="writeActionsDisabled" @click="deleteCollection">Delete</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <v-dialog v-model="albumEditDialog" max-width="460">
-      <v-card class="dialog-card album-edit-dialog">
-        <v-card-title>Edit Album</v-card-title>
-        <v-card-text class="edit-form">
-          <div v-if="albumToEdit?.localPaths.length" class="cell-muted edit-form__meta">
-            {{ albumToEdit.localPaths[0]?.relativePath }}
-          </div>
-          <v-text-field
-            v-model="albumEditForm.title"
-            label="Title"
-            variant="outlined"
-            density="compact"
-            autofocus
-            :disabled="writeActionsDisabled"
-          ></v-text-field>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer></v-spacer>
-          <v-btn variant="text" @click="albumEditDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="albumEditSaving" :disabled="writeActionsDisabled || !albumEditForm.title.trim()" @click="saveAlbumTitle">
-            Save
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <v-dialog v-model="removeAlbumDialog" max-width="420">
-      <v-card class="dialog-card">
-        <v-card-title>Remove From Collection</v-card-title>
-        <v-card-text>
-          Remove {{ albumToRemove?.title }} from {{ selectedCollection?.name ?? 'this collection' }}?
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer></v-spacer>
-          <v-btn variant="text" @click="removeAlbumDialog = false">Cancel</v-btn>
-          <v-btn color="error" :disabled="writeActionsDisabled" @click="removeAlbumFromCollection">Remove</v-btn>
+          <v-btn color="error" :disabled="writeActionsDisabled || collectionDeletePreviewLoading || !collectionDeletePreview" @click="deleteCollection">Delete</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

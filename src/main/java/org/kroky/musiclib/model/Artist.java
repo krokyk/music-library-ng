@@ -14,6 +14,5 @@ public record Artist(
         int localAlbumCount,
         String providerCountry,
         Boolean providerActive,
-        List<ArtistProviderLink> providerLinks,
-        String localScanErrorMessage) {
+        List<ArtistProviderLink> providerLinks) {
 }

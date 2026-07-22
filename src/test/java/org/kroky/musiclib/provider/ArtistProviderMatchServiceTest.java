@@ -2,12 +2,14 @@ package org.kroky.musiclib.provider;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.kroky.musiclib.model.Album;
+import org.kroky.musiclib.model.AlbumCollection;
 import org.kroky.musiclib.model.AlbumProviderLink;
 import org.kroky.musiclib.model.ArtistProviderCandidateAlbum;
 import org.kroky.musiclib.model.MetadataSource;
@@ -171,6 +173,24 @@ class ArtistProviderMatchServiceTest {
     }
 
     @Test
+    void albumEvidenceKeepsDifferentNumberedVolumesSeparate() {
+        List<Album> localAlbums = List.of(
+                album(1, "Hymn of the High Seas, Vol. 1", "2020", true, true));
+
+        ArtistProviderCandidateAlbum sameVolume = ProviderCandidateEvidenceEvaluator.albumEvidence(
+                localAlbums,
+                releaseGroup("Hymn of the High Seas (Volume 1)", "2020"));
+        ArtistProviderCandidateAlbum differentVolume = ProviderCandidateEvidenceEvaluator.albumEvidence(
+                localAlbums,
+                releaseGroup("Hymn of the High Seas (Volume 2)", "2020"));
+
+        assertEquals(1L, sameVolume.localAlbumId());
+        assertTrue(ProviderCandidateEvidenceEvaluator.canAutoLinkAlbum(sameVolume));
+        assertNull(differentVolume.localAlbumId());
+        assertFalse(ProviderCandidateEvidenceEvaluator.canAutoLinkAlbum(differentVolume));
+    }
+
+    @Test
     void providerTitleCleanupOnlySuppressesParserSpacingArtifacts() {
         assertEquals("A New Religion?", ProviderTitles.clean("A New Religion ?"));
         assertFalse(ProviderTitles.titleConflict("A New Religion?", "A New Religion ?"));
@@ -226,20 +246,20 @@ class ArtistProviderMatchServiceTest {
 
     @Test
     void releaseYearsAreScoreCompatibleWithinOneYear() {
-        assertTrue(ArtistProviderMatchService.releaseYearsScoreCompatible("2000", "1999"));
-        assertTrue(ArtistProviderMatchService.releaseYearsScoreCompatible("2000", "2000"));
-        assertTrue(ArtistProviderMatchService.releaseYearsScoreCompatible("2000", "2001"));
+        assertTrue(ArtistProviderMatchService.releaseYearsScoreCompatible(2000, 1999));
+        assertTrue(ArtistProviderMatchService.releaseYearsScoreCompatible(2000, 2000));
+        assertTrue(ArtistProviderMatchService.releaseYearsScoreCompatible(2000, 2001));
     }
 
     @Test
     void releaseYearsAreNotScoreCompatibleOutsideOneYear() {
-        assertFalse(ArtistProviderMatchService.releaseYearsScoreCompatible("2000", "2002"));
+        assertFalse(ArtistProviderMatchService.releaseYearsScoreCompatible(2000, 2002));
     }
 
     @Test
     void releaseYearsAreScoreCompatibleWhenEitherYearIsMissing() {
-        assertTrue(ArtistProviderMatchService.releaseYearsScoreCompatible(null, "2002"));
-        assertTrue(ArtistProviderMatchService.releaseYearsScoreCompatible("2000", null));
+        assertTrue(ArtistProviderMatchService.releaseYearsScoreCompatible(null, 2002));
+        assertTrue(ArtistProviderMatchService.releaseYearsScoreCompatible(2000, null));
     }
 
     private static void assertEvidence(ArtistProviderCandidateAlbum evidence, String matchType, int titleScore,
@@ -250,47 +270,47 @@ class ArtistProviderMatchServiceTest {
         assertEquals(localEvidenceKind, evidence.localEvidenceKind());
     }
 
-    static Album album(long id, String title, String releaseDate, boolean checked, boolean onDisk) {
+    static Album album(long id, String title, String yearText, boolean checked, boolean onDisk) {
         return new Album(
                 id,
                 List.of(1L),
-                List.of(),
+                new AlbumCollection("artist", "Artist"),
                 "Ancient Bards",
                 title,
-                releaseDate,
+                org.kroky.musiclib.model.ReleaseYears.fromDate(yearText),
                 null,
                 MetadataSource.AUTO,
                 checked,
+                onDisk ? "album" : null,
+                onDisk ? "/music/album" : null,
                 onDisk,
-                onDisk,
-                List.of(),
                 List.of(),
                 null,
                 "2026-01-01T00:00:00",
                 "2026-01-01T00:00:00");
     }
 
-    static Album providerAlbum(long id, String title, String releaseDate) {
+    static Album providerAlbum(long id, String title, String yearText) {
         return new Album(
                 id,
                 List.of(1L),
-                List.of(),
+                new AlbumCollection("artist", "Artist"),
                 "Ancient Bards",
                 title,
-                releaseDate,
+                org.kroky.musiclib.model.ReleaseYears.fromDate(yearText),
                 null,
                 MetadataSource.AUTO,
                 false,
+                null,
+                null,
                 false,
-                false,
-                List.of(),
                 List.of(new AlbumProviderLink(
                         id,
                         id,
                         "musicbrainz",
                         "mb-" + id,
                         title,
-                        releaseDate,
+                        org.kroky.musiclib.model.ReleaseYears.fromDate(yearText),
                         "https://musicbrainz.org/release-group/mb-" + id,
                         null,
                         null,
@@ -303,12 +323,12 @@ class ArtistProviderMatchServiceTest {
                 "2026-01-01T00:00:00");
     }
 
-    static RemoteReleaseGroup releaseGroup(String title, String releaseDate) {
+    static RemoteReleaseGroup releaseGroup(String title, String yearText) {
         return new RemoteReleaseGroup(
                 "musicbrainz",
                 title,
                 title,
-                releaseDate,
+                org.kroky.musiclib.model.ReleaseYears.fromDate(yearText),
                 "Album",
                 List.of(),
                 "https://musicbrainz.org/release-group/" + title);
