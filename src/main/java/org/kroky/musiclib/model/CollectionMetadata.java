@@ -1,7 +1,7 @@
 package org.kroky.musiclib.model;
 
 public record CollectionMetadata(
-        String collectionId,
+        long collectionId,
         int artistCount,
         int contributorArtistCount,
         int localAlbumCount,

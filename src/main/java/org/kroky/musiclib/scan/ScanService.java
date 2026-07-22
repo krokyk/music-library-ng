@@ -61,7 +61,7 @@ public class ScanService {
         return summaries;
     }
 
-    public ScanSummary scan(String collectionId, ProgressListener progress) {
+    public ScanSummary scan(long collectionId, ProgressListener progress) {
         MusicCollection collection = collectionRepository.find(collectionId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown collection: " + collectionId));
         return scan(collection, progress);
@@ -113,7 +113,7 @@ public class ScanService {
                                 missing, skipped, messages);
                     }
 
-                    var parsedTitle = parser.parseTitleAlbum(folder, collection.id());
+                    var parsedTitle = parser.parseTitleAlbum(folder);
                     parsed++;
                     List<Long> artistIds = upsertContributorArtists(parsedTitle.artistName());
                     seenArtistIds.addAll(artistIds);
@@ -156,7 +156,7 @@ public class ScanService {
                         existing, missing, skipped, messages, report);
             }
 
-            ArtistDeltaScanPlan plan = artistDeltaScanPlan(folders, knownPaths, collection.id());
+            ArtistDeltaScanPlan plan = artistDeltaScanPlan(folders, knownPaths);
             seenArtistIds.addAll(plan.unchangedArtistIds());
             report.totalDirs(plan.itemTotal());
             report.note(snapshotNote(knownPaths.size(), plan.diskPaths().size(), plan.itemTotal(),
@@ -172,7 +172,7 @@ public class ScanService {
                     return cancelledScanSummary(collection, report, seenArtistIds, parsed, created, existing,
                             missing, skipped, messages);
                 }
-                Optional<ParsedAlbum> parsedAlbum = parser.parseFlatArtistAlbum(folder.folder(), collection.id());
+                Optional<ParsedAlbum> parsedAlbum = parser.parseFlatArtistAlbum(folder.folder());
                 if (parsedAlbum.isEmpty()) {
                     skipped++;
                     processedFolders++;
@@ -231,7 +231,7 @@ public class ScanService {
                             missing, skipped, messages);
                 }
                 Optional<ParsedAlbum> parsedAlbum = parser.parseNestedArtistAlbum(
-                        folder.artistFolder(), folder.albumFolder(), collection.id());
+                        folder.artistFolder(), folder.albumFolder());
                 if (parsedAlbum.isEmpty()) {
                     skipped++;
                     processedFolders++;
@@ -320,14 +320,14 @@ public class ScanService {
     }
 
     private ArtistDeltaScanPlan artistDeltaScanPlan(List<Path> folders,
-            Map<String, LocalPathSnapshot> knownPaths, String collectionId) throws Exception {
+            Map<String, LocalPathSnapshot> knownPaths) throws Exception {
         Set<String> diskPaths = new HashSet<>();
         List<FlatArtistFolder> flatFolders = new ArrayList<>();
         List<NestedArtistDiskFolder> nestedFolders = new ArrayList<>();
         List<NestedAlbumFolder> albumsToProcess = new ArrayList<>();
         for (Path folder : folders) {
             String directPath = folder.getFileName().toString();
-            if (parser.parseFlatArtistAlbum(folder, collectionId).isPresent()) {
+            if (parser.parseFlatArtistAlbum(folder).isPresent()) {
                 diskPaths.add(directPath);
                 if (!knownPaths.containsKey(directPath)) flatFolders.add(new FlatArtistFolder(folder, directPath));
                 continue;
@@ -335,7 +335,7 @@ public class ScanService {
 
             List<Path> albumFolders = directChildDirectories(folder);
             boolean nested = albumFolders.stream()
-                    .anyMatch(album -> parser.parseNestedArtistAlbum(folder, album, collectionId).isPresent());
+                    .anyMatch(album -> parser.parseNestedArtistAlbum(folder, album).isPresent());
             boolean emptyArtistFolder = albumFolders.isEmpty() && !hasDirectRegularFile(folder);
             if (!nested && !emptyArtistFolder) {
                 diskPaths.add(directPath);
@@ -430,7 +430,7 @@ public class ScanService {
         return folder.getFileName().toString().trim().replaceAll("\\s+", " ");
     }
 
-    private ScanSummary scanSummary(String collectionId, String status, int artistCount, int parsed, int created,
+    private ScanSummary scanSummary(long collectionId, String status, int artistCount, int parsed, int created,
             int updated, int missing, int skipped, List<String> messages, ScanReport report) {
         ReportArtifact artifact = writeReport(report);
         List<ReportArtifact> reports = artifact == null ? List.of() : List.of(artifact);
@@ -521,16 +521,16 @@ public class ScanService {
         ProgressListener NONE = new ProgressListener() {
         };
 
-        default void collectionStarted(String collectionId, int itemTotal) {
+        default void collectionStarted(long collectionId, int itemTotal) {
         }
 
-        default void phaseStarted(String collectionId, String message) {
+        default void phaseStarted(long collectionId, String message) {
         }
 
-        default void artistStarted(String collectionId, Long artistId, String artistName) {
+        default void artistStarted(long collectionId, Long artistId, String artistName) {
         }
 
-        default void itemProcessed(String collectionId, int processedItems) {
+        default void itemProcessed(long collectionId, int processedItems) {
         }
 
         default boolean isCancelled() {

@@ -47,7 +47,7 @@ public class AlbumRepository {
         return list(artistId, null, checked, hasLocalPath, search);
     }
 
-    public List<Album> list(Long artistId, String collectionId, Boolean checked, Boolean hasLocalPath, String search) {
+    public List<Album> list(Long artistId, Long collectionId, Boolean checked, Boolean hasLocalPath, String search) {
         StringBuilder sql = new StringBuilder("""
                 SELECT DISTINCT a.id
                 FROM albums a
@@ -58,9 +58,9 @@ public class AlbumRepository {
             sql.append(" AND EXISTS (SELECT 1 FROM album_artists aa_filter WHERE aa_filter.album_id=a.id AND aa_filter.artist_id=?)");
             parameters.add(artistId);
         }
-        if (collectionId != null && !collectionId.isBlank()) {
+        if (collectionId != null) {
             sql.append(" AND a.collection_id = ?");
-            parameters.add(collectionId.trim());
+            parameters.add(collectionId);
         }
         if (checked != null) {
             sql.append(" AND a.checked = ?");
@@ -100,13 +100,12 @@ public class AlbumRepository {
     }
 
     public Album create(long artistId, String title, Integer releaseYear, boolean checked, String notes,
-            String collectionId) {
+            long collectionId) {
         return create(List.of(artistId), title, releaseYear, checked, notes, collectionId);
     }
 
     public Album create(List<Long> artistIds, String title, Integer releaseYear, boolean checked, String notes,
-            String collectionId) {
-        requireCollection(collectionId);
+            long collectionId) {
         ReleaseYears.normalize(releaseYear);
         try (Connection connection = dataSource.getConnection()) {
             boolean ownsTransaction = connection.getAutoCommit();
@@ -170,29 +169,28 @@ public class AlbumRepository {
     }
 
     public UpsertResult upsertScanned(long artistId, String title, Integer releaseYear, String relativePath,
-            String collectionId) {
+            long collectionId) {
         return upsertScanned(List.of(artistId), title, releaseYear, null, MetadataSource.AUTO, relativePath,
                 collectionId);
     }
 
     public UpsertResult upsertScanned(List<Long> artistIds, String title, Integer releaseYear, String relativePath,
-            String collectionId) {
+            long collectionId) {
         return upsertScanned(artistIds, title, releaseYear, null, MetadataSource.AUTO, relativePath, collectionId);
     }
 
     public UpsertResult upsertScanned(List<Long> artistIds, String title, Integer releaseYear, String sortName,
-            MetadataSource sortNameSource, String relativePath, String collectionId) {
+            MetadataSource sortNameSource, String relativePath, long collectionId) {
         return upsertPhysical(artistIds, title, releaseYear, sortName, sortNameSource, relativePath, collectionId);
     }
 
     public UpsertResult upsertTitleScanned(List<Long> artistIds, String title, Integer releaseYear, String sortName,
-            String relativePath, String collectionId) {
+            String relativePath, long collectionId) {
         return upsertPhysical(artistIds, title, releaseYear, sortName, MetadataSource.AUTO, relativePath, collectionId);
     }
 
     private UpsertResult upsertPhysical(List<Long> artistIds, String title, Integer releaseYear, String sortName,
-            MetadataSource sortNameSource, String relativePath, String collectionId) {
-        requireCollection(collectionId);
+            MetadataSource sortNameSource, String relativePath, long collectionId) {
         String path = requireText(relativePath, "Local relative path");
         try (Connection connection = dataSource.getConnection()) {
             boolean ownsTransaction = connection.getAutoCommit();
@@ -235,7 +233,7 @@ public class AlbumRepository {
         }
     }
 
-    public Map<String, LocalPathSnapshot> localPathSnapshot(String collectionId) {
+    public Map<String, LocalPathSnapshot> localPathSnapshot(long collectionId) {
         String sql = """
                 SELECT a.id, a.local_relative_path
                 FROM albums a
@@ -244,7 +242,7 @@ public class AlbumRepository {
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, collectionId);
+            statement.setLong(1, collectionId);
             Map<String, LocalPathSnapshot> result = new LinkedHashMap<>();
             try (ResultSet rs = statement.executeQuery()) {
                 while (rs.next()) {
@@ -259,11 +257,11 @@ public class AlbumRepository {
         }
     }
 
-    public int removeUnseenLocalPaths(String collectionId, Set<String> seenPaths) {
+    public int removeUnseenLocalPaths(long collectionId, Set<String> seenPaths) {
         Set<String> seen = seenPaths == null ? Set.of() : seenPaths;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement select = connection.prepareStatement("SELECT id, local_relative_path FROM albums WHERE collection_id = ? AND local_relative_path IS NOT NULL")) {
-            select.setString(1, collectionId);
+            select.setLong(1, collectionId);
             List<Long> stale = new ArrayList<>();
             try (ResultSet rs = select.executeQuery()) {
                 while (rs.next()) if (!seen.contains(rs.getString("local_relative_path"))) stale.add(rs.getLong("id"));
@@ -282,11 +280,11 @@ public class AlbumRepository {
         return clearStalePaths(artistId);
     }
 
-    public int countOnDiskLocalAlbumsForArtist(String collectionId, long artistId) {
+    public int countOnDiskLocalAlbumsForArtist(Long collectionId, long artistId) {
         return (int) list(artistId, collectionId, null, true, null).stream().filter(Album::onDisk).count();
     }
 
-    public String majorArtistCollection(long artistId) {
+    public Long majorArtistCollection(long artistId) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement("""
                         SELECT c.id
@@ -299,14 +297,13 @@ public class AlbumRepository {
                         LIMIT 1
                         """)) {
             statement.setLong(1, artistId);
-            try (ResultSet rs = statement.executeQuery()) { return rs.next() ? rs.getString(1) : null; }
+            try (ResultSet rs = statement.executeQuery()) { return rs.next() ? rs.getLong(1) : null; }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to choose provider album collection", e);
         }
     }
 
-    public Album reassignCollection(long albumId, String collectionId) {
-        requireCollection(collectionId);
+    public Album reassignCollection(long albumId, long collectionId) {
         try (Connection connection = dataSource.getConnection()) {
             AlbumHome current = home(connection, albumId);
             if (current.localRelativePath() != null) {
@@ -422,7 +419,7 @@ public class AlbumRepository {
                 return new Album(
                         albumId,
                         artistIds(connection, albumId),
-                        new AlbumCollection(rs.getString("collection_id"), rs.getString("collection_name")),
+                        new AlbumCollection(rs.getLong("collection_id"), rs.getString("collection_name")),
                         rs.getString("artist_name"),
                         title,
                         year,
@@ -469,7 +466,7 @@ public class AlbumRepository {
         }
     }
 
-    private long insertAlbum(Connection connection, String collectionId, String title, Integer releaseYear,
+    private long insertAlbum(Connection connection, long collectionId, String title, Integer releaseYear,
             boolean checked, String notes, String localPath, String requestedSortName, MetadataSource source) throws Exception {
         String normalizedTitle = Names.normalize(requireText(title, "Album title"));
         String sortName = source == MetadataSource.MANUAL && requestedSortName != null && !requestedSortName.isBlank()
@@ -479,7 +476,7 @@ public class AlbumRepository {
                                     sort_name, normalized_sort_name, sort_name_source, checked, notes)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, Statement.RETURN_GENERATED_KEYS)) {
-            statement.setString(1, collectionId);
+            statement.setLong(1, collectionId);
             statement.setString(2, title.trim());
             statement.setString(3, normalizedTitle);
             statement.setString(4, localPath);
@@ -586,14 +583,14 @@ public class AlbumRepository {
             statement.setLong(1, albumId);
             try (ResultSet rs = statement.executeQuery()) {
                 if (!rs.next()) throw new IllegalArgumentException("Unknown album: " + albumId);
-                return new AlbumHome(rs.getString(1), rs.getString(2), rs.getString(3), CollectionType.valueOf(rs.getString(4)));
+                return new AlbumHome(rs.getLong(1), rs.getString(2), rs.getString(3), CollectionType.valueOf(rs.getString(4)));
             }
         }
     }
 
-    private CollectionType collectionType(Connection connection, String collectionId) throws Exception {
+    private CollectionType collectionType(Connection connection, long collectionId) throws Exception {
         try (PreparedStatement statement = connection.prepareStatement("SELECT type FROM collections WHERE id=?")) {
-            statement.setString(1, collectionId);
+            statement.setLong(1, collectionId);
             try (ResultSet rs = statement.executeQuery()) {
                 if (!rs.next()) throw new IllegalArgumentException("Unknown collection: " + collectionId);
                 return CollectionType.valueOf(rs.getString(1));
@@ -601,16 +598,16 @@ public class AlbumRepository {
         }
     }
 
-    private void setHome(Connection connection, long albumId, String collectionId, String localPath) throws Exception {
+    private void setHome(Connection connection, long albumId, long collectionId, String localPath) throws Exception {
         try (PreparedStatement statement = connection.prepareStatement("UPDATE albums SET collection_id=?, local_relative_path=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")) {
-            statement.setString(1, collectionId); statement.setString(2, localPath); statement.setLong(3, albumId);
+            statement.setLong(1, collectionId); statement.setString(2, localPath); statement.setLong(3, albumId);
             if (statement.executeUpdate() == 0) throw new IllegalArgumentException("Unknown album: " + albumId);
         }
     }
 
-    private Long findByPath(Connection connection, String collectionId, String path) throws Exception {
+    private Long findByPath(Connection connection, long collectionId, String path) throws Exception {
         try (PreparedStatement statement = connection.prepareStatement("SELECT id FROM albums WHERE collection_id=? AND local_relative_path=?")) {
-            statement.setString(1, collectionId); statement.setString(2, path);
+            statement.setLong(1, collectionId); statement.setString(2, path);
             try (ResultSet rs = statement.executeQuery()) { return rs.next() ? rs.getLong(1) : null; }
         }
     }
@@ -636,10 +633,6 @@ public class AlbumRepository {
         }
     }
 
-    private void requireCollection(String collectionId) {
-        if (collectionId == null || collectionId.isBlank()) throw new IllegalArgumentException("Album collection is required.");
-    }
-
     private static String requireText(String value, String label) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(label + " is required.");
         return value.trim();
@@ -658,5 +651,5 @@ public class AlbumRepository {
     }
 
     public record LocalPathSnapshot(long albumId, String relativePath, List<Long> artistIds) { }
-    private record AlbumHome(String collectionId, String localRelativePath, String collectionRelativePath, CollectionType type) { }
+    private record AlbumHome(long collectionId, String localRelativePath, String collectionRelativePath, CollectionType type) { }
 }

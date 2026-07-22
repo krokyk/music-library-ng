@@ -1,7 +1,7 @@
 package org.kroky.musiclib.model;
 
 public record MusicCollection(
-        String id,
+        long id,
         String name,
         String relativePath,
         String resolvedPath,

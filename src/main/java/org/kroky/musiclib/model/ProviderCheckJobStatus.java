@@ -5,7 +5,7 @@ import java.util.List;
 public record ProviderCheckJobStatus(
         String status,
         String kind,
-        String requestedCollectionId,
+        Long requestedCollectionId,
         String requestedCollectionName,
         Long requestedArtistId,
         String requestedArtistName,

@@ -46,7 +46,7 @@ public class ScanReportWriter {
     }
 
     private static String baseFileName(ScanReport report) {
-        String collectionId = report.collection().id() == null ? "collection" : report.collection().id();
+        String collectionId = Long.toString(report.collection().id());
         String safeCollection = Names.normalize(collectionId).replace(' ', '-');
         String safeKind = Names.normalize(report.kind()).replace(' ', '-');
         return FILE_TIMESTAMP.format(report.startedAt()) + "_" + safeCollection + "_" + safeKind + ".txt";

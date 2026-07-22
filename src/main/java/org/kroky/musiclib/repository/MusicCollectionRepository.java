@@ -4,6 +4,7 @@ import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -56,7 +57,7 @@ public class MusicCollectionRepository {
         }
     }
 
-    public Optional<MusicCollection> find(String id) {
+    public Optional<MusicCollection> find(long id) {
         LOG.tracef("Finding music collection id=%s", id);
         String sql = """
                 SELECT id, name, relative_path, type, last_scan_at, last_scan_status, last_scan_message
@@ -65,7 +66,7 @@ public class MusicCollectionRepository {
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, id);
+            statement.setLong(1, id);
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() ? Optional.of(map(rs)) : Optional.empty();
             }
@@ -74,7 +75,7 @@ public class MusicCollectionRepository {
         }
     }
 
-    public void markScanned(String collectionId, String status, String message) {
+    public void markScanned(long collectionId, String status, String message) {
         LOG.infof("Marking collection %s scanned with status %s", collectionId, status);
         String sql = """
                 UPDATE collections
@@ -85,14 +86,14 @@ public class MusicCollectionRepository {
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, status);
             statement.setString(2, message);
-            statement.setString(3, collectionId);
+            statement.setLong(3, collectionId);
             statement.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to mark collection scanned " + collectionId, e);
         }
     }
 
-    public Optional<CollectionMetadata> metadata(String id) {
+    public Optional<CollectionMetadata> metadata(long id) {
         if (find(id).isEmpty()) {
             return Optional.empty();
         }
@@ -108,7 +109,7 @@ public class MusicCollectionRepository {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             for (int i = 1; i <= 6; i++) {
-                statement.setString(i, id);
+                statement.setLong(i, id);
             }
             try (ResultSet rs = statement.executeQuery()) {
                 if (!rs.next()) {
@@ -150,29 +151,29 @@ public class MusicCollectionRepository {
         if (!Files.isDirectory(musicRootService.resolveCollection(folder))) {
             throw new IllegalArgumentException("Collection folder does not exist: " + folder);
         }
-        String id = uniqueId(Names.slug(folder));
         String name = Names.chicagoStyle(folder);
         CollectionType effectiveType = inferType(musicRootService.resolveCollection(folder));
-        LOG.infof("Creating collection id=%s name='%s' relativePath='%s' type=%s",
-                id, name, folder, effectiveType);
+        LOG.infof("Creating collection name='%s' relativePath='%s' type=%s", name, folder, effectiveType);
         String sql = """
-                INSERT INTO collections (id, name, relative_path, type)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO collections (name, relative_path, type)
+                VALUES (?, ?, ?)
                 """;
         try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, id);
-            statement.setString(2, name);
-            statement.setString(3, folder);
-            statement.setString(4, effectiveType.name());
+                PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            statement.setString(1, name);
+            statement.setString(2, folder);
+            statement.setString(3, effectiveType.name());
             statement.executeUpdate();
-            return find(id).orElseThrow();
+            try (ResultSet keys = statement.getGeneratedKeys()) {
+                if (!keys.next()) throw new IllegalStateException("Collection insert returned no id");
+                return find(keys.getLong(1)).orElseThrow();
+            }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to create collection from folder " + folder, e);
         }
     }
 
-    public Optional<MusicCollection> update(String id, String name, CollectionType type) {
+    public Optional<MusicCollection> update(long id, String name, CollectionType type) {
         MusicCollection current = find(id).orElse(null);
         if (current == null) return Optional.empty();
         CollectionType effectiveType = type == null ? current.type() : type;
@@ -184,7 +185,7 @@ public class MusicCollectionRepository {
                 PreparedStatement statement = connection.prepareStatement("UPDATE collections SET name=?, type=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")) {
             statement.setString(1, blankToNull(name));
             statement.setString(2, effectiveType.name());
-            statement.setString(3, id);
+            statement.setLong(3, id);
             statement.executeUpdate();
             return find(id);
         } catch (Exception e) {
@@ -192,19 +193,19 @@ public class MusicCollectionRepository {
         }
     }
 
-    public DeletePreview deletePreview(String id) {
+    public DeletePreview deletePreview(long id) {
         if (find(id).isEmpty()) throw new IllegalArgumentException("Unknown collection: " + id);
         String sql = """
                 SELECT (SELECT count(*) FROM albums WHERE collection_id=?) album_count,
                        (SELECT count(*) FROM artists ar WHERE EXISTS (SELECT 1 FROM album_artists aa JOIN albums a ON a.id=aa.album_id WHERE aa.artist_id=ar.id AND a.collection_id=?) AND NOT EXISTS (SELECT 1 FROM album_artists aa JOIN albums a ON a.id=aa.album_id WHERE aa.artist_id=ar.id AND a.collection_id<>?)) artist_count
                 """;
         try (Connection connection=dataSource.getConnection();PreparedStatement statement=connection.prepareStatement(sql)) {
-            statement.setString(1,id);statement.setString(2,id);statement.setString(3,id);
+            statement.setLong(1,id);statement.setLong(2,id);statement.setLong(3,id);
             try(ResultSet rs=statement.executeQuery()){rs.next();return new DeletePreview(id,rs.getInt(1),rs.getInt(2));}
         } catch(Exception e){throw new IllegalStateException("Unable to preview collection delete " + id,e);}
     }
 
-    public DeleteResult delete(String id) {
+    public DeleteResult delete(long id) {
         LOG.infof("Deleting collection id=%s", id);
         DeletePreview preview = deletePreview(id);
         try (Connection connection = dataSource.getConnection()) {
@@ -212,7 +213,7 @@ public class MusicCollectionRepository {
             connection.setAutoCommit(false);
             try (PreparedStatement deleteCollection = connection.prepareStatement(
                             "DELETE FROM collections WHERE id = ?")) {
-                deleteCollection.setString(1, id);
+                deleteCollection.setLong(1, id);
                 deleteCollection.executeUpdate();
                 try (PreparedStatement orphaned = connection.prepareStatement("DELETE FROM artists WHERE NOT EXISTS (SELECT 1 FROM album_artists aa WHERE aa.artist_id=artists.id)")) {
                     orphaned.executeUpdate();
@@ -232,7 +233,7 @@ public class MusicCollectionRepository {
 
     private MusicCollection map(ResultSet rs) throws Exception {
         return new MusicCollection(
-                rs.getString("id"),
+                rs.getLong("id"),
                 rs.getString("name"),
                 rs.getString("relative_path"),
                 resolvedCollectionPath(rs.getString("relative_path")),
@@ -260,21 +261,10 @@ public class MusicCollectionRepository {
         }
     }
 
-    private String uniqueId(String baseId) {
-        String root = baseId == null || baseId.isBlank() ? "collection" : baseId;
-        String candidate = root;
-        int suffix = 2;
-        while (find(candidate).isPresent()) {
-            candidate = root + "-" + suffix;
-            suffix++;
-        }
-        return candidate;
-    }
-
-    private int albumCount(String collectionId) {
+    private int albumCount(long collectionId) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement("SELECT count(*) FROM albums WHERE collection_id=?")) {
-            statement.setString(1, collectionId);
+            statement.setLong(1, collectionId);
             try (ResultSet rs = statement.executeQuery()) { rs.next(); return rs.getInt(1); }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to count collection albums " + collectionId, e);
@@ -286,14 +276,14 @@ public class MusicCollectionRepository {
         int titleItems = 0;
         try (var folders = Files.list(root)) {
             for (var folder : folders.filter(Files::isDirectory).toList()) {
-                if (folderNameParser.parseFlatArtistAlbum(folder, "").isPresent()) {
+                if (folderNameParser.parseFlatArtistAlbum(folder).isPresent()) {
                     artistItems++;
                     continue;
                 }
                 int nestedAlbums;
                 try (var children = Files.list(folder)) {
                     nestedAlbums = (int) children.filter(Files::isDirectory)
-                            .filter(child -> folderNameParser.parseNestedArtistAlbum(folder, child, "").isPresent())
+                            .filter(child -> folderNameParser.parseNestedArtistAlbum(folder, child).isPresent())
                             .count();
                 }
                 if (nestedAlbums > 0) artistItems += nestedAlbums;
@@ -305,8 +295,8 @@ public class MusicCollectionRepository {
         return artistItems >= titleItems ? CollectionType.ARTIST : CollectionType.TITLE;
     }
 
-    public record DeletePreview(String collectionId, int albumCount, int artistCount) { }
-    public record DeleteResult(String collectionId, int albumsDeleted, int artistsDeleted) { }
+    public record DeletePreview(long collectionId, int albumCount, int artistCount) { }
+    public record DeleteResult(long collectionId, int albumsDeleted, int artistsDeleted) { }
 
     private static void rollbackQuietly(Connection connection) {
         try {

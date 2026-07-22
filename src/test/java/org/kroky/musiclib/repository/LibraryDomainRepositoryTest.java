@@ -28,6 +28,10 @@ import jakarta.inject.Inject;
 class LibraryDomainRepositoryTest {
 
     private static final Path MUSIC_ROOT = Path.of("src/test/resources/music-root");
+    private static final long OLD_COLLECTION_ID = 1;
+    private static final long NEW_COLLECTION_ID = 2;
+    private static final long TITLE_COLLECTION_ID = 3;
+    private static final long TEST_COLLECTION_ID = 4;
     private static final List<String> TEST_FOLDERS = List.of("TEST-OLD", "TEST-NEW", "TEST-TITLES", "TEST-DELETE", "TEST-NESTED", "TEST-INFER", "TEST-INFER-TIE", "TEST-INFER-TITLE", "TEST-INFER-EMPTY");
 
     @Inject DataSource dataSource;
@@ -47,9 +51,9 @@ class LibraryDomainRepositoryTest {
             statement.executeUpdate("DELETE FROM albums");
             statement.executeUpdate("DELETE FROM artists");
             statement.executeUpdate("DELETE FROM collections");
-            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES('old','Old','TEST-OLD','ARTIST')");
-            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES('new','New','TEST-NEW','ARTIST')");
-            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES('titles','Titles','TEST-TITLES','TITLE')");
+            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES(1,'Old','TEST-OLD','ARTIST')");
+            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES(2,'New','TEST-NEW','ARTIST')");
+            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES(3,'Titles','TEST-TITLES','TITLE')");
             statement.executeUpdate("INSERT INTO artists(id,name,normalized_name) VALUES(1,'Athena','athena')");
         }
         cleanupFolders();
@@ -76,7 +80,8 @@ class LibraryDomainRepositoryTest {
         assertFalse(columns.contains("release_date"));
         assertEquals(0, scalarLong("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('collection_albums','album_local_paths','artist_collections')"));
         assertEquals(0, scalarLong("SELECT count(*) FROM pragma_table_info('collections') WHERE name='parser'"));
-        assertThrows(Exception.class, () -> execute("INSERT INTO albums(collection_id,title,normalized_title,release_year) VALUES('old','Bad','bad',999)"));
+        assertEquals(1, scalarLong("SELECT count(*) FROM pragma_table_info('collections') WHERE name='id' AND type='INTEGER' AND pk=1"));
+        assertThrows(Exception.class, () -> execute("INSERT INTO albums(collection_id,title,normalized_title,release_year) VALUES(1,'Bad','bad',999)"));
     }
 
     @Test
@@ -105,73 +110,73 @@ class LibraryDomainRepositoryTest {
         Files.createDirectories(MUSIC_ROOT.resolve("TEST-INFER-EMPTY"));
         assertEquals(CollectionType.ARTIST, collections.createFromFolder("TEST-INFER-EMPTY").type());
 
-        execute("INSERT INTO albums(collection_id,title,normalized_title,checked) VALUES('" + inferred.id() + "','Film','film',1)");
+        execute("INSERT INTO albums(collection_id,title,normalized_title,checked) VALUES(" + inferred.id() + ",'Film','film',1)");
         assertThrows(IllegalArgumentException.class,
                 () -> collections.update(inferred.id(), inferred.name(), CollectionType.ARTIST));
     }
 
     @Test
     void artistScanProcessesFlatAndNestedFoldersTogether() throws Exception {
-        execute("INSERT INTO collections(id,name,relative_path,type) VALUES('nested','Nested','TEST-NESTED','ARTIST')");
+        execute("INSERT INTO collections(id,name,relative_path,type) VALUES(4,'Nested','TEST-NESTED','ARTIST')");
         Files.createDirectories(MUSIC_ROOT.resolve("TEST-NESTED/Flat Artist - 2000 - Flat Album"));
         Files.createDirectories(MUSIC_ROOT.resolve("TEST-NESTED/Nested Artist/2001 - Nested Album"));
 
-        var summary = scans.scan("nested", ScanService.ProgressListener.NONE);
+        var summary = scans.scan(TEST_COLLECTION_ID, ScanService.ProgressListener.NONE);
 
         assertEquals("DONE", summary.status());
         assertEquals(2, summary.parsedCount());
         assertEquals(Set.of("Flat Artist - 2000 - Flat Album", "Nested Artist/2001 - Nested Album"),
-                albums.list(null, "nested", null, null, null).stream()
+                albums.list(null, TEST_COLLECTION_ID, null, null, null).stream()
                         .map(album -> album.localRelativePath()).collect(java.util.stream.Collectors.toSet()));
     }
 
     @Test
     void stalePhysicalEvidenceRehomesButSimultaneousDuplicateStorageFails() throws Exception {
-        var album = albums.create(1, "Heroes", 2000, false, null, "old");
+        var album = albums.create(1, "Heroes", 2000, false, null, OLD_COLLECTION_ID);
         albums.updateLocalRelativePath(album.id(), "Athena - 2000 - Heroes");
         Path newFolder = MUSIC_ROOT.resolve("TEST-NEW/Athena - 2000 - Heroes");
         Files.createDirectories(newFolder);
 
-        var rebound = albums.upsertScanned(1, "Heroes", 2000, "Athena - 2000 - Heroes", "new");
+        var rebound = albums.upsertScanned(1, "Heroes", 2000, "Athena - 2000 - Heroes", NEW_COLLECTION_ID);
 
         assertEquals(album.id(), rebound.id());
-        assertEquals("new", albums.find(album.id()).orElseThrow().collection().id());
+        assertEquals(NEW_COLLECTION_ID, albums.find(album.id()).orElseThrow().collection().id());
         assertThrows(IllegalStateException.class,
-                () -> albums.upsertScanned(1, "Heroes", 2000, "Athena - 2000 - Heroes Copy", "new"));
+                () -> albums.upsertScanned(1, "Heroes", 2000, "Athena - 2000 - Heroes Copy", NEW_COLLECTION_ID));
 
         deleteTree(newFolder);
         assertEquals(1, albums.removeStaleLocalPathsForArtist(1));
-        assertEquals("new", albums.find(album.id()).orElseThrow().collection().id());
+        assertEquals(NEW_COLLECTION_ID, albums.find(album.id()).orElseThrow().collection().id());
         assertEquals(null, albums.find(album.id()).orElseThrow().localRelativePath());
     }
 
     @Test
     void onlyNonLocalAlbumsCanMoveBetweenCollectionsOfTheSameType() {
-        var album = albums.create(1, "Heroes", 2000, false, null, "old");
-        albums.create(1, "Second", 2001, false, null, "old");
+        var album = albums.create(1, "Heroes", 2000, false, null, OLD_COLLECTION_ID);
+        albums.create(1, "Second", 2001, false, null, OLD_COLLECTION_ID);
 
-        assertEquals(List.of("old"), artists.find(1).orElseThrow().collectionIds());
+        assertEquals(List.of(OLD_COLLECTION_ID), artists.find(1).orElseThrow().collectionIds());
 
-        assertEquals("new", albums.reassignCollection(album.id(), "new").collection().id());
-        assertEquals("new", albums.majorArtistCollection(1));
-        assertThrows(IllegalArgumentException.class, () -> albums.reassignCollection(album.id(), "titles"));
+        assertEquals(NEW_COLLECTION_ID, albums.reassignCollection(album.id(), NEW_COLLECTION_ID).collection().id());
+        assertEquals(NEW_COLLECTION_ID, albums.majorArtistCollection(1));
+        assertThrows(IllegalArgumentException.class, () -> albums.reassignCollection(album.id(), TITLE_COLLECTION_ID));
 
-        albums.upsertScanned(1, "Heroes", 2000, "Athena - 2000 - Heroes", "new");
-        assertThrows(IllegalArgumentException.class, () -> albums.reassignCollection(album.id(), "old"));
+        albums.upsertScanned(1, "Heroes", 2000, "Athena - 2000 - Heroes", NEW_COLLECTION_ID);
+        assertThrows(IllegalArgumentException.class, () -> albums.reassignCollection(album.id(), OLD_COLLECTION_ID));
     }
 
     @Test
     void collectionDeleteCascadesDatabaseRowsButLeavesDiskUntouched() throws Exception {
-        execute("INSERT INTO collections(id,name,relative_path,type) VALUES('delete','Delete','TEST-DELETE','ARTIST')");
+        execute("INSERT INTO collections(id,name,relative_path,type) VALUES(4,'Delete','TEST-DELETE','ARTIST')");
         execute("INSERT INTO artists(id,name,normalized_name) VALUES(2,'Shared','shared')");
         Path physicalFolder = MUSIC_ROOT.resolve("TEST-DELETE/Athena - 2000 - Gone");
         Files.createDirectories(physicalFolder);
-        var exclusive = albums.upsertScanned(1, "Gone", 2000, "Athena - 2000 - Gone", "delete");
-        var sharedDeleted = albums.create(2, "Shared Gone", 2001, true, null, "delete");
-        albums.create(2, "Shared Kept", 2002, true, null, "new");
+        var exclusive = albums.upsertScanned(1, "Gone", 2000, "Athena - 2000 - Gone", TEST_COLLECTION_ID);
+        var sharedDeleted = albums.create(2, "Shared Gone", 2001, true, null, TEST_COLLECTION_ID);
+        albums.create(2, "Shared Kept", 2002, true, null, NEW_COLLECTION_ID);
 
-        var preview = collections.deletePreview("delete");
-        var result = collections.delete("delete");
+        var preview = collections.deletePreview(TEST_COLLECTION_ID);
+        var result = collections.delete(TEST_COLLECTION_ID);
 
         assertEquals(2, preview.albumCount());
         assertEquals(1, preview.artistCount());
@@ -186,7 +191,7 @@ class LibraryDomainRepositoryTest {
 
     @Test
     void titleOnlyArtistsRejectProviderLinksAndAreExcludedFromBulkMatch() {
-        albums.create(1, "Soundtrack", 2000, true, null, "titles");
+        albums.create(1, "Soundtrack", 2000, true, null, TITLE_COLLECTION_ID);
 
         assertThrows(IllegalArgumentException.class,
                 () -> providerLinks.upsertForArtist(1, "musicbrainz", "mbid", "Athena", null, true));
@@ -198,10 +203,10 @@ class LibraryDomainRepositoryTest {
     @Test
     void emptyNestedArtistFolderDoesNotCreateAlbumlessArtist() throws Exception {
         execute("DELETE FROM artists");
-        execute("INSERT INTO collections(id,name,relative_path,type) VALUES('nested','Nested','TEST-NESTED','ARTIST')");
+        execute("INSERT INTO collections(id,name,relative_path,type) VALUES(4,'Nested','TEST-NESTED','ARTIST')");
         Files.createDirectories(MUSIC_ROOT.resolve("TEST-NESTED/Empty Artist"));
 
-        var summary = scans.scan("nested", ScanService.ProgressListener.NONE);
+        var summary = scans.scan(TEST_COLLECTION_ID, ScanService.ProgressListener.NONE);
 
         assertEquals("DONE", summary.status());
         assertEquals(0, artists.list(null).size());
@@ -211,14 +216,14 @@ class LibraryDomainRepositoryTest {
     @Test
     void failedAlbumInsertDoesNotLeaveNewScannedArtist() throws Exception {
         execute("DELETE FROM artists");
-        execute("INSERT INTO collections(id,name,relative_path,type) VALUES('nested','Nested','TEST-NESTED','ARTIST')");
+        execute("INSERT INTO collections(id,name,relative_path,type) VALUES(4,'Nested','TEST-NESTED','ARTIST')");
         Files.createDirectories(MUSIC_ROOT.resolve("TEST-NESTED/New Artist/2000 - Album"));
         execute("""
                 CREATE TRIGGER fail_album_insert BEFORE INSERT ON albums
                 BEGIN SELECT RAISE(ABORT, 'forced album failure'); END
                 """);
 
-        assertThrows(IllegalStateException.class, () -> scans.scan("nested", ScanService.ProgressListener.NONE));
+        assertThrows(IllegalStateException.class, () -> scans.scan(TEST_COLLECTION_ID, ScanService.ProgressListener.NONE));
 
         assertTrue(artists.list(null).isEmpty());
     }
@@ -228,10 +233,10 @@ class LibraryDomainRepositoryTest {
         execute("DELETE FROM artists");
         Files.createDirectories(MUSIC_ROOT.resolve("TEST-TITLES/Conan the Barbarian (2011)"));
 
-        var summary = scans.scan("titles", ScanService.ProgressListener.NONE);
+        var summary = scans.scan(TITLE_COLLECTION_ID, ScanService.ProgressListener.NONE);
 
         assertEquals("DONE", summary.status());
-        var album = albums.list(null, "titles", null, null, null).get(0);
+        var album = albums.list(null, TITLE_COLLECTION_ID, null, null, null).get(0);
         assertTrue(album.artistIds().isEmpty());
         assertEquals(2011, album.releaseYear());
         assertTrue(artists.list(null).isEmpty());

@@ -66,28 +66,28 @@ public class MusicCollectionResource {
 
     @GET
     @Path("/{id}/artists")
-    public List<Artist> artists(@PathParam("id") String id) {
+    public List<Artist> artists(@PathParam("id") long id) {
         LOG.infof("Listing artists for collection %s", id);
         return artists.list(null, id);
     }
 
     @GET
     @Path("/{id}/metadata")
-    public CollectionMetadata metadata(@PathParam("id") String id) {
+    public CollectionMetadata metadata(@PathParam("id") long id) {
         LOG.debugf("Loading metadata for collection %s", id);
         return collections.metadata(id).orElseThrow(NotFoundException::new);
     }
 
     @GET
     @Path("/{id}/titles")
-    public List<Album> titles(@PathParam("id") String id) {
+    public List<Album> titles(@PathParam("id") long id) {
         LOG.infof("Listing title albums for collection %s", id);
         return albums.list(null, id, null, null, null);
     }
 
     @PUT
     @Path("/{id}")
-    public MusicCollection update(@PathParam("id") String id, MusicCollectionRequest request) {
+    public MusicCollection update(@PathParam("id") long id, MusicCollectionRequest request) {
         if (request == null || request.name() == null || request.name().isBlank()) {
             throw new BadRequestException("name is required");
         }
@@ -105,14 +105,14 @@ public class MusicCollectionResource {
 
     @GET
     @Path("/{id}/delete-preview")
-    public MusicCollectionRepository.DeletePreview deletePreview(@PathParam("id") String id) {
+    public MusicCollectionRepository.DeletePreview deletePreview(@PathParam("id") long id) {
         try { return collections.deletePreview(id); }
         catch (IllegalArgumentException e) { throw new NotFoundException(e.getMessage()); }
     }
 
     @DELETE
     @Path("/{id}")
-    public MusicCollectionRepository.DeleteResult delete(@PathParam("id") String id) {
+    public MusicCollectionRepository.DeleteResult delete(@PathParam("id") long id) {
         LOG.infof("Delete collection request id=%s", id);
         return collections.delete(id);
     }

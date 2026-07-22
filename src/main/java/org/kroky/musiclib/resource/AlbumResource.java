@@ -25,7 +25,7 @@ public class AlbumResource {
     AlbumRepository albums;
 
     @GET
-    public List<Album> list(@QueryParam("artistId") Long artistId, @QueryParam("collectionId") String collectionId,
+    public List<Album> list(@QueryParam("artistId") Long artistId, @QueryParam("collectionId") Long collectionId,
             @QueryParam("checked") Boolean checked, @QueryParam("hasLocalPath") Boolean hasLocalPath,
             @QueryParam("search") String search) {
         LOG.infof("Listing albums artistId=%s collectionId=%s checked=%s hasLocalPath=%s search='%s'",
@@ -56,7 +56,7 @@ public class AlbumResource {
     @PUT
     @Path("/{id}/collection")
     public Album rehome(@PathParam("id") long id, CollectionRequest request) {
-        if (request == null || request.collectionId() == null || request.collectionId().isBlank()) {
+        if (request == null || request.collectionId() == null) {
             throw new BadRequestException("collectionId is required");
         }
         LOG.infof("Reassign nonlocal album id=%d collection=%s", id, request.collectionId());
@@ -78,5 +78,5 @@ public class AlbumResource {
         }
     }
 
-    public record CollectionRequest(String collectionId) { }
+    public record CollectionRequest(Long collectionId) { }
 }

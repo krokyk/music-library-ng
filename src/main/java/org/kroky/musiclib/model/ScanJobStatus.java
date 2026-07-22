@@ -5,11 +5,11 @@ import java.util.List;
 public record ScanJobStatus(
         String status,
         String kind,
-        String requestedCollectionId,
+        Long requestedCollectionId,
         String requestedCollectionName,
         Long requestedArtistId,
         String requestedArtistName,
-        String activeCollectionId,
+        Long activeCollectionId,
         String activeCollectionName,
         Long activeArtistId,
         String activeArtistName,

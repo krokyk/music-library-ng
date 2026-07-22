@@ -4,7 +4,7 @@ export interface Artist {
   sortName?: string | null
   countryOverride?: string | null
   activeOverride?: boolean | null
-  collectionIds: string[]
+  collectionIds: number[]
   albumCount: number
   uncheckedAlbumCount: number
   localAlbumCount: number
@@ -30,7 +30,7 @@ export interface AlbumProviderLink {
 }
 
 export interface AlbumCollection {
-  id: string
+  id: number
   name: string
 }
 
@@ -54,7 +54,7 @@ export interface Album {
 }
 
 export interface MusicCollection {
-  id: string
+  id: number
   name: string
   relativePath: string
   resolvedPath?: string | null
@@ -72,7 +72,7 @@ export interface CollectionFolderCandidate {
 }
 
 export interface CollectionMetadata {
-  collectionId: string
+  collectionId: number
   artistCount: number
   contributorArtistCount: number
   localAlbumCount: number
@@ -82,13 +82,13 @@ export interface CollectionMetadata {
 }
 
 export interface CollectionDeletePreview {
-  collectionId: string
+  collectionId: number
   albumCount: number
   artistCount: number
 }
 
 export interface CollectionDeleteResult {
-  collectionId: string
+  collectionId: number
   albumsDeleted: number
   artistsDeleted: number
 }
@@ -117,11 +117,11 @@ export interface ReportArtifact {
 export interface ScanJobStatus {
   status: string
   kind: 'COLLECTION'
-  requestedCollectionId?: string | null
+  requestedCollectionId?: number | null
   requestedCollectionName?: string | null
   requestedArtistId?: number | null
   requestedArtistName?: string | null
-  activeCollectionId?: string | null
+  activeCollectionId?: number | null
   activeCollectionName?: string | null
   activeArtistId?: number | null
   activeArtistName?: string | null
@@ -285,7 +285,7 @@ export interface ArtistProviderBulkMatchResult {
 export interface ProviderCheckJobStatus {
   status: string
   kind: 'PROVIDER_ARTIST' | 'PROVIDER_COLLECTION'
-  requestedCollectionId?: string | null
+  requestedCollectionId?: number | null
   requestedCollectionName?: string | null
   requestedArtistId?: number | null
   requestedArtistName?: string | null

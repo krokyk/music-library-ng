@@ -14,7 +14,7 @@ class FolderNameParserTest {
 
     @Test
     void parsesArtistYearAlbumFolders() {
-        var parsed = parser.parseFlatArtistAlbum(Path.of("Dark Tranquillity - 2007 - Fiction"), "metal");
+        var parsed = parser.parseFlatArtistAlbum(Path.of("Dark Tranquillity - 2007 - Fiction"));
 
         assertTrue(parsed.isPresent());
         assertEquals("Dark Tranquillity", parsed.get().artistName());
@@ -27,8 +27,7 @@ class FolderNameParserTest {
     void parsesNestedArtistAlbumFolders() {
         var parsed = parser.parseNestedArtistAlbum(
                 Path.of("GLOBUS"),
-                Path.of("2006 - Epicon"),
-                "epic");
+                Path.of("2006 - Epicon"));
 
         assertTrue(parsed.isPresent());
         assertEquals("Globus", parsed.get().artistName());
@@ -41,8 +40,7 @@ class FolderNameParserTest {
     void rejectsNestedArtistAlbumFoldersWithoutYearOnlyToken() {
         var parsed = parser.parseNestedArtistAlbum(
                 Path.of("BASIL POLEDOURIS"),
-                Path.of("1982-05-14 - Conan the Barbarian"),
-                "soundtracks");
+                Path.of("1982-05-14 - Conan the Barbarian"));
 
         assertTrue(parsed.isEmpty());
     }
@@ -50,8 +48,7 @@ class FolderNameParserTest {
     @Test
     void parsesTitleFoldersWithInnerParenthesesAndFinalArtistYearSuffix() {
         var parsed = parser.parseTitleAlbum(
-                Path.of("Ahsoka - Vol. 1 (Episodes 1-4) (Kevin Kiner, 2023)"),
-                "soundtracks");
+                Path.of("Ahsoka - Vol. 1 (Episodes 1-4) (Kevin Kiner, 2023)"));
 
         assertEquals("Kevin Kiner", parsed.artistName());
         assertEquals("Ahsoka - Vol. 1 (Episodes 1-4)", parsed.title());
@@ -62,8 +59,7 @@ class FolderNameParserTest {
     @Test
     void keepsTitleFoldersWithFullDateSuffixAsTitleOnly() {
         var parsed = parser.parseTitleAlbum(
-                Path.of("V for Vendetta (Dario Marianelli, 2006-03-13)"),
-                "soundtracks");
+                Path.of("V for Vendetta (Dario Marianelli, 2006-03-13)"));
 
         assertEquals("V for Vendetta (Dario Marianelli, 2006-03-13)", parsed.title());
         assertNull(parsed.artistName());
@@ -73,8 +69,7 @@ class FolderNameParserTest {
     @Test
     void parsesTitleFoldersWithMultipleArtists() {
         var parsed = parser.parseTitleAlbum(
-                Path.of("Ad Astra (Max Richter, Lorne Balfe, 2019)"),
-                "soundtracks");
+                Path.of("Ad Astra (Max Richter, Lorne Balfe, 2019)"));
 
         assertEquals("Ad Astra", parsed.title());
         assertEquals("Max Richter, Lorne Balfe", parsed.artistName());
@@ -84,8 +79,7 @@ class FolderNameParserTest {
     @Test
     void keepsTitleFoldersWithYearMonthSuffixAsTitleOnly() {
         var parsed = parser.parseTitleAlbum(
-                Path.of("Example Score (Composer Name, 2006-03)"),
-                "soundtracks");
+                Path.of("Example Score (Composer Name, 2006-03)"));
 
         assertEquals("Example Score (Composer Name, 2006-03)", parsed.title());
         assertNull(parsed.artistName());
@@ -94,7 +88,7 @@ class FolderNameParserTest {
 
     @Test
     void parsesTitleFoldersWithYearOnlySuffix() {
-        var parsed = parser.parseTitleAlbum(Path.of("Conan the Barbarian (2011)"), "soundtracks");
+        var parsed = parser.parseTitleAlbum(Path.of("Conan the Barbarian (2011)"));
 
         assertEquals("Conan the Barbarian", parsed.title());
         assertEquals(2011, parsed.releaseYear());
@@ -102,7 +96,7 @@ class FolderNameParserTest {
 
     @Test
     void parsesTitleFoldersWithDashYearSubtitle() {
-        var parsed = parser.parseTitleAlbum(Path.of("World of Warcraft - 2007 - The Burning Crusade"), "soundtracks");
+        var parsed = parser.parseTitleAlbum(Path.of("World of Warcraft - 2007 - The Burning Crusade"));
 
         assertEquals("World of Warcraft - The Burning Crusade", parsed.title());
         assertEquals(2007, parsed.releaseYear());
@@ -111,7 +105,7 @@ class FolderNameParserTest {
 
     @Test
     void keepsAmbiguousTitleFoldersAsTitleOnly() {
-        var parsed = parser.parseTitleAlbum(Path.of("Wojciech Kilar - The Best"), "soundtracks");
+        var parsed = parser.parseTitleAlbum(Path.of("Wojciech Kilar - The Best"));
 
         assertEquals("Wojciech Kilar - The Best", parsed.title());
         assertNull(parsed.artistName());
@@ -120,7 +114,7 @@ class FolderNameParserTest {
 
     @Test
     void convertsAllCapsScannedArtistsToChicagoStyle() {
-        var parsed = parser.parseFlatArtistAlbum(Path.of("AS I LAY DYING - 2007 - An Ocean Between Us"), "metal");
+        var parsed = parser.parseFlatArtistAlbum(Path.of("AS I LAY DYING - 2007 - An Ocean Between Us"));
 
         assertTrue(parsed.isPresent());
         assertEquals("As I Lay Dying", parsed.get().artistName());

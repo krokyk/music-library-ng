@@ -40,7 +40,7 @@ public class ArtistRepository {
         return list(search, null);
     }
 
-    public List<Artist> list(String search, String collectionId) {
+    public List<Artist> list(String search, Long collectionId) {
         LOG.debugf("Listing artists search='%s' collectionId=%s", search, collectionId);
         String sql = selectArtists("""
                 WHERE (? IS NULL OR a.normalized_name LIKE '%' || ? || '%')
@@ -50,12 +50,12 @@ public class ArtistRepository {
                 """);
         try {
             String normalizedSearch = search == null || search.isBlank() ? null : Names.normalize(search);
-            String normalizedCollectionId = blankToNull(collectionId);
+            Long normalizedCollectionId = collectionId;
             List<ArtistRow> rows = queryArtistRows(sql, statement -> {
-                statement.setString(1, normalizedCollectionId); statement.setString(2, normalizedCollectionId);
-                statement.setString(3, normalizedCollectionId); statement.setString(4, normalizedCollectionId);
+                statement.setObject(1, normalizedCollectionId); statement.setObject(2, normalizedCollectionId);
+                statement.setObject(3, normalizedCollectionId); statement.setObject(4, normalizedCollectionId);
                 statement.setString(5, normalizedSearch); statement.setString(6, normalizedSearch);
-                statement.setString(7, normalizedCollectionId); statement.setString(8, normalizedCollectionId);
+                statement.setObject(7, normalizedCollectionId); statement.setObject(8, normalizedCollectionId);
             });
             return mapRows(rows, normalizedCollectionId);
         } catch (Exception e) {
@@ -67,14 +67,14 @@ public class ArtistRepository {
         return find(id, null);
     }
 
-    public Optional<Artist> find(long id, String collectionId) {
+    public Optional<Artist> find(long id, Long collectionId) {
         LOG.tracef("Finding artist id=%d", id);
         String sql = selectArtists("WHERE a.id = ?");
         try {
-            String normalizedCollectionId = blankToNull(collectionId);
+            Long normalizedCollectionId = collectionId;
             List<ArtistRow> rows = queryArtistRows(sql, statement -> {
-                statement.setString(1, normalizedCollectionId); statement.setString(2, normalizedCollectionId);
-                statement.setString(3, normalizedCollectionId); statement.setString(4, normalizedCollectionId);
+                statement.setObject(1, normalizedCollectionId); statement.setObject(2, normalizedCollectionId);
+                statement.setObject(3, normalizedCollectionId); statement.setObject(4, normalizedCollectionId);
                 statement.setLong(5, id);
             });
             if (rows.isEmpty()) {
@@ -254,7 +254,7 @@ public class ArtistRepository {
         }
     }
 
-    private List<Artist> mapRows(List<ArtistRow> rows, String collectionId) {
+    private List<Artist> mapRows(List<ArtistRow> rows, Long collectionId) {
         Map<Long, List<ArtistProviderLink>> linksByArtist = providerLinks.listByArtistIds(
                 rows.stream().map(ArtistRow::id).toList());
         List<Artist> artists = new ArrayList<>();
@@ -287,7 +287,7 @@ public class ArtistRepository {
                 """;
     }
 
-    private Artist map(ArtistRow row, String collectionId, List<ArtistProviderLink> providerLinks) {
+    private Artist map(ArtistRow row, Long collectionId, List<ArtistProviderLink> providerLinks) {
         return new Artist(
                 row.id(),
                 row.name(),
@@ -336,16 +336,13 @@ public class ArtistRepository {
         return rs.wasNull() ? null : value == 1;
     }
 
-    private static List<String> parseCollectionIds(String value) {
+    private static List<Long> parseCollectionIds(String value) {
         if (value == null || value.isBlank()) {
             return List.of();
         }
-        List<String> collectionIds = new ArrayList<>();
+        List<Long> collectionIds = new ArrayList<>();
         for (String item : value.split(",")) {
-            String collectionId = blankToNull(item);
-            if (collectionId != null) {
-                collectionIds.add(collectionId);
-            }
+            collectionIds.add(Long.parseLong(item));
         }
         return collectionIds;
     }

@@ -20,13 +20,13 @@ public class ProviderCheckResource {
     @Path("/jobs/artist/{artistId}")
     public ProviderCheckJobStatus startArtistJob(
             @PathParam("artistId") long artistId,
-            @QueryParam("collectionId") String collectionId) {
+            @QueryParam("collectionId") Long collectionId) {
         return jobs.startArtist(artistId, collectionId);
     }
 
     @POST
     @Path("/jobs/collection/{collectionId}")
-    public ProviderCheckJobStatus startCollectionJob(@PathParam("collectionId") String collectionId) {
+    public ProviderCheckJobStatus startCollectionJob(@PathParam("collectionId") long collectionId) {
         return jobs.startCollection(collectionId);
     }
 

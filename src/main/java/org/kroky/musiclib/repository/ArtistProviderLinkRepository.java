@@ -87,7 +87,7 @@ public class ArtistProviderLinkRepository {
         }
     }
 
-    public List<ArtistProviderLink> listEnabledByCollection(String collectionId) {
+    public List<ArtistProviderLink> listEnabledByCollection(long collectionId) {
         String sql = baseSelect() + """
                  WHERE apl.enabled = 1
                    AND EXISTS (
@@ -98,7 +98,7 @@ public class ArtistProviderLinkRepository {
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, collectionId);
+            statement.setLong(1, collectionId);
             try (ResultSet rs = statement.executeQuery()) {
                 List<ArtistProviderLink> links = new ArrayList<>();
                 while (rs.next()) {

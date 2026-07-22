@@ -102,7 +102,7 @@ const providerConflictCountryMenu = ref(false)
 const resettingKeepLocalReleaseYearKey = ref('')
 const resettingKeepLocalTitleKey = ref('')
 const collectionFilterMenu = ref(false)
-const artistCollectionFilterIds = ref<string[]>([])
+const artistCollectionFilterIds = ref<number[]>([])
 const artistsScreenElement = ref<HTMLElement | null>(null)
 const artistsTablePaneElement = ref<unknown>(null)
 const artistDetailsPaneElement = ref<unknown>(null)
@@ -439,7 +439,7 @@ function setAllCollectionFilter() {
   updateArtistCollectionFilter([])
 }
 
-function toggleCollectionFilter(collectionId: string) {
+function toggleCollectionFilter(collectionId: number) {
   const selected = new Set(artistCollectionFilterIds.value)
   if (selected.has(collectionId)) {
     selected.delete(collectionId)
@@ -449,15 +449,15 @@ function toggleCollectionFilter(collectionId: string) {
   updateArtistCollectionFilter([...selected])
 }
 
-function collectionFilterSelected(collectionId: string) {
+function collectionFilterSelected(collectionId: number) {
   return artistCollectionFilterIds.value.includes(collectionId)
 }
 
-function removeCollectionFilter(collectionId: string) {
+function removeCollectionFilter(collectionId: number) {
   updateArtistCollectionFilter(artistCollectionFilterIds.value.filter((id) => id !== collectionId))
 }
 
-function updateArtistCollectionFilter(collectionIds: string[]) {
+function updateArtistCollectionFilter(collectionIds: number[]) {
   artistCollectionFilterIds.value = [...new Set(collectionIds)].filter(Boolean)
   void saveArtistsCollectionFilter()
 }
@@ -481,7 +481,7 @@ async function loadArtistsCollectionFilter() {
   try {
     const parsed = JSON.parse(preference.value)
     if (Array.isArray(parsed)) {
-      artistCollectionFilterIds.value = parsed.filter((value): value is string => typeof value === 'string')
+      artistCollectionFilterIds.value = parsed.filter((value): value is number => Number.isInteger(value) && value > 0)
     }
   } catch (error) {
     artistCollectionFilterIds.value = []

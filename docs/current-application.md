@@ -36,7 +36,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - `artists` stores artist identity, display name, optional sort name, optional country override, and optional active-status override.
 - `albums` stores durable album or title identity, one required home collection, optional local relative path, nullable release year, sort name, checked state, and notes.
 - `album_artists` links albums to known artists and preserves contributor order; title-centric albums may have no link when their folder contains no contributor metadata.
-- `collections` stores user-visible collection homes with a collection `type` but no persisted folder parser.
+- `collections` stores user-visible collection homes with generated integer IDs, a collection `type`, and no persisted folder parser.
 - `providers` stores supported provider kinds.
 - `artist_provider_links` stores provider identities per artist plus provider country, active-status, disambiguation evidence, enabled state, and provider-specific scan status.
 - `album_provider_links` stores provider release-group mappings to albums and optional release-year and title conflict resolution.

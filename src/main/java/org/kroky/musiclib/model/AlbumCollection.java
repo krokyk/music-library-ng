@@ -1,6 +1,6 @@
 package org.kroky.musiclib.model;
 
 public record AlbumCollection(
-        String id,
+        long id,
         String name) {
 }

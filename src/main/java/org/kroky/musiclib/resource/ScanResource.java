@@ -20,7 +20,7 @@ public class ScanResource {
 
     @POST
     @Path("/jobs")
-    public ScanJobStatus startJob(@QueryParam("collectionId") String collectionId) {
+    public ScanJobStatus startJob(@QueryParam("collectionId") Long collectionId) {
         LOG.infof("Scan job requested collectionId=%s", collectionId);
         return scanJobs.start(collectionId);
     }

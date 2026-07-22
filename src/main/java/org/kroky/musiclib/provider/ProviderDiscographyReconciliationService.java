@@ -33,11 +33,11 @@ public class ProviderDiscographyReconciliationService {
 
     @Transactional(value = Transactional.TxType.REQUIRES_NEW, rollbackOn = Exception.class)
     public Result reconcile(ArtistProviderLink link, String country, Boolean active,
-            List<RemoteReleaseGroup> releases, String collectionId) {
+            List<RemoteReleaseGroup> releases, Long collectionId) {
         List<RemoteReleaseGroup> eligibleReleases = releases == null ? List.of() : List.copyOf(releases);
         providerLinks.updateProviderMetadata(link.id(), country, active);
 
-        String albumCollectionId = collectionId == null
+        Long albumCollectionId = collectionId == null
                 ? albums.majorArtistCollection(link.artistId())
                 : collectionId;
         if (albumCollectionId == null) {
@@ -62,7 +62,7 @@ public class ProviderDiscographyReconciliationService {
         return new Result(List.copyOf(outcomes));
     }
 
-    private AlbumOutcome reconcileRelease(ArtistProviderLink link, RemoteReleaseGroup release, String collectionId,
+    private AlbumOutcome reconcileRelease(ArtistProviderLink link, RemoteReleaseGroup release, long collectionId,
             List<Album> artistAlbums) {
         ArtistProviderCandidateAlbum evidence = ProviderCandidateEvidenceEvaluator.albumEvidence(artistAlbums, release);
         Album evidenceAlbum = evidence.localAlbumId() == null

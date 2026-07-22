@@ -8,7 +8,7 @@ public record Artist(
         String sortName,
         String countryOverride,
         Boolean activeOverride,
-        List<String> collectionIds,
+        List<Long> collectionIds,
         int albumCount,
         int uncheckedAlbumCount,
         int localAlbumCount,

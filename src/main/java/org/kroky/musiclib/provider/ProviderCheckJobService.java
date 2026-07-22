@@ -43,15 +43,15 @@ public class ProviderCheckJobService {
         executor.shutdownNow();
     }
 
-    public ProviderCheckJobStatus startArtist(long artistId, String collectionId) {
-        return start(PROVIDER_ARTIST, blankToNull(collectionId), artistId);
+    public ProviderCheckJobStatus startArtist(long artistId, Long collectionId) {
+        return start(PROVIDER_ARTIST, collectionId, artistId);
     }
 
-    public ProviderCheckJobStatus startCollection(String collectionId) {
-        return start(PROVIDER_COLLECTION, blankToNull(collectionId), null);
+    public ProviderCheckJobStatus startCollection(long collectionId) {
+        return start(PROVIDER_COLLECTION, collectionId, null);
     }
 
-    private ProviderCheckJobStatus start(String kind, String collectionId, Long artistId) {
+    private ProviderCheckJobStatus start(String kind, Long collectionId, Long artistId) {
         ProviderCheckJob existing = currentJob.get();
         if (existing != null && existing.isRunning()) {
             return existing.status();
@@ -135,13 +135,13 @@ public class ProviderCheckJobService {
                 + ".";
     }
 
-    private String collectionName(String collectionId) {
+    private String collectionName(Long collectionId) {
         if (collectionId == null) {
             return "all";
         }
         return collectionRepository.find(collectionId)
                 .map(collection -> collection.name())
-                .orElse(collectionId);
+                .orElse("collection " + collectionId);
     }
 
     private String artistName(Long artistId) {
@@ -153,10 +153,6 @@ public class ProviderCheckJobService {
                 .orElse("artist " + artistId);
     }
 
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
-
     private static ProviderCheckJobStatus idleStatus() {
         return new ProviderCheckJobStatus("IDLE", PROVIDER_COLLECTION, null, null, null, null, null, null, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, null, List.of(), List.of());
@@ -164,7 +160,7 @@ public class ProviderCheckJobService {
 
     private class ProviderCheckJob {
         private final String kind;
-        private final String requestedCollectionId;
+        private final Long requestedCollectionId;
         private final String requestedCollectionName;
         private final Long requestedArtistId;
         private final String requestedArtistName;
@@ -184,7 +180,7 @@ public class ProviderCheckJobService {
         private final LinkedHashSet<Long> artistIds = new LinkedHashSet<>();
         private List<ReportArtifact> reports = List.of();
 
-        private ProviderCheckJob(String kind, String requestedCollectionId, String requestedCollectionName,
+        private ProviderCheckJob(String kind, Long requestedCollectionId, String requestedCollectionName,
                 Long requestedArtistId, String requestedArtistName) {
             this.kind = kind;
             this.requestedCollectionId = requestedCollectionId;

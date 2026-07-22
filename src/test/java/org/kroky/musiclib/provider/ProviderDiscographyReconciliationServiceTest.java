@@ -24,6 +24,10 @@ import jakarta.inject.Inject;
 @QuarkusTest
 class ProviderDiscographyReconciliationServiceTest {
 
+    private static final long OLD_COLLECTION_ID = 1;
+    private static final long SELECTED_COLLECTION_ID = 2;
+    private static final long TITLE_COLLECTION_ID = 3;
+
     @Inject ProviderDiscographyReconciliationService service;
     @Inject ArtistProviderLinkRepository providerLinks;
     @Inject AlbumProviderLinkRepository albumProviderLinks;
@@ -39,9 +43,9 @@ class ProviderDiscographyReconciliationServiceTest {
             statement.executeUpdate("DELETE FROM albums");
             statement.executeUpdate("DELETE FROM artists");
             statement.executeUpdate("DELETE FROM collections");
-            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES('old','Old','TEST-OLD','ARTIST')");
-            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES('selected','Selected','TEST-NEW','ARTIST')");
-            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES('titles','Titles','TEST-TITLES','TITLE')");
+            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES(1,'Old','TEST-OLD','ARTIST')");
+            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES(2,'Selected','TEST-NEW','ARTIST')");
+            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES(3,'Titles','TEST-TITLES','TITLE')");
             statement.executeUpdate("INSERT INTO artists(id,name,normalized_name) VALUES(1,'Ancient Bards','ancient bards')");
             statement.executeUpdate("INSERT INTO artist_provider_links(id,artist_id,provider_id,provider_artist_name,provider_url) VALUES(1,1,'metal_archives','Ancient Bards','https://www.metal-archives.com/bands/Ancient_Bards/1')");
         }
@@ -49,49 +53,49 @@ class ProviderDiscographyReconciliationServiceTest {
 
     @Test
     void assignsNewAlbumsToSelectedHomeAndKeepsIndependentYearConflict() {
-        var existing = albums.create(1, "The Alliance of the Kings", 2010, true, null, "old");
+        var existing = albums.create(1, "The Alliance of the Kings", 2010, true, null, OLD_COLLECTION_ID);
 
         var result = service.reconcile(providerLink(), "IT", true, List.of(
                 release("ma-alliance", "The Alliance of the Kings", 2009),
-                release("ma-soulless", "Soulless Child", 2011)), "selected");
+                release("ma-soulless", "Soulless Child", 2011)), SELECTED_COLLECTION_ID);
 
         assertEquals(1, result.createdAlbumCount());
         assertEquals(1, result.releaseYearConflictCount());
         assertEquals(2010, albums.find(existing.id()).orElseThrow().releaseYear());
-        var created = albums.list(1L, "selected", null, null, "Soulless Child").get(0);
+        var created = albums.list(1L, SELECTED_COLLECTION_ID, null, null, "Soulless Child").get(0);
         assertFalseChecked(created.checked());
-        assertEquals("selected", created.collection().id());
+        assertEquals(SELECTED_COLLECTION_ID, created.collection().id());
         assertEquals(2, scalarLong("SELECT count(*) FROM album_provider_links"));
         assertEquals("IT", scalarText("SELECT country FROM artist_provider_links WHERE id=1"));
     }
 
     @Test
     void relinksAndMergesProviderOnlyDuplicateIntoKnownAlbum() {
-        var known = albums.create(1, "The Alliance of the Kings", 2010, true, null, "old");
-        var duplicate = albums.create(1, "The Alliance of the Kings", 2010, false, null, "selected");
+        var known = albums.create(1, "The Alliance of the Kings", 2010, true, null, OLD_COLLECTION_ID);
+        var duplicate = albums.create(1, "The Alliance of the Kings", 2010, false, null, SELECTED_COLLECTION_ID);
         albumProviderLinks.linkAlbum(duplicate.id(), "metal_archives", "ma-alliance",
                 "The Alliance of the Kings", 2010, "https://example.test/alliance");
 
         service.reconcile(providerLink(), "IT", true,
-                List.of(release("ma-alliance", "The Alliance of the Kings", 2010)), "selected");
+                List.of(release("ma-alliance", "The Alliance of the Kings", 2010)), SELECTED_COLLECTION_ID);
 
         assertTrue(albums.find(duplicate.id()).isEmpty());
         assertEquals(known.id(), albumProviderLinks.findAlbumId("metal_archives", "ma-alliance").orElseThrow());
         assertEquals(1, albums.list(1L, null, null, null, "The Alliance of the Kings").size());
-        assertEquals("old", albums.find(known.id()).orElseThrow().collection().id());
+        assertEquals(OLD_COLLECTION_ID, albums.find(known.id()).orElseThrow().collection().id());
     }
 
     @Test
     void keepsFuzzyDifferentYearReleaseSeparateAndReusesItAcrossProviders() throws Exception {
-        var origins = albums.create(1, "Origins", 2016, true, null, "old");
+        var origins = albums.create(1, "Origins", 2016, true, null, OLD_COLLECTION_ID);
         try (Connection connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate("INSERT INTO artist_provider_links(id,artist_id,provider_id,provider_artist_name,provider_url) VALUES(2,1,'musicbrainz','Ancient Bards','https://musicbrainz.org/artist/1')");
         }
 
         service.reconcile(providerLink("musicbrainz"), "IT", true,
-                List.of(release("musicbrainz", "mb-origins-ii", "Origins II", 2025)), "selected");
+                List.of(release("musicbrainz", "mb-origins-ii", "Origins II", 2025)), SELECTED_COLLECTION_ID);
         service.reconcile(providerLink("metal_archives"), "IT", true,
-                List.of(release("metal_archives", "ma-origins-ii", "Origins II", 2025)), "selected");
+                List.of(release("metal_archives", "ma-origins-ii", "Origins II", 2025)), SELECTED_COLLECTION_ID);
 
         var artistAlbums = albums.list(1L, null, null, null, null);
         assertEquals(2, artistAlbums.size());
@@ -107,7 +111,7 @@ class ProviderDiscographyReconciliationServiceTest {
 
     @Test
     void wholeDiscographyFailureRollsBackAlbumsLinksAndProviderMetadata() throws Exception {
-        albums.create(1, "Anchor", 2000, true, null, "old");
+        albums.create(1, "Anchor", 2000, true, null, OLD_COLLECTION_ID);
         try (Connection connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.execute("""
                     CREATE TRIGGER fail_provider_release
@@ -118,7 +122,7 @@ class ProviderDiscographyReconciliationServiceTest {
         }
 
         assertThrows(RuntimeException.class, () -> service.reconcile(providerLink(), "IT", true, List.of(
-                release("first", "First", 2001), release("fail", "Second", 2002)), "selected"));
+                release("first", "First", 2001), release("fail", "Second", 2002)), SELECTED_COLLECTION_ID));
 
         assertEquals(1, scalarLong("SELECT count(*) FROM albums"));
         assertEquals(0, scalarLong("SELECT count(*) FROM album_provider_links"));
@@ -128,10 +132,10 @@ class ProviderDiscographyReconciliationServiceTest {
 
     @Test
     void explicitTitleCollectionCannotReceiveProviderAlbums() {
-        albums.create(1, "Anchor", 2000, true, null, "old");
+        albums.create(1, "Anchor", 2000, true, null, OLD_COLLECTION_ID);
 
         assertThrows(IllegalArgumentException.class, () -> service.reconcile(providerLink(), "IT", true,
-                List.of(release("new", "New", 2001)), "titles"));
+                List.of(release("new", "New", 2001)), TITLE_COLLECTION_ID));
 
         assertEquals(1, scalarLong("SELECT count(*) FROM albums"));
         assertEquals(0, scalarLong("SELECT count(*) FROM album_provider_links"));

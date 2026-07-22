@@ -75,7 +75,7 @@ public class ProviderCheckService {
     @Inject
     ProviderDiscographyReconciliationService discographyReconciliation;
 
-    public ProviderCheckSummary checkArtist(long artistId, String collectionId) {
+    public ProviderCheckSummary checkArtist(long artistId, Long collectionId) {
         if (collectionId != null) {
             MusicCollection target = collections.find(collectionId)
                     .orElseThrow(() -> new IllegalArgumentException("Unknown collection: " + collectionId));
@@ -98,7 +98,7 @@ public class ProviderCheckService {
         return checkLinks(report, links, skippedArtists, collectionId, 0, false, ProgressListener.NONE);
     }
 
-    public ProviderCheckSummary checkCollection(String collectionId, int batchRescanDelayMinutes,
+    public ProviderCheckSummary checkCollection(long collectionId, int batchRescanDelayMinutes,
             ProgressListener progress) {
         MusicCollection collection = collections.find(collectionId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown collection: " + collectionId));
@@ -118,7 +118,7 @@ public class ProviderCheckService {
 
     private ProviderCheckSummary checkLinks(ProviderCheckReport report, List<ArtistProviderLink> links,
             int skippedArtists,
-            String collectionId, int batchRescanDelayMinutes, boolean skipRecentlyChecked,
+            Long collectionId, int batchRescanDelayMinutes, boolean skipRecentlyChecked,
             ProgressListener progress) {
         int processedArtists = 0;
         int initialSkippedArtists = skippedArtists;

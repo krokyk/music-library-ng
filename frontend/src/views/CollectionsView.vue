@@ -79,7 +79,7 @@ const deleteCollectionDialog = ref(false)
 const collectionToDelete = ref<MusicCollection | null>(null)
 const collectionDeletePreview = ref<CollectionDeletePreview | null>(null)
 const collectionDeletePreviewLoading = ref(false)
-const collectionEditOpenId = ref<string | null>(null)
+const collectionEditOpenId = ref<number | null>(null)
 const collectionEditTarget = ref<HTMLElement | undefined>(undefined)
 const threePaneElement = ref<HTMLElement | null>(null)
 const collectionsPaneElement = ref<unknown>(null)
@@ -159,8 +159,8 @@ const artistUnchecked = ref<ArtistUncheckedFilter[]>([])
 const defaultAlbumShowAllFilter: AlbumShowAllFilter[] = ['showAll']
 const albumShowAll = ref<AlbumShowAllFilter[]>([...defaultAlbumShowAllFilter])
 const titlePresence = ref<PresenceFilter[]>(['local'])
-const hoveredCollectionId = ref<string | null>(null)
-const focusedCollectionId = ref<string | null>(null)
+const hoveredCollectionId = ref<number | null>(null)
+const focusedCollectionId = ref<number | null>(null)
 const artistGridScrollTop = ref(0)
 const artistGridViewportHeight = ref(0)
 const hoveredArtistRowId = ref<number | null>(null)
@@ -796,7 +796,7 @@ function albumCollectionsColumnLabel() {
   return 'Collection'
 }
 
-async function rehomeAlbum(album: Album, collectionId: string | null) {
+async function rehomeAlbum(album: Album, collectionId: number | null) {
   if (!collectionId || collectionId === album.collection.id || album.onDisk || writeActionsDisabled.value) {
     return
   }
@@ -827,7 +827,7 @@ function albumMoveTooltip(album: Album) {
     : 'Move to another collection'
 }
 
-async function moveAlbumTo(album: Album, collectionId: string) {
+async function moveAlbumTo(album: Album, collectionId: number) {
   albumMoveMenuOpenId.value = null
   await rehomeAlbum(album, collectionId)
 }
@@ -1445,7 +1445,7 @@ function closeCollectionEdit() {
   collectionEditTarget.value = undefined
 }
 
-async function startScan(collectionId: string) {
+async function startScan(collectionId: number) {
   selectCollectionById(collectionId)
   if (scanActionsDisabled.value) {
     return
@@ -1464,7 +1464,7 @@ function selectCollection(collection: MusicCollection) {
   void store.selectCollection(collection.id)
 }
 
-function selectCollectionById(collectionId: string) {
+function selectCollectionById(collectionId: number) {
   const collection = collections.value.find((item) => item.id === collectionId)
   if (collection) {
     selectCollection(collection)

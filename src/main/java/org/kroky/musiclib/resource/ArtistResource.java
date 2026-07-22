@@ -25,14 +25,14 @@ public class ArtistResource {
     ArtistRepository artists;
 
     @GET
-    public List<Artist> list(@QueryParam("search") String search, @QueryParam("collectionId") String collectionId) {
+    public List<Artist> list(@QueryParam("search") String search, @QueryParam("collectionId") Long collectionId) {
         LOG.infof("Listing artists search='%s' collectionId=%s", search, collectionId);
         return artists.list(search, collectionId);
     }
 
     @GET
     @Path("/{id}")
-    public Artist find(@PathParam("id") long id, @QueryParam("collectionId") String collectionId) {
+    public Artist find(@PathParam("id") long id, @QueryParam("collectionId") Long collectionId) {
         LOG.infof("Loading artist id=%d collectionId=%s", id, collectionId);
         return artists.find(id, collectionId).orElseThrow(NotFoundException::new);
     }

@@ -29,12 +29,12 @@ public class FolderNameParser {
     private static final Pattern TITLE_DASH_YEAR =
             Pattern.compile("^(.+?)\\s+-\\s+(" + RELEASE_YEAR + ")$");
 
-    public Optional<ParsedAlbum> parseFlatArtistAlbum(Path folder, String collectionId) {
+    public Optional<ParsedAlbum> parseFlatArtistAlbum(Path folder) {
         String name = folder.getFileName().toString().trim();
-        return parseArtistYearAlbum(name, folder, collectionId);
+        return parseArtistYearAlbum(name, folder);
     }
 
-    public Optional<ParsedAlbum> parseNestedArtistAlbum(Path artistFolder, Path albumFolder, String collectionId) {
+    public Optional<ParsedAlbum> parseNestedArtistAlbum(Path artistFolder, Path albumFolder) {
         String name = albumFolder.getFileName().toString().trim();
         Matcher matcher = YEAR_ALBUM.matcher(name);
         if (!matcher.matches()) {
@@ -47,11 +47,10 @@ public class FolderNameParser {
                 title,
                 releaseYear,
                 TitleSortNames.create(title, releaseYear),
-                albumFolder,
-                collectionId));
+                albumFolder));
     }
 
-    public ParsedAlbum parseTitleAlbum(Path folder, String collectionId) {
+    public ParsedAlbum parseTitleAlbum(Path folder) {
         String name = clean(folder.getFileName().toString());
 
         Matcher artistYear = TITLE_FINAL_ARTIST_YEAR.matcher(name);
@@ -63,8 +62,7 @@ public class FolderNameParser {
                     title,
                     releaseYear,
                     TitleSortNames.create(title, releaseYear),
-                    folder,
-                    collectionId);
+                    folder);
         }
 
         Matcher finalYear = TITLE_FINAL_YEAR.matcher(name);
@@ -76,8 +74,7 @@ public class FolderNameParser {
                     title,
                     releaseYear,
                     TitleSortNames.create(title, releaseYear),
-                    folder,
-                    collectionId);
+                    folder);
         }
 
         Matcher dashYearSubtitle = TITLE_DASH_YEAR_SUBTITLE.matcher(name);
@@ -91,8 +88,7 @@ public class FolderNameParser {
                     title,
                     releaseYear,
                     TitleSortNames.create(baseTitle, releaseYear, subtitle),
-                    folder,
-                    collectionId);
+                    folder);
         }
 
         Matcher dashYear = TITLE_DASH_YEAR.matcher(name);
@@ -104,8 +100,7 @@ public class FolderNameParser {
                     title,
                     releaseYear,
                     TitleSortNames.create(title, releaseYear),
-                    folder,
-                    collectionId);
+                    folder);
         }
 
         return new ParsedAlbum(
@@ -113,11 +108,10 @@ public class FolderNameParser {
                 name,
                 null,
                 TitleSortNames.create(name, (Integer) null),
-                folder,
-                collectionId);
+                folder);
     }
 
-    private Optional<ParsedAlbum> parseArtistYearAlbum(String name, Path folder, String collectionId) {
+    private Optional<ParsedAlbum> parseArtistYearAlbum(String name, Path folder) {
         Matcher matcher = ARTIST_YEAR_ALBUM.matcher(name);
         if (!matcher.matches()) {
             return Optional.empty();
@@ -129,8 +123,7 @@ public class FolderNameParser {
                 title,
                 releaseYear,
                 TitleSortNames.create(title, releaseYear),
-                folder,
-                collectionId));
+                folder));
     }
 
     private static String clean(String value) {

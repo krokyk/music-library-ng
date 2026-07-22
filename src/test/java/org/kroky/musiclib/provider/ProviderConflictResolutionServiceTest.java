@@ -36,9 +36,9 @@ class ProviderConflictResolutionServiceTest {
             statement.executeUpdate("DELETE FROM albums");
             statement.executeUpdate("DELETE FROM artists");
             statement.executeUpdate("DELETE FROM collections");
-            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES('metal','Metal','TEST-CONFLICT','ARTIST')");
+            statement.executeUpdate("INSERT INTO collections(id,name,relative_path,type) VALUES(1,'Metal','TEST-CONFLICT','ARTIST')");
             statement.executeUpdate("INSERT INTO artists(id,name,normalized_name) VALUES(1,'Athena','athena')");
-            statement.executeUpdate("INSERT INTO albums(id,collection_id,title,normalized_title,release_year,checked) VALUES(1,'metal','Local Title','local title',2000,1)");
+            statement.executeUpdate("INSERT INTO albums(id,collection_id,title,normalized_title,release_year,checked) VALUES(1,1,'Local Title','local title',2000,1)");
             statement.executeUpdate("INSERT INTO album_artists(album_id,artist_id,position) VALUES(1,1,0)");
             statement.executeUpdate("INSERT INTO album_provider_links(id,album_id,provider_id,provider_release_group_id,provider_title,provider_release_year) VALUES(1,1,'musicbrainz','rg-1','Provider Title',2001)");
         }
@@ -114,7 +114,7 @@ class ProviderConflictResolutionServiceTest {
         Path target = COLLECTION_ROOT.resolve("Athena - 2001 - Local Title");
         Files.createDirectories(source);
         execute("UPDATE albums SET local_relative_path='Athena - 2000 - Local Title' WHERE id=1");
-        execute("INSERT INTO albums(id,collection_id,title,normalized_title,local_relative_path,release_year,checked) VALUES(2,'metal','Collision','collision','Athena - 2001 - Local Title',1999,1)");
+        execute("INSERT INTO albums(id,collection_id,title,normalized_title,local_relative_path,release_year,checked) VALUES(2,1,'Collision','collision','Athena - 2001 - Local Title',1999,1)");
         execute("INSERT INTO album_artists(album_id,artist_id,position) VALUES(2,1,0)");
 
         var result = resolve("YEAR", "USE_PROVIDER", 1L);

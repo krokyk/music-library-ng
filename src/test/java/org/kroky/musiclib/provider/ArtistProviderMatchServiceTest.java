@@ -274,7 +274,7 @@ class ArtistProviderMatchServiceTest {
         return new Album(
                 id,
                 List.of(1L),
-                new AlbumCollection("artist", "Artist"),
+                new AlbumCollection(1, "Artist"),
                 "Ancient Bards",
                 title,
                 org.kroky.musiclib.model.ReleaseYears.fromDate(yearText),
@@ -294,7 +294,7 @@ class ArtistProviderMatchServiceTest {
         return new Album(
                 id,
                 List.of(1L),
-                new AlbumCollection("artist", "Artist"),
+                new AlbumCollection(1, "Artist"),
                 "Ancient Bards",
                 title,
                 org.kroky.musiclib.model.ReleaseYears.fromDate(yearText),

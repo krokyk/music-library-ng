@@ -3,7 +3,7 @@ package org.kroky.musiclib.model;
 import java.util.List;
 
 public record ScanSummary(
-        String collectionId,
+        long collectionId,
         String status,
         int artistCount,
         int parsedCount,

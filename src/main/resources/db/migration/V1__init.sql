@@ -12,7 +12,7 @@ CREATE TABLE artists (
 );
 
 CREATE TABLE collections (
-    id TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     relative_path TEXT NOT NULL,
     type TEXT NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE collections (
 
 CREATE TABLE albums (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collection_id TEXT NOT NULL,
+    collection_id INTEGER NOT NULL,
     title TEXT NOT NULL,
     normalized_title TEXT NOT NULL,
     local_relative_path TEXT,
