@@ -120,6 +120,8 @@ Do not copy a control and allow screen-specific versions to drift.
 
 ## App Shell And Height Rules
 
+- The UI targets desktop browser windows only, so do not add mobile-device-specific guards or layouts.
+- Desktop browser resizing must remain supported within the current viewport.
 - The app must not create a browser vertical scrollbar.
   The app shell owns the full viewport height.
 - Panes, tables, lists, dialogs, dropdowns, and history views scroll internally only when their own content overflows.
@@ -264,15 +266,19 @@ Do not copy a control and allow screen-specific versions to drift.
 
 ## Dialogs, Popovers, And Forms
 
-- Use one shared dialog/popover visual language across edit forms.
+- Use one shared dialog/popover visual language for surfaces, border radii, typography, controls, colors, and spacing only.
 - Dialog cards and anchored edit popovers should use the same gap constants: small gap `10px`, large gap `20px`.
 - Dialog content containing outlined fields must keep at least the shared `10px` small gap above the first field so a floating label never overlaps the dialog title or preceding content.
 - Floating field labels must remain completely readable in empty, focused, populated, error, and disabled states.
   A dialog, grid, scroll container, title, or adjacent control must never paint over or clip any part of the label.
 - Use the shared `dialog-card`, `edit-form`, and field defaults before adding dialog-specific spacing.
   Fix label clearance at the shared dialog/form seam instead of nudging one field or label.
-- Dialogs should size to their content, stay centered by default, and cap their height at `75%` of the page height with internal scrolling for overflow.
-- Dialogs should cap their desktop width at `40%` of the page width, while mobile dialogs can expand to the viewport minus safe margins.
+- Dialog dimensions and overflow must be owned explicitly by each dialog type or intentional dialog family instead of broad shared selectors.
+- Every real dialog, including confirmation dialogs, is centered horizontally and vertically in the browser viewport.
+- Anchored menus, dropdowns, status history, and connected edit overlays keep their anchors and do not use dialog centering.
+- Provider matching, provider conflict, bulk provider-match results, and plain-text reports share a fixed `55vw` width up to `1500px` and a fixed `75vh` height.
+- Plain-text report lines remain unwrapped and use horizontal scrolling when they exceed the report viewport, while provider matching and conflict content contracts horizontally and scrolls vertically.
+- Collection deletion uses its own `460px` responsive confirmation width.
 - Anchor a pane to a control only when that is the better workflow fit, such as cell editors, menus, dropdowns, or status history near the status bar.
 - Edit forms should not feel cramped.
   Prefer fewer fields and clear vertical spacing over dense packing.

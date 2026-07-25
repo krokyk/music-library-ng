@@ -138,7 +138,8 @@ const artistsScreenIconActionButtonWidth = 30
 const artistsScreenRowActionGap = 2
 const artistsScreenActionColumnWidths = {
   icon: 2 * artistsScreenIconActionButtonWidth + artistsScreenRowActionGap,
-  labeled: 260,
+  singleLabeled: 126,
+  allLabeled: 260,
 }
 const artistsSearchControlsMinimumWidth = 260
 const artistsBulkExpandedMinimumWidth = 900
@@ -1347,12 +1348,15 @@ function artistsScreenColumnMinimumWidth(key: ArtistScreenColumnKey) {
   return artistsScreenSortableColumnMinimumWidth
 }
 
-function showArtistsScreenActionLabels() {
-  return artistsScreenRightmostColumnAvailableWidth() >= artistsScreenActionColumnWidths.labeled
+function showArtistsScreenActionLabels(artist: Artist) {
+  const labeledWidth = artistHasProviderConflict(artist)
+    ? artistsScreenActionColumnWidths.allLabeled
+    : artistsScreenActionColumnWidths.singleLabeled
+  return artistsScreenRightmostColumnAvailableWidth() >= labeledWidth
 }
 
-function artistScreenRowActionClass() {
-  return [actionLabelClassFor(showArtistsScreenActionLabels()), 'workspace-row-action']
+function artistScreenRowActionClass(artist: Artist) {
+  return [actionLabelClassFor(showArtistsScreenActionLabels(artist)), 'workspace-row-action']
 }
 
 function actionLabelClassFor(showLabels: boolean) {
@@ -2739,11 +2743,11 @@ watch(providerConflictDialog, (open) => {
                       size="x-small"
                       variant="text"
                       color="warning"
-                      :class="artistScreenRowActionClass()"
+                      :class="artistScreenRowActionClass(artist)"
                       :disabled="writeActionsDisabled"
                       @click.stop="openArtistProviderConflicts(artist)"
                     >
-                      <span v-if="showArtistsScreenActionLabels()">Conflicts</span>
+                      <span v-if="showArtistsScreenActionLabels(artist)">Conflicts</span>
                     </v-btn>
                   </template>
                 </v-tooltip>
@@ -2755,12 +2759,12 @@ watch(providerConflictDialog, (open) => {
                       size="x-small"
                       variant="text"
                       color="primary"
-                      :class="artistScreenRowActionClass()"
+                      :class="artistScreenRowActionClass(artist)"
                       :loading="matchingArtistId === artist.id && providerLoadingIds.length > 0"
                       :disabled="writeActionsDisabled || !artistProviderEligible(artist)"
                       @click.stop="startProviderSetup(artist)"
                     >
-                      <span v-if="showArtistsScreenActionLabels()">Add providers</span>
+                      <span v-if="showArtistsScreenActionLabels(artist)">Add providers</span>
                     </v-btn>
                   </template>
                 </v-tooltip>
@@ -3153,8 +3157,7 @@ watch(providerConflictDialog, (open) => {
 
     <v-dialog
       v-model="providerConflictDialog"
-      max-width="none"
-      :content-props="{ class: 'provider-conflict-overlay' }"
+      content-class="large-dialog-content"
     >
       <v-card class="dialog-card provider-conflict-dialog">
         <v-card-title class="provider-conflict-dialog__title">
@@ -3387,8 +3390,11 @@ watch(providerConflictDialog, (open) => {
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="bulkMatchDialog" max-width="1100">
-      <v-card class="dialog-card">
+    <v-dialog
+      v-model="bulkMatchDialog"
+      content-class="large-dialog-content"
+    >
+      <v-card class="dialog-card bulk-match-dialog">
         <v-card-title>Bulk Provider Match</v-card-title>
         <v-card-text class="edit-form">
           <div v-if="bulkMatchResult" class="dialog-chip-row">

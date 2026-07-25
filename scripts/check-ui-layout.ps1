@@ -8,6 +8,8 @@ param(
     [string]$ArtistCollection = "Melodeath",
     [string]$ArtistName = "",
     [string]$TitleCollection = "Soundtracks",
+    [switch]$CheckProviderDialog,
+    [switch]$CheckReportDialog,
     [switch]$KeepChromeOpen
 )
 
@@ -307,6 +309,39 @@ try {
     $initialPath = Join-Path $OutputDir "musiclib-initial.png"
     Save-Screenshot $socket $initialPath
 
+    if ($CheckReportDialog) {
+        if (-not (Eval-Js $socket "(() => { const app = document.querySelector('#app')?.__vue_app__; const store = app?.config.globalProperties.`$pinia?._s.get('library'); if (!store) return false; store.`$patch({ statusHistory: [{ id: 1, message: 'Short report', state: 'done', createdAt: '12:00:00', reports: [{ title: 'Short', text: 'short' }] }, { id: 2, message: 'Long report', state: 'done', createdAt: '12:00:01', reports: [{ title: 'Long', text: 'LONG_' + 'x'.repeat(400) }] }] }); document.querySelector('.global-status-bar')?.click(); return true; })()")) {
+            throw "Unable to inject report-dialog smoke data."
+        }
+        if (-not (Wait-ForJs $socket "document.querySelectorAll('.status-history-entry--clickable').length === 2" 3000)) {
+            throw "Injected report history did not render."
+        }
+        Eval-Js $socket "document.querySelector('.status-history-entry--clickable')?.click()" | Out-Null
+        if (-not (Wait-ForJs $socket "document.querySelector('.scan-report-dialog__content')?.textContent === 'short'" 3000)) {
+            throw "Short report did not open."
+        }
+        Start-Sleep -Milliseconds 500
+        $shortState = Eval-Js $socket "(() => { const rect = document.querySelector('.scan-report-dialog-content').getBoundingClientRect(); return JSON.stringify({ width: rect.width, height: rect.height }); })()"
+        $short = $shortState | ConvertFrom-Json
+        Eval-Js $socket "document.querySelector('.scan-report-dialog__navigation button:last-of-type')?.click()" | Out-Null
+        if (-not (Wait-ForJs $socket "document.querySelector('.scan-report-dialog__content')?.textContent.startsWith('LONG_')" 3000)) {
+            throw "Long report did not open."
+        }
+        $longState = Eval-Js $socket "(() => { const dialog = document.querySelector('.scan-report-dialog-content'); const rect = dialog.getBoundingClientRect(); const scroller = document.querySelector('.scan-report-dialog__scroller'); return JSON.stringify({ width: rect.width, height: rect.height, expectedWidth: Math.min(innerWidth * 0.55, 1500), expectedHeight: innerHeight * 0.75, centerOffsetX: Math.abs(rect.left + rect.width / 2 - innerWidth / 2), centerOffsetY: Math.abs(rect.top + rect.height / 2 - innerHeight / 2), clientWidth: scroller.clientWidth, scrollWidth: scroller.scrollWidth, whiteSpace: getComputedStyle(document.querySelector('.scan-report-dialog__content')).whiteSpace }); })()"
+        $long = $longState | ConvertFrom-Json
+        if ([Math]::Abs($short.width - $long.width) -gt 0.5 -or [Math]::Abs($short.height - $long.height) -gt 0.5 -or [Math]::Abs($long.width - $long.expectedWidth) -gt 0.5 -or [Math]::Abs($long.height - $long.expectedHeight) -gt 0.5) {
+            throw "Report dialog size changed or ignored the 55vw/1500px by 75vh rule: short=$shortState long=$longState."
+        }
+        if ($long.centerOffsetX -gt 0.5 -or $long.centerOffsetY -gt 0.5) {
+            throw "Report dialog is not centered in the browser viewport: $longState"
+        }
+        if ($long.whiteSpace -ne "pre" -or $long.scrollWidth -le $long.clientWidth) {
+            throw "Long report must remain unwrapped and scroll horizontally: $longState"
+        }
+        Eval-Js $socket "document.querySelector('.scan-report-dialog-content')?.closest('.v-overlay')?.querySelector('.v-overlay__scrim')?.click()" | Out-Null
+        Wait-ForJs $socket "document.querySelector('.scan-report-dialog-content') === null" 3000 | Out-Null
+    }
+
     Eval-Js $socket @"
 (() => {
   const row = Array.from(document.querySelectorAll('.nav-row'))
@@ -333,6 +368,19 @@ try {
 
     Eval-Js $socket "(() => { const cancel = Array.from(document.querySelectorAll('.collection-edit-card button')).find((node) => node.textContent.trim().toLowerCase() === 'cancel'); if (!cancel) return false; cancel.click(); return true; })()" | Out-Null
     Wait-ForJs $socket "document.querySelector('.collection-edit-card') === null" 3000 | Out-Null
+
+    if (-not (Eval-Js $socket "(() => { const row = [...document.querySelectorAll('.nav-row')].find((node) => node.textContent.includes('$TitleCollection')); const button = row?.querySelector('.mdi-trash-can-outline')?.closest('button'); if (!button) return false; button.click(); return true; })()")) {
+        throw "Delete Collection confirmation could not be opened."
+    }
+    if (-not (Wait-ForJs $socket "document.querySelector('.delete-collection-dialog') !== null" 3000)) {
+        throw "Delete Collection confirmation did not render."
+    }
+    Start-Sleep -Milliseconds 500
+    if (-not (Eval-Js $socket "(() => { const rect = document.querySelector('.delete-collection-dialog').closest('.v-overlay__content').getBoundingClientRect(); return Math.abs(rect.left + rect.width / 2 - innerWidth / 2) <= 0.5 && Math.abs(rect.top + rect.height / 2 - innerHeight / 2) <= 0.5; })()")) {
+        throw "Delete Collection confirmation is not centered in the browser viewport."
+    }
+    Eval-Js $socket "(() => { const cancel = [...document.querySelectorAll('.delete-collection-dialog button')].find((node) => node.textContent.trim() === 'Cancel'); if (!cancel) return false; cancel.click(); return true; })()" | Out-Null
+    Wait-ForJs $socket "document.querySelector('.delete-collection-dialog') === null" 3000 | Out-Null
 
     Eval-Js $socket "(() => { const row = Array.from(document.querySelectorAll('.nav-row')).find((node) => node.textContent.includes('$ArtistCollection')); if (!row) return false; row.click(); return true; })()" | Out-Null
     if (-not (Wait-ForJs $socket "document.querySelectorAll('.artists-pane .workspace-row').length > 0" 8000)) {
@@ -378,6 +426,53 @@ try {
     if (-not (Wait-ForJs $socket "document.querySelectorAll('.artists-screen-grid .workspace-row').length > 0" 60000)) {
         throw "Artists page did not finish its initial multi-row load."
     }
+    if ($CheckProviderDialog) {
+        if (-not (Eval-Js $socket "(() => { const button = [...document.querySelectorAll('.artists-screen-grid .workspace-row .mdi-link-plus')].map((icon) => icon.closest('button')).find((candidate) => candidate && !candidate.disabled); if (!button) return false; button.click(); return true; })()")) {
+            throw "Provider matching dialog could not be opened."
+        }
+        if (-not (Wait-ForJs $socket "document.querySelector('.provider-match-dialog') !== null" 3000)) {
+            throw "Provider matching dialog did not render."
+        }
+        Start-Sleep -Milliseconds 500
+        $providerDialogState = Eval-Js $socket "(() => { const card = document.querySelector('.provider-match-dialog'); const content = card.closest('.v-overlay__content'); const rect = card.getBoundingClientRect(); return JSON.stringify({ width: rect.width, height: rect.height, contentWidth: content.getBoundingClientRect().width, expectedWidth: Math.min(innerWidth * 0.55, 1500), expectedHeight: innerHeight * 0.75, centerOffsetX: Math.abs(rect.left + rect.width / 2 - innerWidth / 2), centerOffsetY: Math.abs(rect.top + rect.height / 2 - innerHeight / 2), overflowX: getComputedStyle(card).overflowX }); })()"
+        $providerDialog = $providerDialogState | ConvertFrom-Json
+        if ($providerDialog.centerOffsetX -gt 0.5 -or $providerDialog.centerOffsetY -gt 0.5 -or [Math]::Abs($providerDialog.width - $providerDialog.expectedWidth) -gt 0.5 -or [Math]::Abs($providerDialog.height - $providerDialog.expectedHeight) -gt 0.5 -or $providerDialog.overflowX -ne "hidden") {
+            throw "Provider matching dialog is not centered at the shared large-dialog size: $providerDialogState"
+        }
+        Eval-Js $socket "(() => { const close = [...document.querySelectorAll('.provider-match-dialog button')].find((node) => node.textContent.trim() === 'Close'); if (!close) return false; close.click(); return true; })()" | Out-Null
+        Wait-ForJs $socket "document.querySelector('.provider-match-dialog') === null" 3000 | Out-Null
+    }
+    $singleActionState = Eval-Js $socket @'
+(() => {
+  const row = [...document.querySelectorAll('.artists-screen-grid .workspace-row')]
+    .find((candidate) => candidate.querySelectorAll('.row-actions button').length === 1);
+  if (!row) return JSON.stringify({ found: false });
+  const cell = row.querySelector('.row-action-cell');
+  const button = row.querySelector('.row-actions button');
+  const clone = button.cloneNode(true);
+  clone.classList.remove('action-button--icon-only');
+  clone.classList.add('action-button--labeled');
+  const label = document.createElement('span');
+  label.textContent = 'Add providers';
+  clone.querySelector('.v-btn__content').append(label);
+  Object.assign(clone.style, { position: 'fixed', visibility: 'hidden', width: 'max-content' });
+  document.body.append(clone);
+  const cellStyle = getComputedStyle(cell);
+  const available = cell.clientWidth - parseFloat(cellStyle.paddingLeft) - parseFloat(cellStyle.paddingRight);
+  const required = clone.getBoundingClientRect().width;
+  clone.remove();
+  return JSON.stringify({
+    found: true,
+    available,
+    required,
+    label: button.textContent.trim()
+  });
+})()
+'@
+    $singleAction = $singleActionState | ConvertFrom-Json
+    if ($singleAction.found -and $singleAction.available -ge $singleAction.required -and $singleAction.label -ne "Add providers") {
+        throw "A lone Add providers action collapsed despite fitting its action cell: $singleActionState"
+    }
     $artistsPath = Join-Path $OutputDir "musiclib-artists-page.png"
     Save-Screenshot $socket $artistsPath
 
@@ -392,6 +487,10 @@ try {
 
     $conflictOpened = Eval-Js $socket "(() => { const button = document.querySelector('.artists-screen-grid .workspace-row .mdi-alert-outline')?.closest('button'); if (!button) return false; button.click(); return true; })()"
     if ($conflictOpened -and (Wait-ForJs $socket "!!document.querySelector('.provider-conflict-dialog .provider-conflict-choice')" 10000)) {
+        Start-Sleep -Milliseconds 500
+        if (-not (Eval-Js $socket "(() => { const dialog = document.querySelector('.provider-conflict-dialog'); const rect = dialog.getBoundingClientRect(); return Math.abs(rect.left + rect.width / 2 - innerWidth / 2) <= 0.5 && Math.abs(rect.top + rect.height / 2 - innerHeight / 2) <= 0.5 && Math.abs(rect.width - Math.min(innerWidth * 0.55, 1500)) <= 0.5 && Math.abs(rect.height - innerHeight * 0.75) <= 0.5 && getComputedStyle(dialog.querySelector('.provider-conflict-dialog__body')).overflowX === 'hidden'; })()")) {
+            throw "Provider conflict dialog is not centered at the shared large-dialog size."
+        }
         $choiceOpacity = Eval-Js $socket "(() => [...document.querySelectorAll('.provider-conflict-dialog .provider-conflict-choice')].every((node) => getComputedStyle(node).opacity === '1'))()"
         if (-not $choiceOpacity) {
             throw "Provider conflict choices must remain fully opaque while the conflict section is highlighted."

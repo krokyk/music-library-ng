@@ -207,6 +207,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Status history is not persisted in SQLite and is lost after reload or app exit.
 - Completed scan and provider-check status entries can carry one or more report artifacts returned by the completed job.
 - Report dialog navigation such as `1/3` is the current report index inside the in-memory status history.
+- The report dialog keeps a content-independent size of `55vw` up to `1500px` by `75vh`, and long report lines remain unwrapped with horizontal scrolling.
 - Reports omit internal identifiers.
 - Durable audit data comes from the generated plain text files under `data/reports`, not from database job tables.
 - The artist-scoped provider conflict resolver groups artist metadata conflicts by field and album metadata conflicts by local album and conflict type.

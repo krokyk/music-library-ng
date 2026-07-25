@@ -3479,8 +3479,8 @@ watch(sortedCollectionTitleItems, (items) => {
       @close="closeProviderSetup"
     />
 
-    <v-dialog v-model="deleteCollectionDialog" max-width="460">
-      <v-card class="dialog-card">
+    <v-dialog v-model="deleteCollectionDialog" width="460" max-width="calc(100vw - 64px)">
+      <v-card class="dialog-card delete-collection-dialog">
         <v-card-title>Delete Collection</v-card-title>
         <v-card-text class="edit-form">
           <div>Delete {{ collectionToDelete?.name }}?</div>

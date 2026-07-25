@@ -304,7 +304,11 @@ function refreshAll() {
 </script>
 
 <template>
-  <v-dialog :model-value="modelValue" max-width="none" @update:model-value="emit('update:modelValue', $event)">
+  <v-dialog
+    :model-value="modelValue"
+    content-class="large-dialog-content"
+    @update:model-value="emit('update:modelValue', $event)"
+  >
     <v-card class="dialog-card provider-match-dialog">
       <v-card-title class="provider-match-dialog__title">
         <span>{{ dialogTitle }}</span>

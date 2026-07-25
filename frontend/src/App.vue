@@ -503,7 +503,6 @@ onMounted(async () => {
       max-width="none"
       persistent
       no-click-animation
-      content-class="collection-scan-dialog-content"
     >
       <v-card class="dialog-card collection-scan-dialog">
         <v-card-title class="collection-scan-dialog__title">
@@ -535,7 +534,7 @@ onMounted(async () => {
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="historyDialog" max-width="1080" :class="statusHistoryOverlayClasses">
+    <v-dialog v-model="historyDialog" max-width="none" :class="statusHistoryOverlayClasses">
       <v-card class="dialog-card status-history-dialog">
         <v-card-title>Status History</v-card-title>
         <v-card-text class="status-history-dialog__text">
@@ -579,10 +578,7 @@ onMounted(async () => {
 
     <v-dialog
       v-model="reportDialog"
-      width="1280"
-      max-width="calc(100vw - 64px)"
-      class="scan-report-overlay"
-      content-class="scan-report-dialog-content"
+      content-class="scan-report-dialog-content large-dialog-content"
       scrollable
     >
       <v-card class="dialog-card scan-report-dialog">
