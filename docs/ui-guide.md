@@ -162,21 +162,42 @@ Do not copy a control and allow screen-specific versions to drift.
 - Workspace pane tables with unbounded or scan/provider-populated row counts must be virtualized.
 - The Collections screen Artists, Albums, and Titles tables must all remain virtualized.
 - Future library-management screens with full-library tables, including the main Artists screen, should use the same virtualized grid pattern before row counts become large.
-- Use explicit pixel column widths from defaults/preferences.
+- Use explicit pixel column widths from defaults/preferences only for fixed columns.
 - Column width defaults come from `application.properties`; user-adjusted widths are stored as DB preferences.
   Future screens should follow the same shape, for example `artists-screen.artists-pane.name`.
-  Current collection-screen column keys include `collections-screen.artists-pane.name`, `collections-screen.albums-pane.name`, `collections-screen.albums-pane.release-year`, `collections-screen.albums-pane.checked`, `collections-screen.albums-pane.home`, `collections-screen.albums-pane.action`, `collections-screen.titles-pane.title`, `collections-screen.titles-pane.artist`, and `collections-screen.titles-pane.release-year`.
-  Current Artists screen column keys include `artists-screen.artists-pane.name`, `artists-screen.artists-pane.country`, `artists-screen.artists-pane.status`, `artists-screen.artists-pane.albums`, `artists-screen.artists-pane.unchecked`, `artists-screen.artists-pane.local`, `artists-screen.artists-pane.provider`, and `artists-screen.artists-pane.action`.
+  Current collection-screen column keys include `collections-screen.albums-pane.name`, `collections-screen.albums-pane.release-year`, `collections-screen.albums-pane.checked`, `collections-screen.albums-pane.home`, `collections-screen.titles-pane.title`, `collections-screen.titles-pane.artist`, and `collections-screen.titles-pane.release-year`.
+  Current Artists screen column keys include `artists-screen.artists-pane.name`, `artists-screen.artists-pane.country`, `artists-screen.artists-pane.status`, `artists-screen.artists-pane.albums`, `artists-screen.artists-pane.unchecked`, `artists-screen.artists-pane.local`, and `artists-screen.artists-pane.provider`.
+  Do not persist the width of a single-column inline row, a flexible spacer, or a rightmost action column.
 - Non-rightmost columns keep fixed pixel widths.
   The rightmost column uses remaining available space.
+- Workspace grids must use the shared column-sizing module for minimum widths, resize boundaries, browser and pane resize response, and fixed-width persistence.
 - A read-only grid may place a headerless flexible spacer after its final data column so the final data column keeps a practical persisted width and resize boundary without inventing an action column.
 - Each column boundary has one resize handle.
 - Dragging a column boundary resizes the column immediately to the left of the boundary.
   Columns to the right move as a block; the rightmost/flexible column absorbs or gives up width.
 - Column resizing must not trigger sorting.
 - Double-click auto-fit on column boundaries is disabled unless it can be made reliable.
-- All non-action columns share the configured minimum table grid column width.
-- Action columns are resizable but cannot shrink below the icon-only action width needed by their controls.
+- Classify columns by behavior instead of by screen or entity.
+  Text columns stay on one line and ellipsize.
+  Atomic value columns preserve the complete year, number, icon, or compact immutable value.
+  Control columns preserve the complete checkbox, editable status, or equivalent control.
+  Chip-set columns may compact labels but may not hide complete controls.
+  Action columns show the whole visible action set either fully labeled or entirely icon-only.
+  Flexible spacers absorb unused width and are neither resizable nor persisted.
+- A compound inline row where a name and trailing controls share one physical cell is a layout context, not another column type.
+- Atomic, control, chip-set, and action column minimums must be derived from the complete currently displayed content instead of a generic table minimum.
+- Numeric columns must never wrap, clip, ellipsize, or shrink below their widest displayed number.
+- Standalone release years throughout the app use the shared year chip with intrinsic width, tabular numerals, centered alignment, a 16-pixel font at weight 600, and a literal visible height of 26 pixels.
+- Conflicted and kept-local year and album-title chips retain the normal year or title typography, use a literal visible height of 26 pixels, and indicate state only with a single inset outline and hover fill.
+  Unresolved conflicts use a bright warning outline with a faint warning hover fill, while locally resolved conflicts use a white outline with a faint white hover fill.
+  Year chips retain their normal neutral fill in both states, while album-title chips remain transparent.
+- Count-only chips use intrinsic width, tabular numerals, right alignment, a 14-pixel normal-weight white font, and a literal visible height of 24 pixels.
+- Inline issue chips such as `3 unchecked` use the 14-pixel count numeral with a 12-pixel normal-weight label in a literal 22-pixel visible height.
+- Collection chips use a 12-pixel normal-weight font and a literal visible height of 22 pixels.
+- Provider chips use the shared Artists-screen provider presentation everywhere: a 12-pixel font at weight 800 and a literal visible height of 22 pixels.
+- Chip borders and state outlines must be paint-only so the chip element and its visible fill retain the same specified height.
+- Positive unchecked counts use the same muted attention text color as unchecked album names, with that color naturally dimming the standard tonal underlay, while zero unchecked counts and all other counts use the neutral number-chip treatment.
+- Action columns cannot shrink below the icon-only width required by their current complete action set.
 - Action columns have no header text and row actions align left inside the action column in rightmost panes.
 - Grid-table action columns must reserve enough width for the full icon-only action set used by that table.
 - Sortable grid-table columns may shrink to the practical minimum that keeps the sort arrow visible.
@@ -187,7 +208,8 @@ Do not copy a control and allow screen-specific versions to drift.
 - Title-centric `Title` sorting has a colored mode icon inside the title header: clicking the header changes direction, clicking the icon switches title-vs-sort sorting.
 - The title-sort mode tooltip must explain the resulting order in user terms: series name then release year and subtitle, or displayed-title alphabetical order.
 - Text that does not fit must use ellipsis.
-  Add tooltips when the hidden text is important for understanding the row.
+  A text-reveal tooltip is enabled only while that text is actually ellipsized.
+  Help, action, error, and state tooltips remain available regardless of text overflow.
 
 ## Row Actions And Controls
 
@@ -200,6 +222,10 @@ Do not copy a control and allow screen-specific versions to drift.
   The clicked control then runs its normal action when it is enabled.
 - Row actions are hover/focus visible, and selected rows keep their available actions visible.
 - Inline row actions use the centralized row action button style.
+- Every row action column uses the same shared button size, icon size, two-pixel action gap, eight-pixel horizontal cell padding, and left alignment across screens.
+- Inline and dedicated action-column adapters must use the same adaptive action measurement.
+- Adaptive row actions measure the controls that are currently rendered and switch the complete set between labeled and icon-only states without pane-specific pixel thresholds.
+- Recalculate adaptive action fitting when its container width or visible action set changes.
 - Hidden hover-only row actions must not reserve idle row text width.
 - Persistent row status chips may reserve row width because they are visible in the idle state.
 - Persistent row info icons may reserve row width because they are visible in the idle state.
@@ -212,6 +238,7 @@ Do not copy a control and allow screen-specific versions to drift.
 - Pane filter toggle labels do not collapse as part of artist row fitting.
 - Prefer icon plus short label when the containing pane or action column can fit the complete labeled action set.
   Collapse action labels automatically when the labeled action set no longer fits.
+  Keep the labeled action set at its full rendered width and stable alignment until that switch, without compressing, clipping, or shifting actions inside the column.
   Do not expose pane-width action-label thresholds in Settings.
 - Controls that can collapse must keep their icons visible.
   When space gets tight, remove labels first; never allow the pane, row, or action column to shrink below the width required to show all required icons.

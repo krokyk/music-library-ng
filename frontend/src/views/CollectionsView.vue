@@ -3,31 +3,36 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 import AppSpinner from '@/components/AppSpinner.vue'
+import ActionColumn from '@/components/ActionColumn.vue'
+import InlineRowActions from '@/components/InlineRowActions.vue'
 import ProviderChip from '@/components/ProviderChip.vue'
 import ProviderMatchDialog from '@/components/ProviderMatchDialog.vue'
+import RowActionButton from '@/components/RowActionButton.vue'
+import { useWorkspaceGridColumns } from '@/workspaceGridColumns'
 import { providerDefinition, validateProviderUrl, type ProviderId } from '@/providers'
 import type { Album, Artist, ArtistProviderCandidate, CollectionDeletePreview, CollectionFolderCandidate, MusicCollection } from '@/types'
 import type { CSSProperties } from 'vue'
 
 interface ArtistRowMeasurement {
   contentWidth: number
+  issueCompactWidth: number
+  issueLabeledWidth: number
   nameWidth: number
 }
 
 interface ArtistRowFit {
-  actionLabels: boolean
   issueLabel: boolean
-  providerLabel: boolean
+}
+
+interface ActionMeasurement {
+  icon: number
+  labeled: number
 }
 
 interface CollectionRowMeasurement {
   contentWidth: number
   leadingWidth: number
   nameWidth: number
-}
-
-interface CollectionRowFit {
-  actionLabels: boolean
 }
 
 type CollectionRow =
@@ -43,6 +48,8 @@ type PresenceFilter = 'local' | 'nonLocal'
 type ArtistUncheckedFilter = 'unchecked'
 type AlbumShowAllFilter = 'showAll'
 type PaneLayoutKind = 'artist' | 'title'
+type AlbumColumnKey = 'name' | 'releaseYear' | 'checked' | 'home' | 'action'
+type TitleColumnKey = 'title' | 'artist' | 'releaseYear' | 'spacer'
 
 const store = useLibraryStore()
 const {
@@ -126,10 +133,6 @@ const collectionEditForm = reactive({
   type: 'ARTIST' as MusicCollection['type'],
 })
 
-const artistColumnWidths = reactive({
-  ...uiSettings.value.workspaceColumnDefaults.artist,
-})
-
 const albumColumnWidths = reactive({
   ...uiSettings.value.workspaceColumnDefaults.album,
 })
@@ -176,21 +179,19 @@ let presencePreferencesLoaded = false
 let paneResizeActive = false
 const suppressHeaderSortUntil = ref(0)
 const artistRowMeasurements = reactive<Record<number, ArtistRowMeasurement>>({})
+const artistActionMeasurements = reactive<Record<number, ActionMeasurement>>({})
+const collectionActionMeasurement = ref<ActionMeasurement>({ icon: 94, labeled: 198 })
 const artistRowElements = new Map<number, HTMLElement>()
 let artistRowMeasureFrame: number | null = null
 let artistNameMeasureCanvas: HTMLCanvasElement | null = null
 let collectionNameMeasureCanvas: HTMLCanvasElement | null = null
 
 const columnWidthPreferenceKeys = {
-  artist: {
-    name: 'collections-screen.artists-pane.name',
-  },
   album: {
     name: 'collections-screen.albums-pane.name',
     releaseYear: 'collections-screen.albums-pane.release-year',
     checked: 'collections-screen.albums-pane.checked',
     home: 'collections-screen.albums-pane.home',
-    action: 'collections-screen.albums-pane.action',
   },
   title: {
     title: 'collections-screen.titles-pane.title',
@@ -213,26 +214,19 @@ const paneHeaderMinimumWidths = {
   titles: 430,
 } as const
 
-const actionColumnWidths = {
-  artist: { icon: 148 },
-  album: { icon: 136 },
-} as const
 const sortableColumnMinimumWidth = 62
+const releaseYearColumnMinimumWidth = 64
+const titleCompoundHeaderMinimumWidth = 96
 const checkboxColumnMinimumWidth = 44
+const albumActionColumnMinimumWidths = {
+  move: 46,
+  moveWithInfo: 70,
+} as const
 
 const rowActionButtonWidths = {
-  gap: 2,
-  info: 24,
-  local: 64,
   provider: 118,
   providerChip: 126,
   providerChipCompact: 58,
-  edit: 58,
-  scan: 62,
-  remove: 90,
-  untrack: 86,
-  delete: 76,
-  move: 82,
 } as const
 
 const collectionAddLabelMinimumWidth = 260
@@ -246,7 +240,6 @@ const collectionRowInfoWidth = 18
 const collectionRowInfoActionGap = 6
 const collectionTypeIconWidth = 16
 const collectionTitleItemGap = 6
-const collectionIconActionButtonWidth = 30
 const artistReadableNameMinimumWidth = 128
 const artistRowCellHorizontalPadding = 24
 const artistRowNameTrailingGap = 20
@@ -265,6 +258,24 @@ const tableColumnOrders = {
   album: ['name', 'releaseYear', 'checked', 'home', 'action'],
   title: ['title', 'artist', 'releaseYear', 'spacer'],
 } as const
+
+const albumGridColumns = useWorkspaceGridColumns<AlbumColumnKey>({
+  columnKeys: () => tableColumnKeys('album') as readonly AlbumColumnKey[],
+  widths: albumColumnWidths,
+  minimumWidth: (key) => columnMinimumWidth('album', key),
+  gridElement: () => albumGridElement.value,
+  saveWidth: (key, width) => saveColumnWidth('album', key, width),
+  suppressHeaderClick: suppressHeaderSortClick,
+})
+
+const titleGridColumns = useWorkspaceGridColumns<TitleColumnKey>({
+  columnKeys: () => tableColumnKeys('title') as readonly TitleColumnKey[],
+  widths: titleColumnWidths,
+  minimumWidth: (key) => columnMinimumWidth('title', key),
+  gridElement: () => titleGridElement.value,
+  saveWidth: (key, width) => saveColumnWidth('title', key, width),
+  suppressHeaderClick: suppressHeaderSortClick,
+})
 
 const selectedCollection = computed(() =>
   collections.value.find((collection) => collection.id === selectedCollectionId.value) ?? null,
@@ -530,10 +541,6 @@ function providerChipText(artist: Artist) {
   return provider ? providerDefinition(provider.providerId).label : 'Add provider'
 }
 
-function showArtistProviderLabel(artist: Artist) {
-  return artistRowFit(artist).providerLabel
-}
-
 function compareText(left: string | null | undefined, right: string | null | undefined) {
   return (left ?? '').localeCompare(right ?? '', undefined, { numeric: true, sensitivity: 'base' })
 }
@@ -671,6 +678,7 @@ function setArtistRowElement(artistId: number, value: unknown) {
   } else {
     artistRowElements.delete(artistId)
     delete artistRowMeasurements[artistId]
+    delete artistActionMeasurements[artistId]
   }
   scheduleArtistRowMeasurement()
 }
@@ -709,13 +717,27 @@ function measureArtistRows() {
     const spinnerWidth = spinner ? Math.ceil(spinner.getBoundingClientRect().width + gap) : 0
     const contentWidth = Math.max(0, Math.floor(cell.clientWidth - padding - spinnerWidth))
     const nameWidth = Math.ceil(name.scrollWidth)
+    const issueChip = rowElement.querySelector<HTMLElement>('.artist-issue-chip')
+    const issueLabeledWidth = issueChip ? measuredAdaptiveControlWidth(issueChip, true) : 0
+    const issueCompactWidth = issueChip ? measuredAdaptiveControlWidth(issueChip, false) : 0
     if (contentWidth <= 0 || nameWidth <= 0) {
       scheduleArtistRowMeasurement()
       return
     }
     const current = artistRowMeasurements[artistId]
-    if (!current || current.contentWidth !== contentWidth || current.nameWidth !== nameWidth) {
-      artistRowMeasurements[artistId] = { contentWidth, nameWidth }
+    if (
+      !current
+      || current.contentWidth !== contentWidth
+      || current.nameWidth !== nameWidth
+      || current.issueLabeledWidth !== issueLabeledWidth
+      || current.issueCompactWidth !== issueCompactWidth
+    ) {
+      artistRowMeasurements[artistId] = {
+        contentWidth,
+        issueCompactWidth,
+        issueLabeledWidth,
+        nameWidth,
+      }
     }
   })
 
@@ -723,8 +745,25 @@ function measureArtistRows() {
     const artistId = Number(key)
     if (!visibleIds.has(artistId)) {
       delete artistRowMeasurements[artistId]
+      delete artistActionMeasurements[artistId]
     }
   })
+}
+
+function measuredAdaptiveControlWidth(element: HTMLElement, labeled: boolean) {
+  const clone = element.cloneNode(true) as HTMLElement
+  clone.dataset.showLabel = String(labeled)
+  Object.assign(clone.style, {
+    left: '-10000px',
+    maxWidth: 'none',
+    position: 'fixed',
+    visibility: 'hidden',
+    width: 'max-content',
+  })
+  document.body.append(clone)
+  const width = Math.ceil(clone.getBoundingClientRect().width)
+  clone.remove()
+  return width
 }
 
 function cssPixelValue(value: string) {
@@ -1022,17 +1061,11 @@ function collectionRowMinimumWidth() {
     + collectionRowNameTrailingGap
     + collectionRowInfoWidth
     + collectionRowInfoActionGap
-    + collectionIconActionWidth()
+    + collectionActionMeasurement.value.icon
 }
 
 function collectionPaneMinimumWidth() {
   return Math.max(paneHeaderMinimumWidths.collections, collectionRowMinimumWidth())
-}
-
-function collectionRowActionsVisible(collection: MusicCollection) {
-  return collection.id === selectedCollectionId.value
-    || collection.id === hoveredCollectionId.value
-    || collection.id === focusedCollectionId.value
 }
 
 function handleCollectionRowFocusOut(collection: MusicCollection, event: FocusEvent) {
@@ -1045,28 +1078,24 @@ function handleCollectionRowFocusOut(collection: MusicCollection, event: FocusEv
   }
 }
 
-function showCollectionRowActionLabels(collection: MusicCollection) {
-  return collectionRowFit(collection).actionLabels
-}
-
-function collectionRowFit(collection: MusicCollection): CollectionRowFit {
+function collectionActionAvailableWidth(collection: MusicCollection) {
   const measurement = currentCollectionRowMeasurement(collection)
-  if (!measurement || !collectionRowActionsVisible(collection)) {
-    return { actionLabels: false }
+  if (!measurement) {
+    return 0
   }
-  return {
-    actionLabels: collectionRowFitsFullName(measurement, collectionLabeledActionWidth()),
-  }
+  return Math.max(
+    0,
+    measurement.contentWidth
+      - measurement.leadingWidth
+      - measurement.nameWidth
+      - collectionRowNameTrailingGap
+      - collectionRowInfoWidth
+      - collectionRowInfoActionGap,
+  )
 }
 
-function collectionRowFitsFullName(measurement: CollectionRowMeasurement, actionWidth: number) {
-  const trailingWidth = collectionRowTrailingWidth(actionWidth)
-  return measurement.leadingWidth + measurement.nameWidth + collectionRowNameTrailingGap + trailingWidth <= measurement.contentWidth
-}
-
-function collectionRowTrailingWidth(actionWidth: number) {
-  return collectionRowInfoWidth
-    + (actionWidth > 0 ? collectionRowInfoActionGap + actionWidth : 0)
+function recordCollectionActionMeasurement(measurement: ActionMeasurement) {
+  collectionActionMeasurement.value = measurement
 }
 
 function currentCollectionRowMeasurement(collection: MusicCollection) {
@@ -1121,7 +1150,10 @@ function artistPaneMinimumWidth() {
   return Math.max(
     paneHeaderMinimumWidths.artists,
     artistRowMinimumWidth(
-      artistIconActionWidthForCollection(),
+      Math.max(
+        artistIconActionButtonWidth,
+        ...Object.values(artistActionMeasurements).map((measurement) => measurement.icon),
+      ),
       artistIssueColumnWidthForCollection(),
       artistStatusIconWidthForCollection(),
     ),
@@ -1132,38 +1164,33 @@ function showArtistIssueLabel(artist: Artist) {
   return artistRowFit(artist).issueLabel
 }
 
-function showArtistRowActionLabels(artist: Artist) {
-  return artistRowFit(artist).actionLabels
-}
-
 function artistRowFit(artist: Artist): ArtistRowFit {
   const measurement = currentArtistRowMeasurement(artist)
   if (!measurement) {
-    return { actionLabels: false, issueLabel: false, providerLabel: false }
+    return { issueLabel: false }
   }
 
   const active = artistRowActionsVisible(artist)
-  const expandedIssueWidth = artistIssueWidth(artist, true)
-  const compactIssueWidth = artistIssueWidth(artist, false)
+  const expandedIssueWidth = measurement.issueLabeledWidth
+  const compactIssueWidth = measurement.issueCompactWidth
+  const actions = currentArtistActionMeasurement(artist)
 
   if (!active) {
     return {
-      actionLabels: false,
       issueLabel: expandedIssueWidth > 0 && artistRowFits(measurement, 0, expandedIssueWidth),
-      providerLabel: false,
     }
   }
 
-  if (artistRowFits(measurement, artistLabeledActionWidth(artist), expandedIssueWidth)) {
-    return { actionLabels: true, issueLabel: expandedIssueWidth > 0, providerLabel: true }
+  if (artistRowFits(measurement, actions.labeled, expandedIssueWidth)) {
+    return { issueLabel: expandedIssueWidth > 0 }
   }
-  if (artistRowFits(measurement, artistIconActionWidth(artist), expandedIssueWidth)) {
-    return { actionLabels: false, issueLabel: expandedIssueWidth > 0, providerLabel: false }
+  if (artistRowFits(measurement, actions.icon, expandedIssueWidth)) {
+    return { issueLabel: expandedIssueWidth > 0 }
   }
-  if (artistRowFits(measurement, artistIconActionWidth(artist), compactIssueWidth)) {
-    return { actionLabels: false, issueLabel: false, providerLabel: false }
+  if (artistRowFits(measurement, actions.icon, compactIssueWidth)) {
+    return { issueLabel: false }
   }
-  return { actionLabels: false, issueLabel: false, providerLabel: false }
+  return { issueLabel: false }
 }
 
 function artistRowFits(measurement: ArtistRowMeasurement, actionWidth: number, issueWidth: number) {
@@ -1175,6 +1202,10 @@ function artistRowFits(measurement: ArtistRowMeasurement, actionWidth: number, i
 }
 
 function currentArtistRowMeasurement(artist: Artist) {
+  const measured = artistRowMeasurements[artist.id]
+  if (measured) {
+    return measured
+  }
   const gridWidth = artistGridElement.value?.clientWidth
   const availableWidth = gridWidth ?? Math.max(0, paneWidths.artists - artistGridScrollbarGutterWidth)
   const contentWidth = Math.max(0, availableWidth - artistRowCellHorizontalPadding)
@@ -1183,8 +1214,40 @@ function currentArtistRowMeasurement(artist: Artist) {
   }
   return {
     contentWidth,
+    issueCompactWidth: artist.uncheckedAlbumCount > 0 ? artistIssueColumnWidths.compact : 0,
+    issueLabeledWidth: artist.uncheckedAlbumCount > 0 ? artistIssueColumnWidths.labeled : 0,
     nameWidth: measuredArtistNameWidth(artist.name) + artistLeadingStatusWidth(artist),
   }
+}
+
+function currentArtistActionMeasurement(artist: Artist) {
+  return artistActionMeasurements[artist.id] ?? {
+    icon: providerForArtist(artist) ? rowActionButtonWidths.providerChipCompact : artistIconActionButtonWidth,
+    labeled: providerForArtist(artist) ? rowActionButtonWidths.providerChip : rowActionButtonWidths.provider,
+  }
+}
+
+function recordArtistActionMeasurement(artistId: number, measurement: ActionMeasurement) {
+  artistActionMeasurements[artistId] = measurement
+  scheduleArtistRowMeasurement()
+}
+
+function artistActionAvailableWidth(artist: Artist) {
+  const measurement = currentArtistRowMeasurement(artist)
+  if (!measurement) {
+    return 0
+  }
+  const issueWidth = showArtistIssueLabel(artist)
+    ? measurement.issueLabeledWidth
+    : measurement.issueCompactWidth
+  return Math.max(
+    0,
+    measurement.contentWidth
+      - measurement.nameWidth
+      - artistRowNameTrailingGap
+      - issueWidth
+      - (issueWidth > 0 ? artistRowVisibleItemGap : 0),
+  )
 }
 
 function artistLeadingStatusWidth(artist: Artist) {
@@ -1208,13 +1271,6 @@ function measuredArtistNameWidth(name: string) {
   return Math.ceil(context.measureText(name).width)
 }
 
-function artistIssueWidth(artist: Artist, showLabels: boolean) {
-  if (artist.uncheckedAlbumCount <= 0) {
-    return 0
-  }
-  return showLabels ? artistIssueColumnWidths.labeled : artistIssueColumnWidths.compact
-}
-
 function artistIssueColumnWidthForCollection() {
   if (!collectionArtists.value.some((artist) => artist.uncheckedAlbumCount > 0)) {
     return 0
@@ -1234,27 +1290,11 @@ function actionLabelClass(pane: keyof typeof paneWidths) {
   return actionLabelClassFor(showActionLabels(pane))
 }
 
-function gridActionLabelClass(table: keyof typeof columnWidthPreferenceKeys) {
-  return actionLabelClassFor(showGridActionLabels(table))
-}
-
-function collectionRowActionClass(collection: MusicCollection) {
-  return [actionLabelClassFor(showCollectionRowActionLabels(collection)), 'workspace-row-action']
-}
-
-function artistRowActionClass(artist: Artist) {
-  return [actionLabelClassFor(showArtistRowActionLabels(artist)), 'workspace-row-action']
-}
-
 function artistRowTrailingClass(artist: Artist) {
   return {
     'artist-row-trailing--active': artistRowActionsVisible(artist),
     'artist-row-trailing--with-chip': artist.uncheckedAlbumCount > 0,
   }
-}
-
-function gridRowActionClass(table: keyof typeof columnWidthPreferenceKeys) {
-  return [gridActionLabelClass(table), 'workspace-row-action']
 }
 
 function actionLabelClassFor(showLabels: boolean) {
@@ -1832,20 +1872,12 @@ function isPaneLayoutObject(value: unknown): value is Record<(typeof paneNames)[
 
 function applyColumnWidthDefaults() {
   const defaults = uiSettings.value.workspaceColumnDefaults
-  Object.assign(artistColumnWidths, defaults.artist)
-  Object.assign(albumColumnWidths, {
-    name: defaults.album.name,
-    releaseYear: defaults.album.releaseYear,
-    checked: defaults.album.checked,
-    home: defaults.album.home,
-    action: defaults.album.action,
-  })
+  Object.assign(albumColumnWidths, defaults.album)
   Object.assign(titleColumnWidths, defaults.title)
 }
 
 async function loadColumnWidths() {
   await Promise.all([
-    loadColumnWidthPreference('artist'),
     loadColumnWidthPreference('album'),
     loadColumnWidthPreference('title'),
   ])
@@ -1991,219 +2023,49 @@ function parseColumnWidthPreference(value: string) {
 }
 
 function columnWidthState(table: keyof typeof columnWidthPreferenceKeys) {
-  if (table === 'artist') return artistColumnWidths as Record<string, number>
   if (table === 'album') return albumColumnWidths as Record<string, number>
   return titleColumnWidths as Record<string, number>
 }
 
-function columnGridStyle(table: keyof typeof columnWidthPreferenceKeys) {
+function columnGridStyle(table: 'artist' | keyof typeof columnWidthPreferenceKeys) {
   if (table === 'artist') {
     return {
       '--workspace-grid-columns': 'minmax(0, 1fr)',
       '--workspace-grid-min-width': '100%',
     }
   }
-  const rendered = renderedColumnWidths(table)
-  const keys = tableColumnKeys(table)
-  const columns = keys
-    .map((key, index) => (index === keys.length - 1 ? `minmax(${columnMinimumWidth(table, key)}px, 1fr)` : `${rendered[key]}px`))
-    .join(' ')
-  return {
-    '--workspace-grid-columns': columns,
-    '--workspace-grid-min-width': `${minimumGridWidth(table)}px`,
-  }
+  return table === 'album' ? albumGridColumns.gridStyle() : titleGridColumns.gridStyle()
 }
 
-function tableColumnKeys(table: keyof typeof columnWidthPreferenceKeys) {
+function tableColumnKeys(table: 'artist' | keyof typeof columnWidthPreferenceKeys) {
   if (table === 'album' && !showAlbumCollectionsColumn.value) {
     return tableColumnOrders.album.filter((key) => key !== 'home') as readonly string[]
   }
   return tableColumnOrders[table] as readonly string[]
 }
 
-function showGridActionLabels(table: keyof typeof columnWidthPreferenceKeys) {
-  if (table === 'artist') {
-    return false
-  }
-  return rightmostColumnAvailableWidth(table) >= gridLabeledActionWidth(table)
-}
-
-function gridLabeledActionWidth(table: keyof typeof columnWidthPreferenceKeys) {
-  if (table === 'album') {
-    return albumLabeledActionWidth()
-  }
-  return artistLabeledActionWidthForCollection()
-}
-
-function collectionLabeledActionWidth() {
-  return actionSetWidth([rowActionButtonWidths.edit, rowActionButtonWidths.scan, rowActionButtonWidths.delete])
-}
-
-function collectionIconActionWidth() {
-  return actionSetWidth(Array(3).fill(collectionIconActionButtonWidth))
-}
-
-function artistLabeledActionWidth(artist: Artist) {
-  return artistProviderActionWidth(artist, true)
-}
-
-function artistLabeledActionWidthForCollection() {
-  return Math.max(
-    0,
-    ...sortedCollectionArtists.value.map((artist) => artistLabeledActionWidth(artist)),
-  )
-}
-
-function artistIconActionWidth(artist: Artist) {
-  return artistProviderActionWidth(artist, false)
-}
-
-function artistProviderActionWidth(artist: Artist, labeled: boolean) {
-  if (providerForArtist(artist)) {
-    return labeled ? rowActionButtonWidths.providerChip : rowActionButtonWidths.providerChipCompact
-  }
-  return labeled ? rowActionButtonWidths.provider : artistIconActionButtonWidth
-}
-
-function artistIconActionWidthForCollection() {
-  return Math.max(
-    artistIconActionButtonWidth,
-    ...sortedCollectionArtists.value.map((artist) => artistIconActionWidth(artist)),
-  )
-}
-
-function albumLabeledActionWidth() {
-  return actionSetWidth([
-    rowActionButtonWidths.move,
-    ...(sortedCollectionAlbums.value.some((album) => album.localRelativePath) ? [rowActionButtonWidths.info] : []),
-  ])
-}
-
-function actionSetWidth(widths: number[]) {
-  if (widths.length === 0) {
-    return 0
-  }
-  return widths.reduce((sum, width) => sum + width, 0) + (widths.length - 1) * rowActionButtonWidths.gap
-}
-
-function renderedColumnWidths(table: keyof typeof columnWidthPreferenceKeys) {
-  const widths = columnWidthState(table)
-  const keys = tableColumnKeys(table)
-  return Object.fromEntries(
-    keys.map((key) => [key, renderedColumnWidth(table, key, widths)]),
-  ) as Record<string, number>
-}
-
-function renderedColumnWidth(
-  table: keyof typeof columnWidthPreferenceKeys,
-  key: string,
-  widths: Record<string, number>,
-) {
-  return Math.max(columnMinimumWidth(table, key), widths[key] ?? columnMinimumWidth(table, key))
-}
-
-function tablePaneKey(table: keyof typeof columnWidthPreferenceKeys): keyof typeof paneWidths {
-  if (table === 'album') return 'albums'
-  if (table === 'title') return 'titles'
-  return 'artists'
-}
-
-function tableAvailableWidth(table: keyof typeof columnWidthPreferenceKeys) {
-  const pane = tablePaneKey(table)
-  const paneWidth = paneWidths[pane]
-  const grid = document.querySelector(`.${tablePaneKey(table)}-pane .workspace-grid`)
-  if (grid instanceof HTMLElement) {
-    return grid.clientWidth
-  }
-  return paneWidth > 0 ? Math.max(0, paneWidth - 2) : 0
-}
-
-function fixedColumnsWidth(table: keyof typeof columnWidthPreferenceKeys) {
-  const rendered = renderedColumnWidths(table)
-  return tableColumnKeys(table)
-    .slice(0, -1)
-    .reduce((sum, key) => sum + rendered[key], 0)
-}
-
-function rightmostColumnAvailableWidth(table: keyof typeof columnWidthPreferenceKeys) {
-  const lastKey = rightmostColumnKey(table)
-  const available = tableAvailableWidth(table)
-  if (available <= 0) {
-    return renderedColumnWidth(table, lastKey, columnWidthState(table))
-  }
-  return Math.max(columnMinimumWidth(table, lastKey), available - fixedColumnsWidth(table))
-}
-
 function minimumGridWidth(table: keyof typeof columnWidthPreferenceKeys) {
-  const lastKey = rightmostColumnKey(table)
-  return fixedColumnsWidth(table) + columnMinimumWidth(table, lastKey)
-}
-
-function rightmostColumnKey(table: keyof typeof columnWidthPreferenceKeys) {
-  const keys = tableColumnKeys(table)
-  return keys[keys.length - 1]
+  return table === 'album'
+    ? albumGridColumns.minimumGridWidth()
+    : titleGridColumns.minimumGridWidth()
 }
 
 function startColumnResize(table: keyof typeof columnWidthPreferenceKeys, key: string, event: PointerEvent) {
-  event.preventDefault()
-  event.stopPropagation()
-  suppressHeaderSortClick(event)
-  const keys = tableColumnKeys(table)
-  const leftIndex = keys.indexOf(key)
-  if (leftIndex < 0 || leftIndex >= keys.length - 1) {
-    return
+  if (table === 'album') {
+    albumGridColumns.startResize(key as AlbumColumnKey, event)
+  } else {
+    titleGridColumns.startResize(key as TitleColumnKey, event)
   }
-  const widths = columnWidthState(table)
-  const rendered = renderedColumnWidths(table)
-  const leftStart = rendered[key]
-  const startX = event.clientX
-  document.body.classList.add('is-column-resizing')
-
-  const beforeWidth = keys
-    .slice(0, leftIndex)
-    .reduce((sum, columnKey) => sum + rendered[columnKey], 0)
-  const rightDataBlockWidth = keys
-    .slice(leftIndex + 1, -1)
-    .reduce((sum, columnKey) => sum + rendered[columnKey], 0)
-  const leftMinimum = columnMinimumWidth(table, key)
-  const rightmostKey = keys[keys.length - 1]
-  const rightmostMinimum = columnMinimumWidth(table, rightmostKey)
-  const available = tableAvailableWidth(table)
-  const leftMaximum = available > 0
-    ? Math.max(leftMinimum, available - beforeWidth - rightDataBlockWidth - rightmostMinimum)
-    : Number.POSITIVE_INFINITY
-
-  function move(pointerEvent: PointerEvent) {
-    const left = Math.min(
-      Math.max(leftMinimum, Math.round(leftStart + pointerEvent.clientX - startX)),
-      leftMaximum,
-    )
-    widths[key] = left
-  }
-
-  function stop() {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', stop)
-    window.removeEventListener('pointercancel', stop)
-    document.body.classList.remove('is-column-resizing')
-    suppressHeaderSortClick()
-    saveColumnWidth(table, key)
-  }
-
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', stop)
-  window.addEventListener('pointercancel', stop)
 }
 
-function saveColumnWidth(table: keyof typeof columnWidthPreferenceKeys, key: string) {
-  const widths = columnWidthState(table)
+function saveColumnWidth(table: keyof typeof columnWidthPreferenceKeys, key: string, width: number) {
   const preferenceKey = columnWidthPreferenceKeys[table][key as keyof typeof columnWidthPreferenceKeys[typeof table]]
   if (!preferenceKey) {
     return
   }
   void store.savePreference(
     preferenceKey,
-    String(Math.round(widths[key] ?? columnMinimumWidth(table, key))),
+    String(Math.round(width)),
   ).catch((error) => {
     store.showErrorStatus(error, 'Unable to save column width')
   })
@@ -2214,12 +2076,20 @@ function columnMinimumWidth(table: keyof typeof columnWidthPreferenceKeys, key: 
     return 0
   }
   if (key === 'action') {
-    return table === 'album' ? actionColumnWidths.album.icon : actionColumnWidths.artist.icon
+    return sortedCollectionAlbums.value.some((album) => album.localRelativePath)
+      ? albumActionColumnMinimumWidths.moveWithInfo
+      : albumActionColumnMinimumWidths.move
   }
   if (table === 'album' && key === 'checked') {
     return checkboxColumnMinimumWidth
   }
   if (isSortableColumn(table, key)) {
+    if (key === 'releaseYear') {
+      return releaseYearColumnMinimumWidth
+    }
+    if (table === 'title' && key === 'title') {
+      return titleCompoundHeaderMinimumWidth
+    }
     return sortableColumnMinimumWidth
   }
   if (table === 'album' && key === 'home') {
@@ -2721,56 +2591,51 @@ watch(sortedCollectionTitleItems, (items) => {
                     </div>
                   </v-tooltip>
                 </span>
-                <span class="nav-row__actions">
+                <InlineRowActions
+                  class="nav-row__actions"
+                  :available-width="collectionActionAvailableWidth(row.collection)"
+                  @measured="recordCollectionActionMeasurement"
+                >
+                  <template #default="{ showLabels }">
                   <v-tooltip text="Edit collection" location="top">
                     <template #activator="{ props }">
-                      <v-btn
+                      <RowActionButton
                         v-bind="props"
-                        prepend-icon="mdi-pencil"
-                        size="x-small"
-                        variant="text"
-                        color="primary"
-                        :class="collectionRowActionClass(row.collection)"
+                        icon="mdi-pencil"
+                        label="Edit"
+                        :show-label="showLabels"
                         :disabled="writeActionsDisabled"
                         @click.stop="openCollectionEdit(row.collection, $event)"
-                      >
-                        <span v-if="showCollectionRowActionLabels(row.collection)">Edit</span>
-                      </v-btn>
+                      />
                     </template>
                   </v-tooltip>
                   <v-tooltip text="Scan collection" location="top">
                     <template #activator="{ props }">
-                      <v-btn
+                      <RowActionButton
                         v-bind="props"
-                        prepend-icon="mdi-refresh"
-                        size="x-small"
-                        variant="text"
-                        color="primary"
-                        :class="collectionRowActionClass(row.collection)"
+                        icon="mdi-refresh"
+                        label="Scan"
+                        :show-label="showLabels"
                         :disabled="scanActionsDisabled"
                         @click.stop="startScan(row.collection.id)"
-                      >
-                        <span v-if="showCollectionRowActionLabels(row.collection)">Scan</span>
-                      </v-btn>
+                      />
                     </template>
                   </v-tooltip>
                   <v-tooltip text="Delete collection" location="top">
                     <template #activator="{ props }">
-                      <v-btn
+                      <RowActionButton
                         v-bind="props"
-                        prepend-icon="mdi-trash-can-outline"
-                        size="x-small"
-                        variant="text"
+                        icon="mdi-trash-can-outline"
+                        label="Delete"
                         color="error"
-                        :class="collectionRowActionClass(row.collection)"
+                        :show-label="showLabels"
                         :disabled="writeActionsDisabled"
                         @click.stop="askDeleteCollection(row.collection)"
-                      >
-                        <span v-if="showCollectionRowActionLabels(row.collection)">Delete</span>
-                      </v-btn>
+                      />
                     </template>
                   </v-tooltip>
-                </span>
+                  </template>
+                </InlineRowActions>
               </span>
             </div>
           </template>
@@ -2978,7 +2843,12 @@ watch(sortedCollectionTitleItems, (items) => {
                   <span>{{ item.artistName ?? '' }}</span>
                 </div>
                 <div data-column="title.releaseYear" class="workspace-grid__cell release-year-cell">
-                  <v-chip v-if="item.releaseYear" class="album-metadata-chip" :class="albumReleaseYearChipClasses(item)" variant="tonal">
+                  <v-chip
+                    v-if="item.releaseYear"
+                    class="album-metadata-chip numeric-chip--year"
+                    :class="albumReleaseYearChipClasses(item)"
+                    variant="tonal"
+                  >
                     {{ item.releaseYear }}
                   </v-chip>
                 </div>
@@ -3120,18 +2990,24 @@ watch(sortedCollectionTitleItems, (items) => {
                       <v-chip
                         v-bind="props"
                         :aria-label="artistIssueLabel(artist)"
-                        class="artist-issue-chip"
-                        :class="{ 'artist-issue-chip--compact': !showArtistIssueLabel(artist) }"
+                        class="artist-issue-chip numeric-chip numeric-chip--count unchecked-count-chip"
+                        data-adaptive-control
+                        :data-show-label="showArtistIssueLabel(artist)"
                         color="warning"
                         size="x-small"
                         variant="tonal"
                       >
                         <span class="artist-issue-chip__count">{{ artist.uncheckedAlbumCount }}</span>
-                        <span v-if="showArtistIssueLabel(artist)" class="artist-issue-chip__label">unchecked</span>
+                        <span class="artist-issue-chip__label adaptive-control-label">unchecked</span>
                       </v-chip>
                     </template>
                   </v-tooltip>
-                  <div class="row-actions artist-row-actions">
+                  <InlineRowActions
+                    class="artist-row-actions"
+                    :available-width="artistActionAvailableWidth(artist)"
+                    @measured="recordArtistActionMeasurement(artist.id, $event)"
+                  >
+                    <template #default="{ showLabels }">
                     <v-tooltip
                       v-if="providerForArtist(artist)"
                       :text="`Scan ${providerChipText(artist)}`"
@@ -3141,10 +3017,9 @@ watch(sortedCollectionTitleItems, (items) => {
                         <ProviderChip
                           v-bind="props"
                           class="collections-provider-chip"
-                          :class="{ 'collections-provider-chip--compact': !showArtistProviderLabel(artist) }"
                           :provider-id="providerForArtist(artist)?.providerId"
                           :label="providerChipText(artist)"
-                          :show-label="showArtistProviderLabel(artist)"
+                          :show-label="showLabels"
                           :error="Boolean(providerForArtist(artist)?.lastErrorMessage)"
                           closable
                           close-icon="mdi-trash-can-outline"
@@ -3156,21 +3031,18 @@ watch(sortedCollectionTitleItems, (items) => {
                     </v-tooltip>
                     <v-tooltip v-else text="Add provider" location="top">
                       <template #activator="{ props }">
-                        <v-btn
+                        <RowActionButton
                           v-bind="props"
-                          prepend-icon="mdi-cloud-plus-outline"
-                          size="x-small"
-                          variant="text"
-                          color="primary"
-                          :class="artistRowActionClass(artist)"
+                          icon="mdi-cloud-plus-outline"
+                          label="Add provider"
+                          :show-label="showLabels"
                           :disabled="scanActionsDisabled"
                           @click.stop="handleArtistProviderAction(artist)"
-                        >
-                          <span v-if="showArtistRowActionLabels(artist)">Add provider</span>
-                        </v-btn>
+                        />
                       </template>
                     </v-tooltip>
-                  </div>
+                    </template>
+                  </InlineRowActions>
                 </div>
               </div>
             </div>
@@ -3238,7 +3110,6 @@ watch(sortedCollectionTitleItems, (items) => {
                   :provider-id="providerForArtist(selectedArtist)?.providerId"
                   :label="providerChipText(selectedArtist)"
                   :error="Boolean(providerForArtist(selectedArtist)?.lastErrorMessage)"
-                  size="large"
                   closable
                   close-icon="mdi-trash-can-outline"
                   :disabled="scanActionsDisabled"
@@ -3333,7 +3204,12 @@ watch(sortedCollectionTitleItems, (items) => {
                 </div>
               </div>
               <div data-column="album.releaseYear" class="workspace-grid__cell release-year-cell">
-                <v-chip v-if="album.releaseYear" class="album-metadata-chip" :class="albumReleaseYearChipClasses(album)" variant="tonal">
+                <v-chip
+                  v-if="album.releaseYear"
+                  class="album-metadata-chip numeric-chip--year"
+                  :class="albumReleaseYearChipClasses(album)"
+                  variant="tonal"
+                >
                   {{ album.releaseYear }}
                 </v-chip>
               </div>
@@ -3377,7 +3253,7 @@ watch(sortedCollectionTitleItems, (items) => {
                     size="x-small"
                     variant="tonal"
                     color="primary"
-                    class="album-home-chip album-home-chip--navigation"
+                    class="collection-chip album-home-chip album-home-chip--navigation"
                     @click.stop="navigateToAlbumHome(album)"
                   >
                     {{ album.collection.name }}
@@ -3386,14 +3262,14 @@ watch(sortedCollectionTitleItems, (items) => {
                     v-else
                     size="x-small"
                     variant="tonal"
-                    class="album-home-chip album-home-chip--current"
+                    class="collection-chip album-home-chip album-home-chip--current"
                   >
                     {{ album.collection.name }}
                   </v-chip>
                 </div>
               </div>
-              <div class="workspace-grid__cell row-action-cell">
-                <div class="row-actions">
+              <ActionColumn column="album.action">
+                <template #default="{ showLabels }">
                   <v-menu
                     :model-value="albumMoveMenuOpenId === album.id"
                     location="bottom end"
@@ -3404,18 +3280,14 @@ watch(sortedCollectionTitleItems, (items) => {
                       <v-tooltip :text="albumMoveTooltip(album)" location="top">
                         <template #activator="{ props: tooltipProps }">
                           <span v-bind="tooltipProps" class="row-action-tooltip-anchor">
-                            <v-btn
+                            <RowActionButton
                               v-bind="menuProps"
-                              prepend-icon="mdi-folder-move-outline"
-                              size="x-small"
-                              variant="text"
-                              color="primary"
-                              :class="gridRowActionClass('album')"
+                              icon="mdi-folder-move-outline"
+                              label="Move to"
+                              :show-label="showLabels"
                               :disabled="albumMoveDisabled(album)"
                               @click.stop
-                            >
-                              <span v-if="showGridActionLabels('album')">Move to</span>
-                            </v-btn>
+                            />
                           </span>
                         </template>
                       </v-tooltip>
@@ -3428,6 +3300,7 @@ watch(sortedCollectionTitleItems, (items) => {
                           size="small"
                           variant="tonal"
                           color="primary"
+                          class="collection-chip"
                           @click.stop="moveAlbumTo(album, collection.id)"
                         >
                           {{ collection.name }}
@@ -3447,8 +3320,8 @@ watch(sortedCollectionTitleItems, (items) => {
                       ></v-btn>
                     </template>
                   </v-tooltip>
-                </div>
-              </div>
+                </template>
+              </ActionColumn>
           </div>
           <div
             v-if="albumVirtualBottomSpacerHeight > 0"

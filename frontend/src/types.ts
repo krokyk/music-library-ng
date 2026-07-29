@@ -159,15 +159,11 @@ export interface UiSettingsDefaults {
 }
 
 export interface WorkspaceColumnWidths {
-  artist: {
-    name: number
-  }
   album: {
     name: number
     releaseYear: number
     checked: number
     home: number
-    action: number
   }
   title: {
     title: number
@@ -184,7 +180,6 @@ export interface ArtistsScreenColumnWidths {
   unchecked: number
   local: number
   provider: number
-  action: number
 }
 
 export interface StatusHistoryEntry {

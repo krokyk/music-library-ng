@@ -860,14 +860,17 @@ body,
 }
 
 .provider-chip.v-chip {
-  border: 1px solid transparent;
+  --provider-chip-outline: var(--app-line-subtle);
+  border: 0;
   border-radius: 4px;
-  box-shadow: inset 0 0 0 1px var(--app-line-subtle);
+  box-shadow: inset 0 0 0 1px var(--provider-chip-outline);
   color: #f8f8f8;
-  font-size: 0.76rem;
+  font-size: 12px !important;
   font-weight: 800;
+  height: 22px !important;
   letter-spacing: 0;
   max-width: 100%;
+  min-height: 22px !important;
   padding-inline: 6px 4px;
   text-transform: none;
 }
@@ -916,8 +919,6 @@ body,
 .provider-action-chip.v-chip {
   cursor: pointer;
   flex: 0 0 auto;
-  height: 26px !important;
-  min-height: 26px !important;
   max-width: none;
 }
 
@@ -1029,26 +1030,26 @@ body,
 }
 
 .provider-chip--musicbrainz.v-chip {
+  --provider-chip-outline: rgba(235, 116, 59, 0.78);
   background: linear-gradient(90deg, #5b1647 0%, #91305f 47%, #9b4923 100%);
-  border-color: rgba(235, 116, 59, 0.78);
   color: #fff2ee;
 }
 
 .provider-chip--spirit-of-metal.v-chip {
+  --provider-chip-outline: rgba(244, 191, 49, 0.84);
   background: linear-gradient(135deg, #330707 0%, #7a1616 58%, #9a6a0b 100%);
-  border-color: rgba(244, 191, 49, 0.84);
   color: #fff0a7;
 }
 
 .provider-chip--metal-archives.v-chip {
+  --provider-chip-outline: rgba(194, 184, 175, 0.76);
   background: linear-gradient(180deg, #2d1212 0%, #160a05 58%, #080202 100%);
-  border-color: rgba(194, 184, 175, 0.76);
   color: #f0e9e2;
 }
 
 .provider-chip--generic.v-chip {
+  --provider-chip-outline: rgba(255, 255, 255, 0.22);
   background: #1f1f1f;
-  border-color: rgba(255, 255, 255, 0.22);
   color: rgba(255, 255, 255, 0.86);
 }
 
@@ -1056,11 +1057,6 @@ body,
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.1),
     0 0 0 1px rgba(255, 93, 93, 0.92);
-}
-
-.artists-table-pane .row-action-cell,
-.artists-table-pane .row-actions {
-  justify-content: flex-start;
 }
 
 .artist-country-cell {
@@ -1306,20 +1302,23 @@ body,
   white-space: nowrap;
 }
 
-.artist-known-album__year-chip.v-chip {
-  font-size: 0.84rem !important;
-}
-
 .artist-known-album__title-badge.album-metadata-chip-badge {
   box-sizing: border-box;
   max-width: 100%;
   min-width: 0;
+  overflow: visible;
   padding-right: 24px;
   width: fit-content;
 }
 
 .album-metadata-chip.artist-known-album__title-chip.v-chip {
+  color: inherit;
+  font-size: inherit !important;
+  font-style: inherit;
+  font-weight: inherit;
+  height: 26px !important;
   max-width: 100%;
+  min-height: 26px !important;
   min-width: 0 !important;
   padding-inline: 8px !important;
   width: auto !important;
@@ -1333,14 +1332,6 @@ body,
   text-overflow: ellipsis;
   white-space: nowrap;
   width: auto;
-}
-
-.artist-known-album__year-text {
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 0.92rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  line-height: 1;
 }
 
 .album-metadata-chip-badge {
@@ -2003,15 +1994,10 @@ body.is-pane-resizing {
   font-weight: inherit;
 }
 
-.row-action-cell {
-  justify-content: flex-end;
+.workspace-grid__cell.row-action-cell {
+  justify-content: flex-start;
   padding: 0 8px;
   z-index: 2;
-}
-
-.albums-pane .row-action-cell {
-  gap: 8px;
-  justify-content: flex-start;
 }
 
 .artist-row-trailing {
@@ -2050,61 +2036,42 @@ body.is-pane-resizing {
   max-width: 360px;
 }
 
-.artist-issue-chip {
+.artist-issue-chip.numeric-chip--count.v-chip {
   flex: 0 0 auto;
+  height: 22px !important;
   margin-left: 0;
-  max-width: 88px;
-  min-width: 28px;
+  max-width: none;
+  min-height: 22px !important;
 }
 
 .artist-issue-chip .v-chip__content {
   display: flex;
   gap: 3px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.artist-issue-chip__count,
-.artist-issue-chip__label {
-  min-width: 0;
+  overflow: visible;
 }
 
 .artist-issue-chip__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 12px;
 }
 
-.artist-issue-chip--compact {
-  flex-basis: 28px;
+.artist-issue-chip[data-show-label="false"] {
   justify-content: center;
-  max-width: 28px;
-  min-width: 28px;
-  padding-inline: 0;
-  width: 28px;
-}
-
-.artist-issue-chip--compact .v-chip__content {
-  justify-content: center;
+  padding-inline: 6px !important;
 }
 
 .collections-provider-chip.v-chip {
   cursor: pointer;
   flex: 0 0 auto;
-  height: 22px !important;
-  min-height: 22px !important;
   max-width: 126px;
 }
 
-.collections-provider-chip--compact.v-chip {
+.collections-provider-chip.v-chip[data-show-label="false"] {
   max-width: 58px;
   padding-inline: 4px 3px;
 }
 
 .pane-empty-provider-chip.v-chip {
-  height: 36px !important;
-  min-height: 36px !important;
   max-width: 180px;
-  padding-inline: 10px 6px;
 }
 
 .provider-setup-section {
@@ -2355,25 +2322,63 @@ body.is-pane-resizing {
 
 .album-metadata-chip.v-chip {
   background: rgba(0, 0, 0, 0.37);
-  border: 1px solid transparent;
+  border: 0;
   color: rgba(255, 255, 255, 0.78);
   cursor: default;
   flex: 0 0 auto;
-  font-size: 1.0rem !important;
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  height: 26px !important;
   letter-spacing: 0;
-  min-height: 26px !important;
-  min-width: 0;
-  padding-inline: 0 !important;
-  width: 52px;
+  max-width: none;
+  min-width: max-content;
+  overflow: visible;
+  padding-inline: 6px !important;
+  width: max-content;
 }
 
 .album-metadata-chip.v-chip .v-chip__content {
   justify-content: center;
-  line-height: 24px;
-  width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+  width: auto;
+}
+
+.numeric-chip--year.v-chip,
+.numeric-chip--count.v-chip {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  max-width: none;
+  min-width: max-content;
+  overflow: visible;
+  padding-inline: 6px !important;
+  width: max-content;
+}
+
+.numeric-chip--year.v-chip .v-chip__content,
+.numeric-chip--count.v-chip .v-chip__content {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+  width: auto;
+}
+
+.numeric-chip--year.v-chip {
+  font-size: 16px !important;
+  font-weight: 600;
+  height: 26px !important;
+  min-height: 26px !important;
+}
+
+.numeric-chip--count.v-chip {
+  color: #fff;
+  font-size: 14px !important;
+  font-weight: 400;
+  height: 24px !important;
+  min-height: 24px !important;
+}
+
+.unchecked-count-chip.v-chip {
+  color: var(--app-text-attention-muted) !important;
 }
 
 .album-collections-cell {
@@ -2395,6 +2400,13 @@ body.is-pane-resizing {
 
 .album-home-chip.v-chip {
   max-width: 100%;
+}
+
+.collection-chip.v-chip {
+  font-size: 12px !important;
+  font-weight: 400;
+  height: 22px !important;
+  min-height: 22px !important;
 }
 
 .album-home-chip.v-chip .v-chip__content {
@@ -2437,19 +2449,39 @@ body.is-pane-resizing {
   white-space: nowrap;
 }
 
+.ellipsized-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .row-actions {
   align-items: center;
   display: flex;
+  flex: 0 0 auto;
   gap: 2px;
-  justify-content: flex-end;
+  justify-content: flex-start;
   min-width: 0;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-.albums-pane .row-actions {
-  justify-content: flex-start;
+[data-adaptive-control][data-show-label="false"] .adaptive-control-label {
+  display: none;
+}
+
+.adaptive-row-actions--measuring {
+  left: -10000px;
+  max-width: none !important;
+  opacity: 0 !important;
+  overflow: visible !important;
+  pointer-events: none !important;
+  position: fixed;
+  visibility: hidden;
+  width: max-content;
 }
 
 .action-button--labeled {
@@ -2919,14 +2951,7 @@ body.is-pane-resizing {
 }
 
 .provider-conflict-source-chip.v-chip {
-  height: 17px !important;
-  min-height: 17px !important;
-  padding-inline: 2px;
-}
-
-.provider-conflict-source-chip.v-chip .provider-chip__open-icon {
-  margin-inline-start: 0;
-  width: 10px;
+  max-width: 100%;
 }
 
 .provider-conflict-source-more-chip.v-chip {
@@ -2966,7 +2991,7 @@ body.is-pane-resizing {
   text-align: center;
 }
 
-.provider-conflict-choice__value > span:not(.provider-conflict-choice__country) {
+.provider-conflict-choice__value > span:not(.provider-conflict-choice__country, .numeric-chip--year) {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
@@ -3009,11 +3034,17 @@ body.is-pane-resizing {
 }
 
 .album-metadata-chip--warning.v-chip {
-  border-color: rgb(var(--v-theme-warning)) !important;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 190, 80, 0.24),
-    0 0 0 1px rgba(255, 190, 80, 0.28);
-  color: rgb(var(--v-theme-warning));
+  box-shadow: inset 0 0 0 1px rgb(var(--v-theme-warning));
+}
+
+.artist-known-album__title-chip.album-metadata-chip--warning.v-chip,
+.artist-known-album__title-chip.album-metadata-chip--kept-local.v-chip {
+  background: transparent !important;
+}
+
+.artist-known-album__title-chip.album-metadata-chip--warning.v-chip .v-chip__underlay,
+.artist-known-album__title-chip.album-metadata-chip--kept-local.v-chip .v-chip__underlay {
+  opacity: 0;
 }
 
 .album-metadata-chip--action.v-chip {
@@ -3021,19 +3052,15 @@ body.is-pane-resizing {
 }
 
 .album-metadata-chip--action.v-chip:hover {
-  background: rgba(248, 193, 74, 0.18);
+  background: rgba(248, 193, 74, 0.18) !important;
 }
 
 .album-metadata-chip--kept-local.v-chip {
-  background: transparent !important;
-  border-color: rgba(255, 255, 255, 0.74) !important;
-  box-shadow: none;
-  color: rgba(255, 255, 255, 0.92);
-  font-weight: 400;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.74);
 }
 
-.album-metadata-chip--kept-local.v-chip .v-chip__underlay {
-  opacity: 0;
+.album-metadata-chip--kept-local.v-chip:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
 }
 
 .album-metadata-chip-badge:has(.album-metadata-chip--kept-local) .album-metadata-chip-badge__reset.v-btn {

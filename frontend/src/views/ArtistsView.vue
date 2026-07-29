@@ -3,10 +3,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 import AppSpinner from '@/components/AppSpinner.vue'
+import ActionColumn from '@/components/ActionColumn.vue'
+import EllipsizedText from '@/components/EllipsizedText.vue'
 import ProviderChip from '@/components/ProviderChip.vue'
 import ProviderMatchDialog from '@/components/ProviderMatchDialog.vue'
+import RowActionButton from '@/components/RowActionButton.vue'
 import { countryFlagSrc, countryName, countryOptions, normalizeCountryCode } from '@/countries'
 import { providerDefinition, providerDefinitions, providerExternalArtistUrl, type ProviderId } from '@/providers'
+import { useWorkspaceGridColumns } from '@/workspaceGridColumns'
 import type {
   Album,
   Artist,
@@ -134,16 +138,9 @@ const artistSort = reactive<{ key: ArtistSortKey; direction: SortDirection }>({
 })
 const suppressHeaderSortUntil = ref(0)
 const artistsScreenSortableColumnMinimumWidth = 62
-const artistsScreenIconActionButtonWidth = 30
-const artistsScreenRowActionGap = 2
-const artistsScreenActionColumnWidths = {
-  icon: 2 * artistsScreenIconActionButtonWidth + artistsScreenRowActionGap,
-  singleLabeled: 126,
-  allLabeled: 260,
-}
 const artistsSearchControlsMinimumWidth = 260
 const artistsBulkExpandedMinimumWidth = 900
-const artistsScreenColumnWidths = reactive<Record<ArtistScreenColumnKey, number>>({
+const artistsScreenColumnWidths = reactive<Partial<Record<ArtistScreenColumnKey, number>>>({
   ...uiSettings.value.artistsScreenColumnDefaults,
 })
 const artistsScreenColumnOrder = [
@@ -165,7 +162,7 @@ const artistsScreenHeaders: Array<{ key: ArtistSortKey; column: Exclude<ArtistSc
   { key: 'localAlbumCount', column: 'local', label: 'Local' },
   { key: 'provider', column: 'provider', label: 'Provider' },
 ]
-const artistsScreenColumnWidthPreferenceKeys: Record<ArtistScreenColumnKey, string> = {
+const artistsScreenColumnWidthPreferenceKeys: Partial<Record<ArtistScreenColumnKey, string>> = {
   name: 'artists-screen.artists-pane.name',
   country: 'artists-screen.artists-pane.country',
   status: 'artists-screen.artists-pane.status',
@@ -173,8 +170,16 @@ const artistsScreenColumnWidthPreferenceKeys: Record<ArtistScreenColumnKey, stri
   unchecked: 'artists-screen.artists-pane.unchecked',
   local: 'artists-screen.artists-pane.local',
   provider: 'artists-screen.artists-pane.provider',
-  action: 'artists-screen.artists-pane.action',
 }
+
+const artistsGridColumns = useWorkspaceGridColumns<ArtistScreenColumnKey>({
+  columnKeys: () => artistsScreenColumnOrder,
+  widths: artistsScreenColumnWidths,
+  minimumWidth: artistsScreenColumnMinimumWidth,
+  gridElement: () => artistsGridElement.value,
+  saveWidth: saveArtistsScreenColumnWidth,
+  suppressHeaderClick: suppressHeaderSortClick,
+})
 const artistsGridScrollTop = ref(0)
 const artistsGridViewportHeight = ref(0)
 let artistsPaneWidthObserver: ResizeObserver | null = null
@@ -352,7 +357,7 @@ function compareArtistRows(left: Artist, right: Artist) {
 
 function artistSortValue(artist: Artist, key: ArtistSortKey) {
   if (key === 'country') return artistCountryName(artist)
-  if (key === 'status') return artistStatus(artist)
+  if (key === 'status') return artistTableStatus(artist)
   if (key === 'albumCount') return artist.albumCount
   if (key === 'uncheckedAlbumCount') return artist.uncheckedAlbumCount
   if (key === 'localAlbumCount') return artist.localAlbumCount
@@ -1084,10 +1089,6 @@ function albumReleaseYearChipClasses(album: Album) {
   }
 }
 
-function albumReleaseYearUsesChip(album: Album) {
-  return albumHasReleaseYearConflict(album) || albumHasKeptLocalReleaseYear(album)
-}
-
 function albumTitleChipClasses(album: Album) {
   const hasConflict = albumHasTitleConflict(album)
   return {
@@ -1297,129 +1298,55 @@ function artistKnownAlbumPresenceClass(album: Album) {
 }
 
 function artistsScreenColumnGridStyle() {
-  const columns = artistsScreenColumnOrder
-    .map((key, index) => (
-      index === artistsScreenColumnOrder.length - 1
-        ? `minmax(${artistsScreenColumnMinimumWidth(key)}px, 1fr)`
-        : `${artistsScreenRenderedColumnWidth(key)}px`
-    ))
-    .join(' ')
-  return {
-    '--workspace-grid-columns': columns,
-    '--workspace-grid-min-width': `${artistsScreenMinimumGridWidth()}px`,
-  }
-}
-
-function artistsScreenRenderedColumnWidth(key: ArtistScreenColumnKey) {
-  return Math.max(artistsScreenColumnMinimumWidth(key), artistsScreenColumnWidths[key])
-}
-
-function artistsScreenFixedColumnsWidth() {
-  return artistsScreenColumnOrder
-    .slice(0, -1)
-    .reduce((sum, key) => sum + artistsScreenRenderedColumnWidth(key), 0)
+  return artistsGridColumns.gridStyle()
 }
 
 function artistsScreenMinimumGridWidth() {
-  return artistsScreenFixedColumnsWidth() + artistsScreenColumnMinimumWidth('action')
-}
-
-function artistsScreenTableAvailableWidth() {
-  const paneWidth = artistsPaneWidths.artists
-  const grid = document.querySelector('.artists-table-pane .workspace-grid')
-  if (grid instanceof HTMLElement) {
-    return grid.clientWidth
-  }
-  return paneWidth > 0 ? Math.max(0, paneWidth - 2) : 0
-}
-
-function artistsScreenRightmostColumnAvailableWidth() {
-  const available = artistsScreenTableAvailableWidth()
-  if (available <= 0) {
-    return artistsScreenColumnMinimumWidth('action')
-  }
-  return Math.max(artistsScreenColumnMinimumWidth('action'), available - artistsScreenFixedColumnsWidth())
+  return artistsGridColumns.minimumGridWidth()
 }
 
 function artistsScreenColumnMinimumWidth(key: ArtistScreenColumnKey) {
   if (key === 'action') {
-    return artistsScreenActionColumnWidths.icon
+    return artists.value.some(artistHasProviderConflict) ? 78 : 46
+  }
+  if (key === 'status') {
+    return artists.value.some((artist) => artistTableStatus(artist)) ? 83 : artistsScreenSortableColumnMinimumWidth
+  }
+  if (key === 'provider') {
+    const required = artists.value.map((artist) => {
+      const count = providersForArtist(artist).length
+      if (count === 0) return artistsScreenSortableColumnMinimumWidth
+      if (count === 1) return 154
+      return 12 + count * 50 + (count - 1) * 4
+    })
+    return Math.max(artistsScreenSortableColumnMinimumWidth, ...required)
+  }
+  if (key === 'albums' || key === 'unchecked' || key === 'local') {
+    const values = artists.value.map((artist) => (
+      key === 'albums'
+        ? artist.albumCount
+        : key === 'unchecked'
+          ? artist.uncheckedAlbumCount
+          : artist.localAlbumCount
+    ))
+    const digits = Math.max(1, ...values.map((value) => String(value).length))
+    return Math.max(artistsScreenSortableColumnMinimumWidth, 32 + digits * 7)
   }
   return artistsScreenSortableColumnMinimumWidth
 }
 
-function showArtistsScreenActionLabels(artist: Artist) {
-  const labeledWidth = artistHasProviderConflict(artist)
-    ? artistsScreenActionColumnWidths.allLabeled
-    : artistsScreenActionColumnWidths.singleLabeled
-  return artistsScreenRightmostColumnAvailableWidth() >= labeledWidth
-}
-
-function artistScreenRowActionClass(artist: Artist) {
-  return [actionLabelClassFor(showArtistsScreenActionLabels(artist)), 'workspace-row-action']
-}
-
-function actionLabelClassFor(showLabels: boolean) {
-  return {
-    'action-button--labeled': showLabels,
-    'action-button--icon-only': !showLabels,
-  }
-}
-
 function startArtistScreenColumnResize(key: ArtistScreenColumnKey, event: PointerEvent) {
-  event.preventDefault()
-  event.stopPropagation()
-  suppressHeaderSortClick(event)
-  const leftIndex = artistsScreenColumnOrder.indexOf(key)
-  if (leftIndex < 0 || leftIndex >= artistsScreenColumnOrder.length - 1) {
+  artistsGridColumns.startResize(key, event)
+}
+
+function saveArtistsScreenColumnWidth(key: ArtistScreenColumnKey, width: number) {
+  const preferenceKey = artistsScreenColumnWidthPreferenceKeys[key]
+  if (!preferenceKey) {
     return
   }
-  const rendered = Object.fromEntries(
-    artistsScreenColumnOrder.map((columnKey) => [columnKey, artistsScreenRenderedColumnWidth(columnKey)]),
-  ) as Record<ArtistScreenColumnKey, number>
-  const leftStart = rendered[key]
-  const startX = event.clientX
-  document.body.classList.add('is-column-resizing')
-
-  const beforeWidth = artistsScreenColumnOrder
-    .slice(0, leftIndex)
-    .reduce((sum, columnKey) => sum + rendered[columnKey], 0)
-  const rightDataBlockWidth = artistsScreenColumnOrder
-    .slice(leftIndex + 1, -1)
-    .reduce((sum, columnKey) => sum + rendered[columnKey], 0)
-  const leftMinimum = artistsScreenColumnMinimumWidth(key)
-  const rightmostMinimum = artistsScreenColumnMinimumWidth('action')
-  const available = artistsScreenTableAvailableWidth()
-  const leftMaximum = available > 0
-    ? Math.max(leftMinimum, available - beforeWidth - rightDataBlockWidth - rightmostMinimum)
-    : Number.POSITIVE_INFINITY
-
-  function move(pointerEvent: PointerEvent) {
-    const left = Math.min(
-      Math.max(leftMinimum, Math.round(leftStart + pointerEvent.clientX - startX)),
-      leftMaximum,
-    )
-    artistsScreenColumnWidths[key] = left
-  }
-
-  function stop() {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', stop)
-    window.removeEventListener('pointercancel', stop)
-    document.body.classList.remove('is-column-resizing')
-    suppressHeaderSortClick()
-    saveArtistsScreenColumnWidth(key)
-  }
-
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', stop)
-  window.addEventListener('pointercancel', stop)
-}
-
-function saveArtistsScreenColumnWidth(key: ArtistScreenColumnKey) {
   void store.savePreference(
-    artistsScreenColumnWidthPreferenceKeys[key],
-    String(Math.round(artistsScreenColumnWidths[key] ?? artistsScreenColumnMinimumWidth(key))),
+    preferenceKey,
+    String(Math.round(width)),
   ).catch((error) => {
     store.showErrorStatus(error, 'Unable to save column width')
   })
@@ -1428,14 +1355,24 @@ function saveArtistsScreenColumnWidth(key: ArtistScreenColumnKey) {
 function applyArtistsScreenColumnDefaults() {
   const defaults = uiSettings.value.artistsScreenColumnDefaults
   artistsScreenColumnOrder.forEach((key) => {
-    artistsScreenColumnWidths[key] = Math.max(artistsScreenColumnMinimumWidth(key), defaults[key])
+    if (key === 'action') {
+      return
+    }
+    artistsScreenColumnWidths[key] = Math.max(artistsScreenColumnMinimumWidth(key), defaults[key]!)
   })
 }
 
 async function loadArtistsScreenColumnWidths() {
   await Promise.all(
     artistsScreenColumnOrder.map(async (key) => {
-      const preference = await store.loadPreference(artistsScreenColumnWidthPreferenceKeys[key])
+      if (key === 'action') {
+        return
+      }
+      const preferenceKey = artistsScreenColumnWidthPreferenceKeys[key]
+      if (!preferenceKey) {
+        return
+      }
+      const preference = await store.loadPreference(preferenceKey)
       if (!preference?.value) {
         return
       }
@@ -2171,7 +2108,7 @@ function providerChipText(artist: Artist) {
   const providers = providersForArtist(artist)
   return providers.length
     ? providers.map((provider) => providerDefinition(provider.providerId).label).join(', ')
-    : 'None'
+    : ''
 }
 
 function providerLinkChipText(provider: ArtistProviderLink) {
@@ -2222,6 +2159,16 @@ function artistCountryHasOverride(artist: Artist) {
 
 function artistStatus(artist: Artist) {
   return activeStatusLabel(artistActive(artist))
+}
+
+function artistTableStatus(artist: Artist) {
+  const active = artistActive(artist)
+  if (active !== null && active !== undefined) {
+    return activeStatusLabel(active)
+  }
+  return artist.providerLinks.some((link) => link.enabled && Boolean(link.lastSuccessAt))
+    ? 'Unknown'
+    : ''
 }
 
 function activeStatusLabel(active: boolean | null | undefined) {
@@ -2427,7 +2374,7 @@ watch(providerConflictDialog, (open) => {
             size="small"
             :color="allCollectionsFilterSelected ? 'primary' : undefined"
             :variant="allCollectionsFilterSelected ? 'flat' : 'tonal'"
-            class="artists-collection-filter-chip"
+            class="collection-chip artists-collection-filter-chip"
             @click="setAllCollectionFilter"
           >
             All
@@ -2440,7 +2387,7 @@ watch(providerConflictDialog, (open) => {
             variant="tonal"
             closable
             close-icon="mdi-close"
-            class="artists-collection-filter-chip"
+            class="collection-chip artists-collection-filter-chip"
             @click="removeCollectionFilter(collection.id)"
             @click:close.stop="removeCollectionFilter(collection.id)"
           >
@@ -2450,7 +2397,7 @@ watch(providerConflictDialog, (open) => {
             v-if="hiddenSelectedFilterCollectionCount > 0"
             size="small"
             variant="tonal"
-            class="artists-collection-filter-chip"
+            class="collection-chip artists-collection-filter-chip"
           >
             +{{ hiddenSelectedFilterCollectionCount }}
           </v-chip>
@@ -2557,11 +2504,7 @@ watch(providerConflictDialog, (open) => {
                     ></v-icon>
                   </template>
                 </v-tooltip>
-                <v-tooltip :text="artist.name" location="top">
-                  <template #activator="{ props }">
-                    <span v-bind="props" class="cell-strong">{{ artist.name }}</span>
-                  </template>
-                </v-tooltip>
+                <EllipsizedText :text="artist.name" class="cell-strong ellipsized-text" />
               </div>
             </div>
             <div data-column="artists.country" class="workspace-grid__cell">
@@ -2594,7 +2537,6 @@ watch(providerConflictDialog, (open) => {
                       >
                       <span>{{ artistCountryName(artist) }}</span>
                     </span>
-                    <span v-else class="cell-muted artist-country-cell__value">Unknown</span>
                     <v-btn
                       v-if="artistCountryHasOverride(artist)"
                       icon="mdi-close"
@@ -2644,9 +2586,9 @@ watch(providerConflictDialog, (open) => {
                 :close-on-content-click="true"
               >
                 <template #activator="{ props }">
-                  <div class="artist-status-control" @click.stop @mousedown.stop>
+                  <div v-bind="props" class="artist-status-control" @click.stop @mousedown.stop>
                     <v-chip
-                      v-bind="props"
+                      v-if="artistTableStatus(artist)"
                       size="x-small"
                       :color="statusChipColor(artistActive(artist))"
                       variant="tonal"
@@ -2654,7 +2596,7 @@ watch(providerConflictDialog, (open) => {
                       :class="{ 'artist-status-chip--override': artistActiveHasOverride(artist) }"
                       :disabled="writeActionsDisabled"
                     >
-                      {{ artistStatus(artist) }}
+                      {{ artistTableStatus(artist) }}
                     </v-chip>
                   </div>
                 </template>
@@ -2690,15 +2632,24 @@ watch(providerConflictDialog, (open) => {
               </v-menu>
             </div>
             <div data-column="artists.albums" class="workspace-grid__cell artists-count-cell">
-              <span>{{ artist.albumCount }}</span>
+              <v-chip class="album-metadata-chip numeric-chip--count" variant="tonal">
+                {{ artist.albumCount }}
+              </v-chip>
             </div>
             <div data-column="artists.unchecked" class="workspace-grid__cell artists-count-cell">
-              <v-chip :color="artist.uncheckedAlbumCount > 0 ? 'warning' : 'default'" size="x-small" variant="tonal">
+              <v-chip
+                class="album-metadata-chip numeric-chip--count"
+                :class="{ 'unchecked-count-chip': artist.uncheckedAlbumCount > 0 }"
+                :color="artist.uncheckedAlbumCount > 0 ? 'warning' : 'default'"
+                variant="tonal"
+              >
                 {{ artist.uncheckedAlbumCount }}
               </v-chip>
             </div>
             <div data-column="artists.local" class="workspace-grid__cell artists-count-cell">
-              <span>{{ artist.localAlbumCount }}</span>
+              <v-chip class="album-metadata-chip numeric-chip--count" variant="tonal">
+                {{ artist.localAlbumCount }}
+              </v-chip>
             </div>
             <div data-column="artists.provider" class="workspace-grid__cell truncate-cell">
               <div v-if="providersForArtist(artist).length" class="artists-provider-list">
@@ -2727,49 +2678,41 @@ watch(providerConflictDialog, (open) => {
                   </template>
                 </v-tooltip>
               </div>
-              <span v-else class="cell-muted">None</span>
             </div>
-            <div data-column="artists.action" class="workspace-grid__cell row-action-cell">
-              <div class="row-actions">
+            <ActionColumn column="artists.action">
+              <template #default="{ showLabels }">
                 <v-tooltip
                   v-if="artistHasProviderConflict(artist)"
                   :text="`Resolve conflicts for ${artist.name}`"
                   location="top"
                 >
                   <template #activator="{ props }">
-                    <v-btn
+                    <RowActionButton
                       v-bind="props"
-                      prepend-icon="mdi-alert-outline"
-                      size="x-small"
-                      variant="text"
+                      icon="mdi-alert-outline"
+                      label="Conflicts"
                       color="warning"
-                      :class="artistScreenRowActionClass(artist)"
+                      :show-label="showLabels"
                       :disabled="writeActionsDisabled"
                       @click.stop="openArtistProviderConflicts(artist)"
-                    >
-                      <span v-if="showArtistsScreenActionLabels(artist)">Conflicts</span>
-                    </v-btn>
+                    />
                   </template>
                 </v-tooltip>
                 <v-tooltip :text="artistProviderActionTooltip(artist, 'Add providers')" location="top">
                   <template #activator="{ props }">
-                    <v-btn
+                    <RowActionButton
                       v-bind="props"
-                      prepend-icon="mdi-link-plus"
-                      size="x-small"
-                      variant="text"
-                      color="primary"
-                      :class="artistScreenRowActionClass(artist)"
+                      icon="mdi-link-plus"
+                      label="Add providers"
+                      :show-label="showLabels"
                       :loading="matchingArtistId === artist.id && providerLoadingIds.length > 0"
                       :disabled="writeActionsDisabled || !artistProviderEligible(artist)"
                       @click.stop="startProviderSetup(artist)"
-                    >
-                      <span v-if="showArtistsScreenActionLabels(artist)">Add providers</span>
-                    </v-btn>
+                    />
                   </template>
                 </v-tooltip>
-              </div>
-            </div>
+              </template>
+            </ActionColumn>
           </div>
           <div
             v-if="artistsVirtualBottomSpacerHeight > 0"
@@ -2929,6 +2872,7 @@ watch(providerConflictDialog, (open) => {
                   :key="collectionId"
                   size="x-small"
                   variant="tonal"
+                  class="collection-chip"
                 >
                   {{ collections.find((collection) => collection.id === collectionId)?.name ?? collectionId }}
                 </v-chip>
@@ -2994,11 +2938,11 @@ watch(providerConflictDialog, (open) => {
               <div v-for="album in selectedAlbums" :key="album.id" class="artist-known-album">
                 <span class="artist-known-album__year">
                   <span
-                    v-if="releaseYearLabel(album.releaseYear) && albumReleaseYearUsesChip(album)"
+                    v-if="releaseYearLabel(album.releaseYear)"
                     class="album-metadata-chip-badge"
                   >
                     <v-chip
-                      class="album-metadata-chip artist-known-album__year-chip"
+                      class="album-metadata-chip numeric-chip--year artist-known-album__year-chip"
                       :class="albumReleaseYearChipClasses(album)"
                       variant="tonal"
                       @click="openAlbumReleaseYearConflict(album, $event)"
@@ -3043,21 +2987,19 @@ watch(providerConflictDialog, (open) => {
                       </template>
                     </v-tooltip>
                   </span>
-                  <span v-else-if="releaseYearLabel(album.releaseYear)" class="artist-known-album__year-text">
-                    {{ releaseYearLabel(album.releaseYear) }}
-                  </span>
                   <span v-else class="cell-muted">No year</span>
                 </span>
-                <span v-if="albumTitleUsesChip(album)" class="album-metadata-chip-badge artist-known-album__title-badge">
+                <span
+                  v-if="albumTitleUsesChip(album)"
+                  class="album-metadata-chip-badge artist-known-album__title-badge artist-known-album__title"
+                  :class="artistKnownAlbumPresenceClass(album)"
+                >
                   <v-tooltip :text="albumTitleTooltip(album)" location="top">
                     <template #activator="{ props }">
                       <v-chip
                         v-bind="props"
-                        class="album-metadata-chip artist-known-album__title-chip artist-known-album__title"
-                        :class="[
-                          artistKnownAlbumPresenceClass(album),
-                          albumTitleChipClasses(album),
-                        ]"
+                        class="album-metadata-chip artist-known-album__title-chip"
+                        :class="albumTitleChipClasses(album)"
                         variant="tonal"
                         @click="openAlbumTitleConflict(album, $event)"
                       >
@@ -3321,6 +3263,13 @@ watch(providerConflictDialog, (open) => {
                             size="small"
                           >
                             {{ activeStatusLabel(choice.activeValue) }}
+                          </v-chip>
+                          <v-chip
+                            v-else-if="section.kind === 'release-year' && choice.textValue !== 'No year'"
+                            class="album-metadata-chip numeric-chip--year"
+                            variant="tonal"
+                          >
+                            {{ choice.textValue }}
                           </v-chip>
                           <span v-else>{{ choice.textValue }}</span>
                         </template>

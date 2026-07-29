@@ -100,16 +100,9 @@ public interface MusicLibraryConfig {
     }
 
     interface WorkspaceColumnWidths {
-        ArtistColumns artist();
-
         AlbumColumns album();
 
         TitleColumns title();
-    }
-
-    interface ArtistColumns {
-        @WithDefault("280")
-        int name();
     }
 
     interface AlbumColumns {
@@ -124,9 +117,6 @@ public interface MusicLibraryConfig {
 
         @WithDefault("180")
         int home();
-
-        @WithDefault("122")
-        int action();
     }
 
     interface TitleColumns {
@@ -161,8 +151,5 @@ public interface MusicLibraryConfig {
 
         @WithDefault("110")
         int provider();
-
-        @WithDefault("104")
-        int action();
     }
 }

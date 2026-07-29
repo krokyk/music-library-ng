@@ -319,6 +319,12 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Provider setup and provider matching controls use provider chips with normal provider display names.
 - Saving or clearing provider identities updates affected rows in place where practical so pane scroll position is preserved.
 - The Artists table shows artist name, country, status, album counts, local counts, provider identities, and row actions.
+- An Artists table country cell remains blank when no effective country is known.
+- An Artists table provider cell remains blank when the artist has no provider link.
+- An Artists table status cell remains blank before an override or successful provider assessment exists.
+- An Artists table status cell shows `Unknown` only after at least one enabled provider has completed successfully without yielding a known consensus status.
+- Artists table album, unchecked, and local counts use right-aligned intrinsic-width number chips.
+- Table release years use centered intrinsic-width year chips.
 - The Artists table does not show provider artist type because providers use incompatible meanings for that field.
 - Artists represented only by title-centric collections remain visible, but provider setup and scan controls are disabled and those artists are excluded from bulk provider matching.
 - Country cells use bundled SVG flag assets and country names.

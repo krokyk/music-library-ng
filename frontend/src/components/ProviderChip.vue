@@ -73,6 +73,9 @@ function handleClick(event: MouseEvent | KeyboardEvent) {
     :size="size"
     :variant="variant"
     :class="chipClasses"
+    :aria-label="showLabel ? undefined : chipLabel"
+    data-adaptive-control
+    :data-show-label="showLabel"
     :disabled="disabled"
     @click="handleClick"
   >
@@ -85,7 +88,7 @@ function handleClick(event: MouseEvent | KeyboardEvent) {
         aria-hidden="true"
       >
     </slot>
-    <span v-if="showLabel" class="provider-chip__text">{{ chipLabel }}</span>
+    <span class="provider-chip__text adaptive-control-label">{{ chipLabel }}</span>
     <span v-if="count !== null && count !== undefined" class="provider-chip__count">{{ count }}</span>
     <v-icon
       v-if="openExternal && externalArtistUrl"

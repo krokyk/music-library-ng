@@ -19,21 +19,15 @@ public record UiSettings(
     }
 
     public record WorkspaceColumnWidths(
-            ArtistColumns artist,
             AlbumColumns album,
             TitleColumns title) {
-    }
-
-    public record ArtistColumns(
-            int name) {
     }
 
     public record AlbumColumns(
             int name,
             int releaseYear,
             int checked,
-            int home,
-            int action) {
+            int home) {
     }
 
     public record TitleColumns(
@@ -49,7 +43,6 @@ public record UiSettings(
             int albums,
             int unchecked,
             int local,
-            int provider,
-            int action) {
+            int provider) {
     }
 }
