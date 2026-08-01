@@ -1,4 +1,4 @@
-# Codex Frontend Workflow Guide
+# Frontend Workflow Guide
 
 This file owns the working process and verification rules for frontend changes.
 Read `docs/ui-guide.md` for the app's visual and interaction contract.
@@ -23,13 +23,13 @@ Read `docs/ui-guide.md` for the app's visual and interaction contract.
 
 ## Session Collaboration And Handoff
 
-Independent Codex sessions do not share hidden chat memory.
+Independent agent sessions do not share hidden chat memory.
 Use the current source-of-truth docs and the codebase as shared memory.
 
 - Keep `AGENTS.md` for stable project rules and pointers only.
 - Use `current-application.md` as the authoritative reference for current behavior, model, API semantics, provider behavior, scan behavior, settings behavior, and current constraints.
 - Use `ui-guide.md` for stable visual and interaction rules.
-- Use `codex-ui-workflow-guide.md` for stable frontend workflow and verification rules.
+- Use `ui-workflow-guide.md` for stable frontend workflow and verification rules.
 - Use `ideas.md` for unimplemented ideas only.
 - Remove or shrink ideas from `ideas.md` when implementing or rejecting them.
 - Treat `evolution-*.md` files as preserved historical archaeology only.

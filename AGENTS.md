@@ -4,11 +4,11 @@ Project-specific instructions for AI agents and other contributors working in th
 
 ## Startup Context
 
-Every new Codex session should read these shared source-of-truth files before broad work:
+Every new agent session should read these shared source-of-truth files before broad work:
 
 - `docs/current-application.md`
 - `docs/ui-guide.md`
-- `docs/codex-ui-workflow-guide.md`
+- `docs/ui-workflow-guide.md`
 
 For small, targeted questions or one-file fixes, read those three files plus only the files needed for the task.
 `docs/evolution-*.md` files are historical archaeology only, not current source-of-truth or required startup context.
@@ -37,12 +37,16 @@ Key code paths not called out in `README.md`'s project map:
 ## Workflow And UI Rules
 
 `ui-guide.md` owns frontend visual language, layout rules, control behavior, settings UI behavior, and scan/status UI behavior.
-`codex-ui-workflow-guide.md` owns working style, UI smoke-test workflow, and final verification rules.
+`ui-workflow-guide.md` owns working style, UI smoke-test workflow, and final verification rules.
 Keep those rules there instead of duplicating them here.
 `current-application.md` owns current app behavior, data model, API semantics, and current constraints.
 Keep current behavior there instead of scattering it through evolution docs.
 Do not design special UI, workflow branches, or tests for implausible single-user local races, such as a folder disappearing between listing and an immediate click.
 Let existing generic error handling cover them unless the user reports the case or data loss is possible.
+
+This is a single-user local app with one non-disabled user, so do not add explicit accessibility affordances.
+Do not add ARIA attributes, `role`, `tabindex`, `:focus-visible` styling, or screen-reader-only text.
+Rely on native element semantics and browser defaults instead of writing code to support accessibility.
 
 If there is doubt about whether the requested action should remove data, delete data, mutate files on disk, or change a broader workflow than stated, ask before implementing.
 Do not guess on destructive or domain-ambiguous actions.
@@ -71,7 +75,7 @@ Document behavior that a maintainer or user needs to know.
 ## Git Workflow
 
 This is a solo, single-user hobby repository with no other contributors.
-Only commit or push when the user explicitly asks; when committing, go straight to `main` with no feature branches or pull requests unless the user asks for one.
+Commit straight to `main` with no feature branches or pull requests unless the user asks for one.
 
 ## Backend Rules
 
@@ -125,7 +129,7 @@ Only commit or push when the user explicitly asks; when committing, go straight 
 ## Build And Test Commands
 
 `README.md` (Setup, Running, Build And Package) owns build/run commands and ports.
-`docs/codex-ui-workflow-guide.md` owns verification rules and the UI smoke-test workflow, including the `scripts/check-ui-layout.ps1` CDP check.
+`docs/ui-workflow-guide.md` owns verification rules and the UI smoke-test workflow, including the `scripts/check-ui-layout.ps1` CDP check.
 
 Useful dev-shell commands after sourcing `dev-shell.sh`:
 

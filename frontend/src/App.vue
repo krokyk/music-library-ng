@@ -543,14 +543,13 @@ onMounted(async () => {
             class="status-history-dialog__body"
             @scroll="updateHistoryPinned"
           >
-            <div class="status-history-list" role="list">
+            <div class="status-history-list">
               <button
                 v-for="entry in statusHistory"
                 :key="entry.id"
                 class="status-history-entry"
                 :class="{ 'status-history-entry--clickable': entryHasDetail(entry) }"
                 type="button"
-                role="listitem"
                 :disabled="!entryHasDetail(entry)"
                 @click="openHistoryEntry(entry)"
               >

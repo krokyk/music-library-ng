@@ -163,11 +163,6 @@ body,
   background: #151515;
 }
 
-.global-status-bar:focus-visible {
-  outline: 2px solid rgba(0, 213, 255, 0.65);
-  outline-offset: -2px;
-}
-
 .global-status-bar__content {
   align-items: center;
   display: flex;
@@ -822,8 +817,7 @@ body,
   width: 22px !important;
 }
 
-.artists-search-clear.v-btn:hover,
-.artists-search-clear.v-btn:focus-visible {
+.artists-search-clear.v-btn:hover {
   background: rgba(var(--v-theme-primary), 0.16);
   color: rgb(var(--v-theme-primary));
 }
@@ -1364,9 +1358,7 @@ body,
   width: 20px !important;
 }
 
-.artist-known-album:hover .album-metadata-chip-badge__reset.v-btn,
-.artist-known-album:focus-within .album-metadata-chip-badge__reset.v-btn,
-.album-metadata-chip-badge__reset.v-btn:focus-visible {
+.artist-known-album:hover .album-metadata-chip-badge__reset.v-btn {
   opacity: 1;
   pointer-events: auto;
 }
@@ -1552,11 +1544,6 @@ body,
   position: relative;
   text-align: left;
   width: 100%;
-}
-
-.nav-row:focus-visible {
-  outline: 2px solid rgba(0, 213, 255, 0.65);
-  outline-offset: 2px;
 }
 
 .nav-row:hover,

@@ -2312,7 +2312,6 @@ watch(sortedCollectionTitleItems, (items) => {
             <div
               v-if="row.pending"
               class="nav-row nav-row--pending"
-              aria-disabled="true"
             >
               <span class="nav-row__title">
                 <AppSpinner
@@ -2329,7 +2328,6 @@ watch(sortedCollectionTitleItems, (items) => {
                 'is-selected': row.collection.id === selectedCollectionId,
                 'nav-row--pending': row.collection.id === deletingCollectionId,
               }"
-              :aria-disabled="row.collection.id === deletingCollectionId"
               @click.capture="selectCollection(row.collection)"
               @focusin="focusedCollectionId = row.collection.id"
               @focusout="handleCollectionRowFocusOut(row.collection, $event)"
@@ -2618,7 +2616,6 @@ watch(sortedCollectionTitleItems, (items) => {
               v-if="titleVirtualTopSpacerHeight > 0"
               class="workspace-grid__virtual-spacer"
               :style="{ height: `${titleVirtualTopSpacerHeight}px` }"
-              aria-hidden="true"
             ></div>
             <div
               v-for="item in visibleTitleRows"
@@ -2649,7 +2646,6 @@ watch(sortedCollectionTitleItems, (items) => {
               v-if="titleVirtualBottomSpacerHeight > 0"
               class="workspace-grid__virtual-spacer"
               :style="{ height: `${titleVirtualBottomSpacerHeight}px` }"
-              aria-hidden="true"
             ></div>
           </div>
         </v-sheet>
@@ -2744,7 +2740,6 @@ watch(sortedCollectionTitleItems, (items) => {
             v-if="artistVirtualTopSpacerHeight > 0"
             class="workspace-grid__virtual-spacer"
             :style="{ height: `${artistVirtualTopSpacerHeight}px` }"
-            aria-hidden="true"
           ></div>
           <div
             v-for="artist in visibleArtistRows"
@@ -2780,7 +2775,6 @@ watch(sortedCollectionTitleItems, (items) => {
                     <template #activator="{ props }">
                       <v-chip
                         v-bind="props"
-                        :aria-label="artistIssueLabel(artist)"
                         class="artist-issue-chip numeric-chip numeric-chip--count unchecked-count-chip"
                         data-adaptive-control
                         :data-show-label="showArtistIssueLabel(artist)"
@@ -2842,7 +2836,6 @@ watch(sortedCollectionTitleItems, (items) => {
             v-if="artistVirtualBottomSpacerHeight > 0"
             class="workspace-grid__virtual-spacer"
             :style="{ height: `${artistVirtualBottomSpacerHeight}px` }"
-            aria-hidden="true"
           ></div>
         </div>
       </v-sheet>
@@ -2980,7 +2973,6 @@ watch(sortedCollectionTitleItems, (items) => {
             v-if="albumVirtualTopSpacerHeight > 0"
             class="workspace-grid__virtual-spacer"
             :style="{ height: `${albumVirtualTopSpacerHeight}px` }"
-            aria-hidden="true"
           ></div>
           <div
             v-for="album in visibleAlbumRows"
@@ -3118,7 +3110,6 @@ watch(sortedCollectionTitleItems, (items) => {
             v-if="albumVirtualBottomSpacerHeight > 0"
             class="workspace-grid__virtual-spacer"
             :style="{ height: `${albumVirtualBottomSpacerHeight}px` }"
-            aria-hidden="true"
           ></div>
         </div>
       </v-sheet>

@@ -355,7 +355,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 ## UI Rules
 
 - Use `docs/ui-guide.md` as the detailed visual and interaction contract.
-- Use `docs/codex-ui-workflow-guide.md` as the frontend workflow and verification contract.
+- Use `docs/ui-workflow-guide.md` as the frontend workflow and verification contract.
 - Row actions select the row first and then run the clicked control when enabled.
 - Row actions are hover or focus visible, and selected rows keep available actions visible.
 - Inline row actions use the centralized row action button style.

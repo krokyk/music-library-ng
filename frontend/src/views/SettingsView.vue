@@ -368,7 +368,6 @@ onBeforeUnmount(() => {
             <div class="settings-cell settings-cell--control">
               <v-switch
                 v-model="uiForm.artistScanSpinnerEnabled"
-                aria-label="Artist scan spinner"
                 class="settings-switch"
                 color="primary"
                 density="compact"

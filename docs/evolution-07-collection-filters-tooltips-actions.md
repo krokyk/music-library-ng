@@ -60,7 +60,7 @@ The work focused on the Collections screen Collections, Artists, Albums, and Tit
 - Icon-only action widths remain the minimum resize floor for action columns and panes.
 - Removed action-label sliders from Settings because they exposed implementation details rather than useful runtime preferences.
 - Removed action-label threshold fields from the UI settings API response, frontend types, Pinia defaults, backend settings DTO, config interface, and `application.properties`.
-- Updated `docs/codex-ui-workflow-guide.md` so future UI work uses automatic fit-based action labels and does not reintroduce visible threshold settings.
+- Updated `docs/ui-workflow-guide.md` so future UI work uses automatic fit-based action labels and does not reintroduce visible threshold settings.
 
 ## Preference Keys
 
@@ -114,7 +114,7 @@ The work focused on the Collections screen Collections, Artists, Albums, and Tit
 - `frontend/src/styles.css` adds muted no-collection album row styling and the collection and artist row trailing action layout.
 - `src/main/java/org/kroky/musiclib/resource/SettingsResource.java`, `src/main/java/org/kroky/musiclib/model/UiSettings.java`, and `src/main/java/org/kroky/musiclib/config/MusicLibraryConfig.java` removed action-label threshold settings from the backend contract and defaults.
 - `src/main/resources/application.properties` removed obsolete action-label threshold default properties.
-- `docs/codex-ui-workflow-guide.md` documents the filter keys, album filter behavior, unchecked artist modifier, tooltip rule, and automatic action-label rule.
+- `docs/ui-workflow-guide.md` documents the filter keys, album filter behavior, unchecked artist modifier, tooltip rule, and automatic action-label rule.
 
 ## Verification Already Run
 

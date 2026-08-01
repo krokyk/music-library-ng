@@ -340,7 +340,6 @@ function refreshAll() {
                     class="provider-chip__icon"
                     :src="provider.iconSrc"
                     alt=""
-                    aria-hidden="true"
                   >
                 </template>
               </ProviderChip>

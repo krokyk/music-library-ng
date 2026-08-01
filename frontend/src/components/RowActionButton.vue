@@ -22,7 +22,6 @@ withDefaults(defineProps<{
     :color="color"
     :disabled="disabled"
     :loading="loading"
-    :aria-label="showLabel ? undefined : label"
     data-adaptive-control
     :data-show-label="showLabel"
     class="workspace-row-action"

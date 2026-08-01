@@ -73,7 +73,6 @@ function handleClick(event: MouseEvent | KeyboardEvent) {
     :size="size"
     :variant="variant"
     :class="chipClasses"
-    :aria-label="showLabel ? undefined : chipLabel"
     data-adaptive-control
     :data-show-label="showLabel"
     :disabled="disabled"
@@ -85,7 +84,6 @@ function handleClick(event: MouseEvent | KeyboardEvent) {
         class="provider-chip__icon"
         :src="chipIconSrc"
         alt=""
-        aria-hidden="true"
       >
     </slot>
     <span class="provider-chip__text adaptive-control-label">{{ chipLabel }}</span>

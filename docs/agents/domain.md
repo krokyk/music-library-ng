@@ -6,7 +6,7 @@ How engineering skills should consume this repository's domain documentation.
 
 - `docs/current-application.md` for current behavior, data model, API semantics, and constraints.
 - `docs/ui-guide.md` for visual and interaction rules.
-- `docs/codex-ui-workflow-guide.md` for frontend workflow and verification rules.
+- `docs/ui-workflow-guide.md` for frontend workflow and verification rules.
 - `CONTEXT.md`, if it exists, for domain vocabulary only.
 - Relevant ADRs under `docs/adr/`, if that directory exists.
 
@@ -18,7 +18,7 @@ Create them lazily only when domain terminology is resolved or a durable archite
 - `AGENTS.md` contains stable repository and agent rules.
 - `docs/current-application.md` is the current application source of truth.
 - `docs/ui-guide.md` is the visual and interaction contract.
-- `docs/codex-ui-workflow-guide.md` is the frontend workflow and verification contract.
+- `docs/ui-workflow-guide.md` is the frontend workflow and verification contract.
 - `CONTEXT.md` is an optional glossary and must not duplicate implementation details or application behavior.
 - `docs/adr/` contains durable architectural decisions that should not be silently contradicted.
 

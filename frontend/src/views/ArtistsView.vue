@@ -2322,7 +2322,6 @@ watch(providerConflictDialog, (open) => {
                           class="provider-chip__icon"
                           :src="provider.iconSrc"
                           alt=""
-                        aria-hidden="true"
                       >
                     </template>
                   </ProviderChip>
@@ -2339,7 +2338,6 @@ watch(providerConflictDialog, (open) => {
             prepend-inner-icon="mdi-magnify"
             density="compact"
             label="Search artists"
-            aria-label="Search artists"
             hide-details
             @keydown.esc.prevent.stop="clearArtistSearch"
           >
@@ -2351,7 +2349,6 @@ watch(providerConflictDialog, (open) => {
                 density="compact"
                 variant="text"
                 class="artists-search-clear"
-                aria-label="Clear artist search"
                 @mousedown.prevent
                 @click.stop="clearArtistSearch"
               ></v-btn>
@@ -2406,7 +2403,6 @@ watch(providerConflictDialog, (open) => {
                 variant="text"
                 color="primary"
                 class="artists-collection-filter-add"
-                aria-label="Choose collections"
               ></v-btn>
             </template>
             <v-card class="artists-collection-filter-menu">
@@ -2468,7 +2464,6 @@ watch(providerConflictDialog, (open) => {
             v-if="artistsVirtualTopSpacerHeight > 0"
             class="workspace-grid__virtual-spacer"
             :style="{ height: `${artistsVirtualTopSpacerHeight}px` }"
-            aria-hidden="true"
           ></div>
           <div
             v-for="artist in visibleArtistRows"
@@ -2524,7 +2519,6 @@ watch(providerConflictDialog, (open) => {
                         class="country-flag"
                         :src="artistCountryFlagSrc(artist)"
                         alt=""
-                        aria-hidden="true"
                       >
                       <span>{{ artistCountryName(artist) }}</span>
                     </span>
@@ -2561,7 +2555,7 @@ watch(providerConflictDialog, (open) => {
                       @click="selectArtistCountryOverride(artist, country.code)"
                     >
                       <template #prepend>
-                        <img class="country-flag country-flag--menu" :src="country.flagSrc" alt="" aria-hidden="true">
+                        <img class="country-flag country-flag--menu" :src="country.flagSrc" alt="">
                       </template>
                     </v-list-item>
                     <v-list-item v-if="filteredCountryOptions().length === 0" title="No countries found"></v-list-item>
@@ -2709,7 +2703,6 @@ watch(providerConflictDialog, (open) => {
             v-if="artistsVirtualBottomSpacerHeight > 0"
             class="workspace-grid__virtual-spacer"
             :style="{ height: `${artistsVirtualBottomSpacerHeight}px` }"
-            aria-hidden="true"
           ></div>
         </div>
       </v-sheet>
@@ -2720,7 +2713,6 @@ watch(providerConflictDialog, (open) => {
         ref="artistDetailsPaneElement"
         class="pane artist-details-pane"
         :style="artistsPaneStyle(1)"
-        :aria-busy="selectedArtistProviderCheckRunning"
       >
         <div class="pane-header">
           <div class="pane-header__primary">
@@ -2796,7 +2788,6 @@ watch(providerConflictDialog, (open) => {
                   class="country-flag"
                   :src="artistCountryFlagSrc(selectedArtist)"
                   alt=""
-                  aria-hidden="true"
                 >
                 <span>{{ artistCountryName(selectedArtist) }}</span>
                 <v-tooltip v-if="artistCountryHasOverride(selectedArtist)" text="Clear country override" location="top">
@@ -2820,7 +2811,6 @@ watch(providerConflictDialog, (open) => {
                     class="country-flag"
                     :src="providerCountryFlagSrcForArtist(selectedArtist)"
                     alt=""
-                    aria-hidden="true"
                   >
                   {{ providerCountryName(selectedArtist) }})
                 </span>
@@ -3182,7 +3172,7 @@ watch(providerConflictDialog, (open) => {
                             @click="selectProviderConflictCountry(country.code)"
                           >
                             <template #prepend>
-                              <img class="country-flag country-flag--menu" :src="country.flagSrc" alt="" aria-hidden="true">
+                              <img class="country-flag country-flag--menu" :src="country.flagSrc" alt="">
                             </template>
                           </v-list-item>
                         </v-list>
@@ -3242,7 +3232,6 @@ watch(providerConflictDialog, (open) => {
                               class="country-flag provider-conflict-choice__country-flag"
                               :src="countryFlagSrc(choice.countryValue)"
                               alt=""
-                              aria-hidden="true"
                             >
                             <span>{{ choice.countryValue ? countryName(choice.countryValue) : 'Unknown' }}</span>
                           </span>
