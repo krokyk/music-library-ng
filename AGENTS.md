@@ -88,6 +88,12 @@ Document behavior that a maintainer or user needs to know.
 - If a feature adds a new configuration key, document the key where existing related keys are documented.
 - If a setting has both an `application.properties` default and a DB override, clearly describe that relationship.
 
+## Git Workflow
+
+This is a solo, single-user hobby repository with no other contributors.
+Commit and push directly to `main`; do not create feature branches or pull requests unless explicitly asked.
+Keep committing or pushing only when the user asks.
+
 ## Backend Rules
 
 - Use Quarkus REST resources for API endpoints under `/api/...`.
