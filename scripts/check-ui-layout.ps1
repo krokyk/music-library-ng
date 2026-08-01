@@ -282,8 +282,9 @@ $startedBrowser = Start-CdpBrowser $cdpBase $browserPath
 $socket = $null
 $layoutPreferenceBackup = @{}
 foreach ($key in @(
-    "collections-screen.artist-layout.panes",
-    "collections-screen.title-layout.panes",
+    "collections-screen.collections-pane.width",
+    "collections-screen.artists-pane.width",
+    "artists-screen.artists-pane.width",
     "collections-screen.titles-pane.title",
     "artists-screen.artists-pane.name"
 )) {
@@ -327,6 +328,55 @@ try {
     $initialPath = Join-Path $OutputDir "musiclib-initial.png"
     Save-Screenshot $socket $initialPath
 
+    $wideWidth = [Math]::Max(3200, $Width)
+    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+        width = $wideWidth
+        height = $Height
+        deviceScaleFactor = 1
+        mobile = $false
+    } | Out-Null
+    Start-Sleep -Milliseconds 500
+    $widePaneState = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.three-pane > .pane')].map((pane) => pane.getBoundingClientRect().width)))()"
+    $widePanes = $widePaneState | ConvertFrom-Json
+    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+        width = 1200
+        height = $Height
+        deviceScaleFactor = 1
+        mobile = $false
+    } | Out-Null
+    Start-Sleep -Milliseconds 500
+    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+        width = $wideWidth
+        height = $Height
+        deviceScaleFactor = 1
+        mobile = $false
+    } | Out-Null
+    Start-Sleep -Milliseconds 500
+    $restoredPaneState = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.three-pane > .pane')].map((pane) => pane.getBoundingClientRect().width)))()"
+    $restoredPanes = $restoredPaneState | ConvertFrom-Json
+    if ([Math]::Abs($restoredPanes[0] - $widePanes[0]) -gt 0.5 -or [Math]::Abs($restoredPanes[1] - $widePanes[1]) -gt 0.5 -or [Math]::Abs($restoredPanes[2] - $widePanes[2]) -gt 0.5) {
+        throw "Constrained pane widths did not restore after browser width returned: before=$widePaneState restored=$restoredPaneState"
+    }
+    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+        width = $wideWidth + 240
+        height = $Height
+        deviceScaleFactor = 1
+        mobile = $false
+    } | Out-Null
+    Start-Sleep -Milliseconds 500
+    $expandedPaneState = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.three-pane > .pane')].map((pane) => pane.getBoundingClientRect().width)))()"
+    $expandedPanes = $expandedPaneState | ConvertFrom-Json
+    if ([Math]::Abs($expandedPanes[0] - $widePanes[0]) -gt 0.5 -or [Math]::Abs($expandedPanes[1] - $widePanes[1]) -gt 0.5 -or [Math]::Abs(($expandedPanes[2] - $widePanes[2]) - 240) -gt 0.5) {
+        throw "Browser resize did not preserve fixed Collections panes and resize only the rightmost pane: before=$widePaneState after=$expandedPaneState"
+    }
+    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+        width = $Width
+        height = $Height
+        deviceScaleFactor = 1
+        mobile = $false
+    } | Out-Null
+    Start-Sleep -Milliseconds 500
+
     $collectionActionState = Eval-Js $socket @'
 (async () => {
   const pane = document.querySelector('.collections-pane');
@@ -337,7 +387,7 @@ try {
   row.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
   const pause = () => new Promise((resolve) => setTimeout(resolve, 200));
   const originalWidth = pane.getBoundingClientRect().width;
-  const preferenceUrl = '/api/preferences/' + encodeURIComponent('collections-screen.title-layout.panes');
+  const preferenceUrl = '/api/preferences/' + encodeURIComponent('collections-screen.collections-pane.width');
   const preferenceResponse = await fetch(preferenceUrl);
   const originalPreference = preferenceResponse.ok ? (await preferenceResponse.json()).value : null;
   const restorePreference = () => fetch(preferenceUrl, originalPreference === null
@@ -486,7 +536,7 @@ try {
   row.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
   const pause = () => new Promise((resolve) => setTimeout(resolve, 200));
   const originalWidth = pane.getBoundingClientRect().width;
-  const preferenceUrl = '/api/preferences/' + encodeURIComponent('collections-screen.artist-layout.panes');
+  const preferenceUrl = '/api/preferences/' + encodeURIComponent('collections-screen.artists-pane.width');
   const preferenceResponse = await fetch(preferenceUrl);
   const originalPreference = preferenceResponse.ok ? (await preferenceResponse.json()).value : null;
   const restorePreference = () => fetch(preferenceUrl, originalPreference === null
@@ -595,7 +645,7 @@ try {
   if (!pane || !resizer?.classList.contains('pane-resizer') || !row) return JSON.stringify({ found: false });
   const pause = () => new Promise((resolve) => setTimeout(resolve, 200));
   const originalWidth = pane.getBoundingClientRect().width;
-  const preferenceUrl = '/api/preferences/' + encodeURIComponent('collections-screen.artist-layout.panes');
+  const preferenceUrl = '/api/preferences/' + encodeURIComponent('collections-screen.artists-pane.width');
   const preferenceResponse = await fetch(preferenceUrl);
   const originalPreference = preferenceResponse.ok ? (await preferenceResponse.json()).value : null;
   const restorePreference = () => fetch(preferenceUrl, originalPreference === null
@@ -625,7 +675,9 @@ try {
   let result;
   try {
     const states = [state()];
-    await dragTo(620);
+    await dragTo(900);
+    states.push(state());
+    await dragTo(500);
     states.push(state());
     result = {
       found: true,
@@ -710,6 +762,34 @@ try {
     if (-not (Wait-ForJs $socket "document.querySelectorAll('.artists-screen-grid .workspace-row').length > 0" 60000)) {
         throw "Artists page did not finish its initial multi-row load."
     }
+    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+        width = $wideWidth
+        height = $Height
+        deviceScaleFactor = 1
+        mobile = $false
+    } | Out-Null
+    Start-Sleep -Milliseconds 500
+    $wideArtistsPaneState = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.artists-two-pane > .pane')].map((pane) => pane.getBoundingClientRect().width)))()"
+    $wideArtistsPanes = $wideArtistsPaneState | ConvertFrom-Json
+    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+        width = $wideWidth + 240
+        height = $Height
+        deviceScaleFactor = 1
+        mobile = $false
+    } | Out-Null
+    Start-Sleep -Milliseconds 500
+    $expandedArtistsPaneState = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.artists-two-pane > .pane')].map((pane) => pane.getBoundingClientRect().width)))()"
+    $expandedArtistsPanes = $expandedArtistsPaneState | ConvertFrom-Json
+    if ([Math]::Abs($expandedArtistsPanes[0] - $wideArtistsPanes[0]) -gt 0.5 -or [Math]::Abs(($expandedArtistsPanes[1] - $wideArtistsPanes[1]) - 240) -gt 0.5) {
+        throw "Browser resize did not preserve the Artists table pane and resize only Artist Info: before=$wideArtistsPaneState after=$expandedArtistsPaneState"
+    }
+    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+        width = $Width
+        height = $Height
+        deviceScaleFactor = 1
+        mobile = $false
+    } | Out-Null
+    Start-Sleep -Milliseconds 500
     if (-not (Eval-Js $socket "(() => { const row = [...document.querySelectorAll('.artists-screen-grid .workspace-row')].find((node) => node.textContent.includes('Across the Rain')); if (!row) return false; row.click(); return true; })()")) {
         throw "The Artists page year-chip fixture was not visible."
     }

@@ -165,8 +165,9 @@ Quarkus reads `config/application.properties` from the process working directory
 Property explanations are kept inline in `src/main/resources/application.properties` so values do not drift from the defaults.
 Use ignored `config/application.properties` or JVM `-D...` arguments for private or machine-specific values.
 The only value expected to differ between computers is the physical music root.
-Runtime UI preferences are stored in SQLite after they are changed in Settings.
+Runtime UI preferences are stored in SQLite after they are changed in the interface.
 First-run UI defaults still come from `application.properties`.
+Pane-width defaults use `music-library.ui.default-pane-widths.collections`, `music-library.ui.default-pane-widths.collection-artists`, and `music-library.ui.default-pane-widths.artists-screen`; divider changes persist scalar CSS-pixel overrides in the database.
 The default batch provider rescan delay comes from `music-library.providers.default-batch-rescan-delay-minutes` and can be changed later in Settings.
 Logs go to the console and `data/logs/music-library-ng.log`.
 

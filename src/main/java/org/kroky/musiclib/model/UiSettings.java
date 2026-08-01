@@ -7,6 +7,7 @@ public record UiSettings(
         int providerBatchRescanDelayMinutes,
         String statusHistoryDateFormat,
         String statusBarLocation,
+        PaneWidths paneWidthDefaults,
         WorkspaceColumnWidths workspaceColumnDefaults,
         ArtistsScreenColumnWidths artistsScreenColumnDefaults,
         int tableGridColumnMinWidth,
@@ -16,6 +17,12 @@ public record UiSettings(
             int statusCompleteVisibleMs,
             int scanPollIntervalMs,
             int providerBatchRescanDelayMinutes) {
+    }
+
+    public record PaneWidths(
+            int collections,
+            int collectionArtists,
+            int artistsScreen) {
     }
 
     public record WorkspaceColumnWidths(

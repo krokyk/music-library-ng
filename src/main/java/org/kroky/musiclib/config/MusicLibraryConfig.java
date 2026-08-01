@@ -59,11 +59,25 @@ public interface MusicLibraryConfig {
         @WithDefault("40")
         int tableGridColumnMinWidth();
 
+        @WithName("default-pane-widths")
+        PaneWidths defaultPaneWidths();
+
         @WithName("default-workspace-column-widths")
         WorkspaceColumnWidths defaultWorkspaceColumnWidths();
 
         @WithName("default-artists-screen-column-widths")
         ArtistsScreenColumnWidths defaultArtistsScreenColumnWidths();
+    }
+
+    interface PaneWidths {
+        @WithDefault("586")
+        int collections();
+
+        @WithDefault("655")
+        int collectionArtists();
+
+        @WithDefault("1296")
+        int artistsScreen();
     }
 
     interface Providers {

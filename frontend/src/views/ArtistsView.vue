@@ -9,6 +9,7 @@ import ProviderChip from '@/components/ProviderChip.vue'
 import ProviderMatchDialog from '@/components/ProviderMatchDialog.vue'
 import RowActionButton from '@/components/RowActionButton.vue'
 import { countryFlagSrc, countryName, countryOptions, normalizeCountryCode } from '@/countries'
+import { fitFixedPaneWidths } from '@/paneWidths'
 import { providerDefinition, providerDefinitions, providerExternalArtistUrl, type ProviderId } from '@/providers'
 import { useWorkspaceGridColumns } from '@/workspaceGridColumns'
 import type {
@@ -111,17 +112,15 @@ const artistsScreenElement = ref<HTMLElement | null>(null)
 const artistsTablePaneElement = ref<unknown>(null)
 const artistDetailsPaneElement = ref<unknown>(null)
 const artistsGridElement = ref<HTMLElement | null>(null)
-const defaultArtistsPanePercents = [70, 30]
 const paneResizerWidth = 10
 const artistsGridHeaderHeight = 38
 const artistsGridRowHeight = 42
 const artistsGridBufferRows = 12
 const artistsGridFallbackViewportHeight = 900
 const artistSearchDebounceMs = 200
-const artistsPanePercents = ref([...defaultArtistsPanePercents])
-const artistsPaneLayoutSaveTimer = ref<number | null>(null)
-const artistsPaneNames = ['artists', 'details'] as const
-const artistsPaneLayoutPreferenceKey = 'artists-screen.layout.panes'
+const artistsPanePreferredWidth = ref(uiSettings.value.paneWidthDefaults.artistsScreen)
+const artistsWorkspaceWidth = ref(window.innerWidth)
+const artistsPaneWidthPreferenceKey = 'artists-screen.artists-pane.width'
 const artistsCollectionFilterPreferenceKey = 'artists-screen.collection-filter.ids'
 const artistsPaneWidths = reactive<Record<ArtistsPaneKey, number>>({
   artists: 0,
@@ -1392,20 +1391,21 @@ function parseColumnWidthPreference(value: string) {
   return Math.round(parsed)
 }
 
+const renderedArtistsPaneWidth = computed(() => fitFixedPaneWidths(
+  [artistsPanePreferredWidth.value],
+  [artistsPaneMinimumWidths()[0]],
+  artistsPaneMinimumWidths()[1],
+  Math.max(1, artistsWorkspaceWidth.value - paneResizerWidth),
+)[0])
+
 function artistsPaneStyle(index: number) {
   return {
     display: 'flex',
-    flex: artistsPaneFlexValue(index, artistsPanePercents.value),
+    flex: index === 0 ? `0 0 ${renderedArtistsPaneWidth.value}px` : '1 1 0',
     flexDirection: 'column',
     minWidth: '0',
     overflow: 'hidden',
   } satisfies CSSProperties
-}
-
-function artistsPaneFlexValue(index: number, percents: number[], totalResizerWidth = paneResizerWidth) {
-  const percent = percents[index]
-  const resizerShare = (totalResizerWidth * percent) / 100
-  return `0 0 calc(${percent}% - ${resizerShare}px)`
 }
 
 function startArtistsPaneResize(event: PointerEvent) {
@@ -1413,30 +1413,57 @@ function startArtistsPaneResize(event: PointerEvent) {
   if (!artistsScreenElement.value) {
     return
   }
+  const target = resolveElement(artistsTablePaneElement.value)
+  if (!target) {
+    return
+  }
+
   const startX = event.clientX
-  const startPercents = [...artistsPanePercents.value]
-  const paneAreaWidth = Math.max(1, artistsScreenElement.value.clientWidth - paneResizerWidth)
-  const [leftMinimumPx, rightMinimumPx] = artistsPaneMinimums(paneAreaWidth)
-  const leftMinimum = (leftMinimumPx / paneAreaWidth) * 100
-  const rightMinimum = (rightMinimumPx / paneAreaWidth) * 100
-  const leftMaximum = Math.max(leftMinimum, 100 - rightMinimum)
+  const startWidth = renderedArtistsPaneWidth.value
+  const areaWidth = Math.max(1, artistsScreenElement.value.clientWidth - paneResizerWidth)
+  const [preferredMinimum, rightMinimum] = artistsPaneMinimumWidths()
+  const maximum = Math.max(1, areaWidth - rightMinimum)
+  const minimum = Math.min(preferredMinimum, maximum)
+  let currentWidth = startWidth
+  let pendingWidth: number | null = null
+  let paneResizeFrame: number | null = null
+
+  function applyPendingWidth() {
+    if (pendingWidth === null) {
+      return
+    }
+    currentWidth = pendingWidth
+    target!.style.flex = `0 0 ${currentWidth}px`
+    artistsPaneWidths.artists = Math.round(currentWidth)
+    artistsPaneWidths.details = Math.round(areaWidth - currentWidth)
+    pendingWidth = null
+  }
 
   function move(pointerEvent: PointerEvent) {
-    const deltaPercent = ((pointerEvent.clientX - startX) / paneAreaWidth) * 100
-    const left = Math.min(Math.max(leftMinimum, startPercents[0] + deltaPercent), leftMaximum)
-    const nextPercents = normalizeArtistsPanePercents([left, 100 - left])
-    artistsPanePercents.value = nextPercents
-    artistsPaneWidths.artists = Math.round((paneAreaWidth * nextPercents[0]) / 100)
-    artistsPaneWidths.details = Math.round((paneAreaWidth * nextPercents[1]) / 100)
+    pendingWidth = Math.min(Math.max(minimum, startWidth + pointerEvent.clientX - startX), maximum)
+    if (paneResizeFrame !== null) {
+      return
+    }
+    paneResizeFrame = window.requestAnimationFrame(() => {
+      paneResizeFrame = null
+      applyPendingWidth()
+    })
   }
 
   function stop() {
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', stop)
     window.removeEventListener('pointercancel', stop)
+    if (paneResizeFrame !== null) {
+      window.cancelAnimationFrame(paneResizeFrame)
+      paneResizeFrame = null
+    }
+    applyPendingWidth()
+    const roundedWidth = Math.round(currentWidth)
+    artistsPanePreferredWidth.value = roundedWidth
+    saveArtistsPaneWidth(roundedWidth)
     artistsPaneResizeActive = false
     document.body.classList.remove('is-pane-resizing')
-    saveArtistsPaneLayout()
     void nextTick(setupArtistsPaneWidthObserver)
   }
 
@@ -1448,78 +1475,45 @@ function startArtistsPaneResize(event: PointerEvent) {
   window.addEventListener('pointercancel', stop)
 }
 
-function artistsPaneMinimums(areaWidth: number) {
-  const raw = [Math.max(420, artistsScreenMinimumGridWidth(), artistsSearchControlsMinimumWidth), 280]
-  const total = raw[0] + raw[1]
-  if (total <= areaWidth) {
-    return raw
-  }
-  return raw.map((value) => Math.max(1, (value / total) * areaWidth))
+function artistsPaneMinimumWidths() {
+  return [Math.max(420, artistsScreenMinimumGridWidth(), artistsSearchControlsMinimumWidth), 280]
 }
 
-function normalizeArtistsPanePercents(values: number[]) {
-  const cleaned = values.map((value) => (Number.isFinite(value) && value > 0 ? value : 0))
-  const total = cleaned.reduce((sum, value) => sum + value, 0)
-  if (total <= 0) {
-    return [...defaultArtistsPanePercents]
-  }
-  const first = Math.round((cleaned[0] / total) * 10000) / 100
-  return [first, Math.round((100 - first) * 100) / 100]
+async function loadArtistsPaneWidth() {
+  const preference = await store.loadPreference(artistsPaneWidthPreferenceKey)
+  const width = Number(preference?.value)
+  artistsPanePreferredWidth.value = Number.isFinite(width) && width > 0
+    ? Math.round(width)
+    : uiSettings.value.paneWidthDefaults.artistsScreen
 }
 
-async function loadArtistsPaneLayout() {
-  const preference = await store.loadPreference(artistsPaneLayoutPreferenceKey)
-  if (!preference?.value) {
-    return
-  }
-  try {
-    const parsed = JSON.parse(preference.value)
-    if (isArtistsPaneLayoutObject(parsed)) {
-      artistsPanePercents.value = normalizeArtistsPanePercents([parsed.artists, parsed.details])
-    } else if (Array.isArray(parsed) && parsed.length === 2 && parsed.every((value) => typeof value === 'number')) {
-      artistsPanePercents.value = normalizeArtistsPanePercents(parsed)
-    }
-  } catch (error) {
-    // Ignore invalid stored UI state and keep the default layout.
-  }
-}
-
-function saveArtistsPaneLayout() {
-  if (artistsPaneLayoutSaveTimer.value !== null) {
-    window.clearTimeout(artistsPaneLayoutSaveTimer.value)
-    artistsPaneLayoutSaveTimer.value = null
-  }
-  const rounded = normalizeArtistsPanePercents(artistsPanePercents.value)
-  artistsPanePercents.value = rounded
-  void store.savePreference(artistsPaneLayoutPreferenceKey, JSON.stringify({
-    [artistsPaneNames[0]]: rounded[0],
-    [artistsPaneNames[1]]: rounded[1],
-  })).catch((error) => {
-    store.showErrorStatus(error, 'Unable to save pane layout')
+function saveArtistsPaneWidth(width: number) {
+  void store.savePreference(artistsPaneWidthPreferenceKey, String(width)).catch((error) => {
+    store.showErrorStatus(error, 'Unable to save pane width')
   })
-}
-
-function isArtistsPaneLayoutObject(value: unknown): value is Record<(typeof artistsPaneNames)[number], number> {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-  const layout = value as Record<string, unknown>
-  return artistsPaneNames.every((name) => typeof layout[name] === 'number')
 }
 
 function setupArtistsPaneWidthObserver() {
   artistsPaneWidthObserver?.disconnect()
   artistsPaneWidthObserver = new ResizeObserver((entries) => {
-    if (artistsPaneResizeActive) {
-      return
-    }
     entries.forEach((entry) => {
+      if (entry.target === artistsScreenElement.value) {
+        artistsWorkspaceWidth.value = Math.round(entry.contentRect.width)
+        return
+      }
+      if (artistsPaneResizeActive) {
+        return
+      }
       const pane = (entry.target as HTMLElement).dataset.paneKey as ArtistsPaneKey | undefined
       if (pane) {
         artistsPaneWidths[pane] = Math.round(entry.contentRect.width)
       }
     })
   })
+  if (artistsScreenElement.value) {
+    artistsWorkspaceWidth.value = artistsScreenElement.value.clientWidth
+    artistsPaneWidthObserver.observe(artistsScreenElement.value)
+  }
   observeArtistsPaneWidth('artists', artistsTablePaneElement.value)
   observeArtistsPaneWidth('details', artistDetailsPaneElement.value)
 }
@@ -2220,7 +2214,7 @@ onMounted(async () => {
   const loadLibrary = store.loadAll()
   await Promise.all([
     loadArtistsScreenColumnWidths(),
-    loadArtistsPaneLayout(),
+    loadArtistsPaneWidth(),
     loadArtistsCollectionFilter(),
   ])
   viewReady.value = true
@@ -2239,9 +2233,6 @@ onBeforeUnmount(() => {
   if (artistSearchDebounceTimer !== null) {
     window.clearTimeout(artistSearchDebounceTimer)
     artistSearchDebounceTimer = null
-  }
-  if (artistsPaneLayoutSaveTimer.value !== null) {
-    saveArtistsPaneLayout()
   }
 })
 

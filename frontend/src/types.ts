@@ -143,6 +143,7 @@ export interface UiSettingsValues {
   providerBatchRescanDelayMinutes: number
   statusHistoryDateFormat: string
   statusBarLocation: 'top' | 'bottom'
+  paneWidthDefaults: PaneWidths
   workspaceColumnDefaults: WorkspaceColumnWidths
   artistsScreenColumnDefaults: ArtistsScreenColumnWidths
   tableGridColumnMinWidth: number
@@ -156,6 +157,12 @@ export interface UiSettingsDefaults {
   statusCompleteVisibleMs: number
   scanPollIntervalMs: number
   providerBatchRescanDelayMinutes: number
+}
+
+export interface PaneWidths {
+  collections: number
+  collectionArtists: number
+  artistsScreen: number
 }
 
 export interface WorkspaceColumnWidths {

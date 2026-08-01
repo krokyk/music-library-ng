@@ -141,9 +141,12 @@ Do not copy a control and allow screen-specific versions to drift.
   Do not add new flat keys such as `collections.columns.album`.
 - Workspace screens use pane layouts, not marketing/landing layouts.
 - Panes are resizable along the full vertical divider, not only at a corner.
-- Pane layout is persisted as percentages, not pixels, so browser resize keeps proportions.
-- Artist-centric and title-centric collection layouts are persisted independently.
-  Current preference keys are `collections-screen.artist-layout.panes` and `collections-screen.title-layout.panes`.
+- Each workspace layout designates one flexible pane, normally the rightmost pane, while user-adjusted non-flexible pane widths are persisted as CSS pixels.
+- Browser-window resizing, maximizing, restoring, and snapping must preserve preferred non-flexible pane widths and apply the width difference to the flexible pane.
+- Browser-driven or constraint-driven pane resizing must never overwrite preferred pane widths.
+- When the viewport cannot fit every preferred width, temporarily contract panes from right to left toward their practical minimums and restore the preferred widths as space returns.
+- The Collections pane uses one shared width in artist-centric and title-centric collection layouts.
+  Current pane-width preference keys are `collections-screen.collections-pane.width`, `collections-screen.artists-pane.width`, and `artists-screen.artists-pane.width`.
 - Pane resizing should behave like block movement:
   - resizing the collections pane moves the remaining panes as a block
   - resizing the middle pane moves the right pane as a block

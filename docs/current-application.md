@@ -287,7 +287,9 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Artist collections show Collections, Artists, and Albums panes.
 - Title collections show Collections and Titles panes, and the Titles grid contains only read-only `Title`, `Artist`, and `Year` data columns.
 - The Titles grid has no collection or action column because title-centric collections do not expose album-home reassignment, and a headerless flexible spacer follows the resizable Year column so Year does not absorb unused pane width.
-- Pane sizes are persisted as percentages.
+- Collections and collection-Artists pane widths are persisted as CSS pixels, while the rightmost Albums or Titles pane absorbs remaining workspace width.
+- The Collections pane width is shared between artist-centric and title-centric layouts.
+- Browser-window resize preserves preferred fixed pane widths unless minimum-width constraints require temporary right-to-left contraction.
 - Artist and title pane filters are pane-local preferences.
 - Artist local/non-local presence and the unchecked badge and filter stay scoped to the selected collection, while Albums `Show All` includes the artist's whole discography.
 - The Albums pane `Show All` toggle defaults to on when no saved preference exists.
@@ -311,6 +313,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 
 - The first Artists screen visit shows a pane spinner while its multi-row library data loads.
 - Artists, albums, and Artists-screen layout preferences remain cached for the browser session, so returning from another page renders from memory while mutations update affected entries and a browser reload starts a fresh load.
+- The Artists table pane width is persisted as CSS pixels, while the rightmost Artist Info pane absorbs remaining workspace width.
 - The Artists screen search text is debounced before it becomes the applied filter.
 - The Artists screen supports derived collection-presence filtering.
 - Multiple selected collection filters use OR semantics.

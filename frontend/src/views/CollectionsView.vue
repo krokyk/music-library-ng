@@ -8,6 +8,7 @@ import InlineRowActions from '@/components/InlineRowActions.vue'
 import ProviderChip from '@/components/ProviderChip.vue'
 import ProviderMatchDialog from '@/components/ProviderMatchDialog.vue'
 import RowActionButton from '@/components/RowActionButton.vue'
+import { fitFixedPaneWidths } from '@/paneWidths'
 import { useWorkspaceGridColumns } from '@/workspaceGridColumns'
 import { providerDefinition, validateProviderUrl, type ProviderId } from '@/providers'
 import type { Album, Artist, ArtistProviderCandidate, CollectionDeletePreview, CollectionFolderCandidate, MusicCollection } from '@/types'
@@ -47,7 +48,6 @@ type TitleSortMode = 'title' | 'sortName'
 type PresenceFilter = 'local' | 'nonLocal'
 type ArtistUncheckedFilter = 'unchecked'
 type AlbumShowAllFilter = 'showAll'
-type PaneLayoutKind = 'artist' | 'title'
 type AlbumColumnKey = 'name' | 'releaseYear' | 'checked' | 'home' | 'action'
 type TitleColumnKey = 'title' | 'artist' | 'releaseYear' | 'spacer'
 
@@ -98,9 +98,7 @@ const albumGridElement = ref<HTMLElement | null>(null)
 const titleGridElement = ref<HTMLElement | null>(null)
 const addCollectionAnchor = ref<HTMLElement | null>(null)
 const addCollectionDropdown = ref<HTMLElement | null>(null)
-const defaultPanePercents = [27, 30, 43]
 const paneResizerWidth = 10
-const minimumRestoredPanePercent = 0.1
 const titleGridHeaderHeight = 38
 const titleGridRowHeight = 42
 const titleGridBufferRows = 12
@@ -112,12 +110,9 @@ const albumGridHeaderHeight = 38
 const albumGridRowHeight = 42
 const albumGridBufferRows = 12
 const albumGridFallbackViewportHeight = 900
-const panePercents = ref([...defaultPanePercents])
-const paneLayoutCache = reactive<Record<PaneLayoutKind, number[]>>({
-  artist: [...defaultPanePercents],
-  title: [...defaultPanePercents],
-})
-const paneNames = ['collections', 'artists', 'albums'] as const
+const collectionPanePreferredWidth = ref(uiSettings.value.paneWidthDefaults.collections)
+const collectionArtistPanePreferredWidth = ref(uiSettings.value.paneWidthDefaults.collectionArtists)
+const collectionWorkspaceWidth = ref(window.innerWidth)
 let paneWidthObserver: ResizeObserver | null = null
 const collectionListElement = ref<HTMLElement | null>(null)
 
@@ -355,10 +350,8 @@ const providerJobIsRunning = computed(() => providerJob.value?.status === 'RUNNI
 const providerIsRunning = computed(() => providerJobIsRunning.value || providerStatus.value.running)
 const scanActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value || Boolean(deletingCollectionId.value))
 const writeActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value || Boolean(deletingCollectionId.value))
-const paneLayoutPreferenceKeys = {
-  artist: 'collections-screen.artist-layout.panes',
-  title: 'collections-screen.title-layout.panes',
-} as const
+const collectionPaneWidthPreferenceKey = 'collections-screen.collections-pane.width'
+const collectionArtistPaneWidthPreferenceKey = 'collections-screen.artists-pane.width'
 
 const artistUncheckedEnabled = computed(() => artistUnchecked.value.includes('unchecked'))
 const albumShowAllEnabled = computed(() => albumShowAll.value.includes('showAll'))
@@ -1307,16 +1300,24 @@ function actionLabelClassFor(showLabels: boolean) {
 function setupPaneWidthObserver() {
   paneWidthObserver?.disconnect()
   paneWidthObserver = new ResizeObserver((entries) => {
-    if (paneResizeActive) {
-      return
-    }
     entries.forEach((entry) => {
+      if (entry.target === threePaneElement.value) {
+        collectionWorkspaceWidth.value = Math.round(entry.contentRect.width)
+        return
+      }
+      if (paneResizeActive) {
+        return
+      }
       const pane = (entry.target as HTMLElement).dataset.paneKey as keyof typeof paneWidths | undefined
       if (pane) {
         paneWidths[pane] = Math.round(entry.contentRect.width)
       }
     })
   })
+  if (threePaneElement.value) {
+    collectionWorkspaceWidth.value = threePaneElement.value.clientWidth
+    paneWidthObserver.observe(threePaneElement.value)
+  }
   observePaneWidth('collections', collectionsPaneElement.value)
   observePaneWidth('artists', artistsPaneElement.value)
   observePaneWidth('albums', albumsPaneElement.value)
@@ -1515,10 +1516,29 @@ function selectCollectionById(collectionId: number) {
   }
 }
 
+const renderedFixedPaneWidths = computed(() => {
+  const availableWidth = Math.max(1, collectionWorkspaceWidth.value - paneResizerTotalWidth())
+  if (selectedCollectionIsTitle.value) {
+    return fitFixedPaneWidths(
+      [collectionPanePreferredWidth.value],
+      [collectionPaneMinimumWidth()],
+      titlePaneMinimumWidth(),
+      availableWidth,
+    )
+  }
+  return fitFixedPaneWidths(
+    [collectionPanePreferredWidth.value, collectionArtistPanePreferredWidth.value],
+    [collectionPaneMinimumWidth(), artistPaneMinimumWidth()],
+    albumPaneMinimumWidth(),
+    availableWidth,
+  )
+})
+
 function paneStyle(index: number) {
+  const fixedWidth = renderedFixedPaneWidths.value[index]
   return {
     display: 'flex',
-    flex: paneFlexValue(index, panePercents.value),
+    flex: fixedWidth === undefined ? '1 1 0' : `0 0 ${fixedWidth}px`,
     flexDirection: 'column',
     minWidth: '0',
     overflow: index === 0 ? 'visible' : 'hidden',
@@ -1528,7 +1548,7 @@ function paneStyle(index: number) {
 function titlePaneStyle() {
   return {
     display: 'flex',
-    flex: titlePaneFlexValue(panePercents.value),
+    flex: '1 1 0',
     flexDirection: 'column',
     minWidth: '0',
     overflow: 'hidden',
@@ -1539,41 +1559,12 @@ function paneResizerTotalWidth() {
   return selectedCollectionIsTitle.value ? paneResizerWidth : paneResizerWidth * 2
 }
 
-function paneFlexValue(index: number, percents: number[], totalResizerWidth = paneResizerTotalWidth()) {
-  const percent = percents[index]
-  const resizerShare = (totalResizerWidth * percent) / 100
-  return `0 0 calc(${percent}% - ${resizerShare}px)`
+function albumPaneMinimumWidth() {
+  return Math.max(paneHeaderMinimumWidths.albums, minimumGridWidth('album'))
 }
 
-function titlePaneFlexValue(percents: number[], totalResizerWidth = paneResizerTotalWidth()) {
-  const titlePercent = percents[1] + percents[2]
-  const resizerShare = (totalResizerWidth * titlePercent) / 100
-  return `0 0 calc(${titlePercent}% - ${resizerShare}px)`
-}
-
-function applyPaneFlexStyles(percents: number[], isTitleLayout = selectedCollectionIsTitle.value) {
-  const totalResizerWidth = isTitleLayout ? paneResizerWidth : paneResizerWidth * 2
-  const collectionsElement = resolveElement(collectionsPaneElement.value)
-  if (collectionsElement) {
-    collectionsElement.style.flex = paneFlexValue(0, percents, totalResizerWidth)
-  }
-
-  if (isTitleLayout) {
-    const titlesElement = resolveElement(titlesPaneElement.value)
-    if (titlesElement) {
-      titlesElement.style.flex = titlePaneFlexValue(percents, totalResizerWidth)
-    }
-    return
-  }
-
-  const artistsElement = resolveElement(artistsPaneElement.value)
-  const albumsElement = resolveElement(albumsPaneElement.value)
-  if (artistsElement) {
-    artistsElement.style.flex = paneFlexValue(1, percents, totalResizerWidth)
-  }
-  if (albumsElement) {
-    albumsElement.style.flex = paneFlexValue(2, percents, totalResizerWidth)
-  }
+function titlePaneMinimumWidth() {
+  return Math.max(paneHeaderMinimumWidths.titles, minimumGridWidth('title'))
 }
 
 function startPaneResize(index: number, event: PointerEvent) {
@@ -1581,101 +1572,64 @@ function startPaneResize(index: number, event: PointerEvent) {
   if (!threePaneElement.value) {
     return
   }
+  const target = resolveElement(index === 0 ? collectionsPaneElement.value : artistsPaneElement.value)
+  if (!target) {
+    return
+  }
+
   const startX = event.clientX
-  const startPercents = [...panePercents.value]
-  let currentPercents = [...startPercents]
-  const isTitleLayout = selectedCollectionIsTitle.value
-  const paneAreaWidth = Math.max(1, threePaneElement.value.clientWidth - paneResizerTotalWidth())
-  const minimums = paneMinimums()
-  let pendingPanePercents: number[] | null = null
+  const fixedWidths = [...renderedFixedPaneWidths.value]
+  const startWidth = fixedWidths[index]
+  const availableWidth = Math.max(1, threePaneElement.value.clientWidth - paneResizerTotalWidth())
+  const flexibleMinimum = selectedCollectionIsTitle.value ? titlePaneMinimumWidth() : albumPaneMinimumWidth()
+  const occupiedByOtherFixedPanes = fixedWidths.reduce((sum, width, widthIndex) => widthIndex === index ? sum : sum + width, 0)
+  const maximum = Math.max(1, availableWidth - occupiedByOtherFixedPanes - flexibleMinimum)
+  const preferredMinimum = index === 0 ? collectionPaneMinimumWidth() : artistPaneMinimumWidth()
+  const minimum = Math.min(preferredMinimum, maximum)
+  let currentWidth = startWidth
+  let pendingWidth: number | null = null
   let paneResizeFrame: number | null = null
 
-  function applyPanePercents(values: number[]) {
-    currentPercents = values
-    pendingPanePercents = values
+  function applyPendingWidth() {
+    if (pendingWidth === null) {
+      return
+    }
+    currentWidth = pendingWidth
+    target!.style.flex = `0 0 ${currentWidth}px`
+    updatePaneWidthsDuringResize(selectedCollectionIsTitle.value)
+    pendingWidth = null
+  }
+
+  function move(pointerEvent: PointerEvent) {
+    pendingWidth = Math.min(Math.max(minimum, startWidth + pointerEvent.clientX - startX), maximum)
     if (paneResizeFrame !== null) {
       return
     }
     paneResizeFrame = window.requestAnimationFrame(() => {
       paneResizeFrame = null
-      if (!pendingPanePercents) {
-        return
-      }
-      applyPaneFlexStyles(pendingPanePercents, isTitleLayout)
-      if (updatePaneWidthsDuringResize(isTitleLayout)) {
-        panePercents.value = pendingPanePercents
-      }
-      pendingPanePercents = null
+      applyPendingWidth()
     })
-  }
-
-  function flushPanePercents() {
-    if (paneResizeFrame !== null) {
-      window.cancelAnimationFrame(paneResizeFrame)
-      paneResizeFrame = null
-    }
-    if (pendingPanePercents) {
-      applyPaneFlexStyles(pendingPanePercents, isTitleLayout)
-      if (updatePaneWidthsDuringResize(isTitleLayout)) {
-        panePercents.value = pendingPanePercents
-      }
-      pendingPanePercents = null
-    }
-  }
-
-  function move(pointerEvent: PointerEvent) {
-    const deltaPercent = ((pointerEvent.clientX - startX) / paneAreaWidth) * 100
-
-    if (index === 0) {
-      const leftMinimum = (minimums[0] / paneAreaWidth) * 100
-      if (!selectedCollectionIsTitle.value) {
-        const middleMinimum = (minimums[1] / paneAreaWidth) * 100
-        const rightMinimum = (minimums[2] / paneAreaWidth) * 100
-        const middle = Math.max(middleMinimum, startPercents[1])
-        const leftMaximum = Math.max(leftMinimum, 100 - middle - rightMinimum)
-        const left = Math.min(Math.max(leftMinimum, startPercents[0] + deltaPercent), leftMaximum)
-        const right = 100 - left - middle
-
-        applyPanePercents(normalizePanePercents([
-          left,
-          middle,
-          right,
-        ]))
-        return
-      }
-
-      const titleMinimum = (titlePaneMinimumWidth() / paneAreaWidth) * 100
-      const leftMaximum = Math.max(leftMinimum, 100 - titleMinimum)
-      const left = Math.min(Math.max(leftMinimum, startPercents[0] + deltaPercent), leftMaximum)
-      applyPanePercents(paneLayoutForTitleResize(left, startPercents))
-      return
-    }
-
-    const combined = startPercents[index] + startPercents[index + 1]
-    const leftMinimum = (minimums[index] / paneAreaWidth) * 100
-    const rightMinimum = (minimums[index + 1] / paneAreaWidth) * 100
-    const leftMaximum = Math.max(leftMinimum, combined - rightMinimum)
-    const left = Math.min(Math.max(leftMinimum, startPercents[index] + deltaPercent), leftMaximum)
-    const right = combined - left
-
-    applyPanePercents(normalizePanePercents(
-      startPercents.map((percent, percentIndex) => {
-        if (percentIndex === index) return left
-        if (percentIndex === index + 1) return right
-        return percent
-      }),
-    ))
   }
 
   function stop() {
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', stop)
     window.removeEventListener('pointercancel', stop)
+    if (paneResizeFrame !== null) {
+      window.cancelAnimationFrame(paneResizeFrame)
+      paneResizeFrame = null
+    }
+    applyPendingWidth()
+    const roundedWidth = Math.round(currentWidth)
+    if (index === 0) {
+      collectionPanePreferredWidth.value = roundedWidth
+      savePaneWidth(collectionPaneWidthPreferenceKey, roundedWidth)
+    } else {
+      collectionArtistPanePreferredWidth.value = roundedWidth
+      savePaneWidth(collectionArtistPaneWidthPreferenceKey, roundedWidth)
+    }
     paneResizeActive = false
     document.body.classList.remove('is-pane-resizing')
-    flushPanePercents()
-    panePercents.value = currentPercents
-    savePaneLayout()
     void nextTick(setupPaneWidthObserver)
   }
 
@@ -1687,187 +1641,26 @@ function startPaneResize(index: number, event: PointerEvent) {
   window.addEventListener('pointercancel', stop)
 }
 
-function paneMinimums() {
-  return [
-    collectionPaneMinimumWidth(),
-    artistPaneMinimumWidth(),
-    selectedCollectionIsTitle.value ? titlePaneMinimumWidth() : Math.max(paneHeaderMinimumWidths.albums, minimumGridWidth('album')),
-  ]
-}
-
-function titlePaneMinimumWidth() {
-  return Math.max(paneHeaderMinimumWidths.titles, minimumGridWidth('title'))
-}
-
-async function loadPaneLayouts() {
-  await Promise.all([
-    loadPaneLayout('artist'),
-    loadPaneLayout('title'),
+async function loadPaneWidths() {
+  const [collectionsPreference, artistsPreference] = await Promise.all([
+    store.loadPreference(collectionPaneWidthPreferenceKey),
+    store.loadPreference(collectionArtistPaneWidthPreferenceKey),
   ])
-  activatePaneLayout(activePaneLayoutKind())
+  collectionPanePreferredWidth.value = parsePaneWidth(collectionsPreference?.value)
+    ?? uiSettings.value.paneWidthDefaults.collections
+  collectionArtistPanePreferredWidth.value = parsePaneWidth(artistsPreference?.value)
+    ?? uiSettings.value.paneWidthDefaults.collectionArtists
 }
 
-async function loadPaneLayout(kind: PaneLayoutKind) {
-  const preference = await store.loadPreference(paneLayoutPreferenceKeys[kind])
-  if (!preference?.value) {
-    return
-  }
-  try {
-    const parsed = JSON.parse(preference.value)
-    if (isPaneLayoutObject(parsed)) {
-      paneLayoutCache[kind] = repairPaneLayout([
-        parsed.collections,
-        parsed.artists,
-        parsed.albums,
-      ], kind)
-    } else if (Array.isArray(parsed) && parsed.length === 3 && parsed.every((value) => typeof value === 'number')) {
-      paneLayoutCache[kind] = repairPaneLayout(parsed, kind)
-    }
-  } catch (error) {
-    // Ignore invalid stored UI state and keep the default layout.
-  }
+function parsePaneWidth(value?: string | null) {
+  const width = Number(value)
+  return Number.isFinite(width) && width > 0 ? Math.round(width) : null
 }
 
-function activePaneLayoutKind(): PaneLayoutKind {
-  return selectedCollectionIsTitle.value ? 'title' : 'artist'
-}
-
-function activatePaneLayout(kind: PaneLayoutKind) {
-  panePercents.value = [...paneLayoutCache[kind]]
-}
-
-function savePaneLayout() {
-  const kind = activePaneLayoutKind()
-  const rounded = repairPaneLayout(normalizePanePercents(panePercents.value), kind)
-    .map((value) => Math.round(value * 100) / 100)
-  paneLayoutCache[kind] = rounded
-  panePercents.value = rounded
-  void store.savePreference(paneLayoutPreferenceKeys[kind], JSON.stringify(paneLayoutObject(rounded))).catch((error) => {
-    store.showErrorStatus(error, 'Unable to save pane layout')
+function savePaneWidth(key: string, width: number) {
+  void store.savePreference(key, String(width)).catch((error) => {
+    store.showErrorStatus(error, 'Unable to save pane width')
   })
-}
-
-function normalizePanePercents(values: number[]) {
-  const cleaned = values.map((value) => (Number.isFinite(value) && value > 0 ? value : 0))
-  const total = cleaned.reduce((sum, value) => sum + value, 0)
-  if (total <= 0) {
-    return [...defaultPanePercents]
-  }
-  const normalized = cleaned.map((value) => (value / total) * 100)
-  const rounded = normalized.map((value) => Math.round(value * 10000) / 10000)
-  rounded[2] = Math.round((100 - rounded[0] - rounded[1]) * 10000) / 10000
-  return rounded
-}
-
-function paneLayoutForTitleResize(collectionsPercent: number, sourcePercents: number[]) {
-  const right = Math.max(0, 100 - collectionsPercent)
-  const artistShare = hiddenPaneArtistShare(sourcePercents)
-  return normalizePanePercents([
-    collectionsPercent,
-    right * artistShare,
-    right * (1 - artistShare),
-  ])
-}
-
-function hiddenPaneArtistShare(sourcePercents: number[]) {
-  const right = sourcePercents[1] + sourcePercents[2]
-  const defaultRight = defaultPanePercents[1] + defaultPanePercents[2]
-  const defaultShare = defaultPanePercents[1] / defaultRight
-  if (
-    right <= 0
-    || sourcePercents[1] <= minimumRestoredPanePercent
-    || sourcePercents[2] <= minimumRestoredPanePercent
-  ) {
-    return defaultShare
-  }
-  return sourcePercents[1] / right
-}
-
-function repairPaneLayout(values: number[], kind: PaneLayoutKind = activePaneLayoutKind()) {
-  const normalized = normalizePanePercents(values)
-  let repaired = normalized[1] > minimumRestoredPanePercent
-    ? normalized
-    : paneLayoutForTitleResize(normalized[0], defaultPanePercents)
-  repaired = repairCollectionPaneMinimum(repaired, kind)
-  if (kind === 'artist') {
-    return repairArtistPaneMinimum(repaired)
-  }
-  return repaired
-}
-
-function repairCollectionPaneMinimum(values: number[], kind: PaneLayoutKind) {
-  const paneAreaWidth = paneLayoutAreaWidth(kind)
-  const collectionMinimum = (collectionPaneMinimumWidth() / paneAreaWidth) * 100
-  if (values[0] >= collectionMinimum) {
-    return values
-  }
-
-  const needed = collectionMinimum - values[0]
-  if (kind === 'title') {
-    const right = values[1] + values[2]
-    const rightMinimum = (titlePaneMinimumWidth() / paneAreaWidth) * 100
-    const fromRight = Math.min(needed, Math.max(0, right - rightMinimum))
-    const nextRight = right - fromRight
-    const artistShare = hiddenPaneArtistShare(values)
-    return normalizePanePercents([
-      values[0] + fromRight,
-      nextRight * artistShare,
-      nextRight * (1 - artistShare),
-    ])
-  }
-
-  const artistMinimum = (artistPaneMinimumWidth() / paneAreaWidth) * 100
-  const albumMinimum = (Math.max(paneHeaderMinimumWidths.albums, minimumGridWidth('album')) / paneAreaWidth) * 100
-  const fromAlbums = Math.min(needed, Math.max(0, values[2] - albumMinimum))
-  const fromArtists = Math.min(needed - fromAlbums, Math.max(0, values[1] - artistMinimum))
-
-  return normalizePanePercents([
-    values[0] + fromAlbums + fromArtists,
-    values[1] - fromArtists,
-    values[2] - fromAlbums,
-  ])
-}
-
-function repairArtistPaneMinimum(values: number[]) {
-  const paneAreaWidth = paneLayoutAreaWidth('artist')
-  const artistMinimum = (artistPaneMinimumWidth() / paneAreaWidth) * 100
-  if (values[1] >= artistMinimum) {
-    return values
-  }
-
-  const collectionMinimum = (collectionPaneMinimumWidth() / paneAreaWidth) * 100
-  const albumMinimum = (Math.max(paneHeaderMinimumWidths.albums, minimumGridWidth('album')) / paneAreaWidth) * 100
-  const needed = artistMinimum - values[1]
-  const fromAlbums = Math.min(needed, Math.max(0, values[2] - albumMinimum))
-  const fromCollections = Math.min(needed - fromAlbums, Math.max(0, values[0] - collectionMinimum))
-
-  return normalizePanePercents([
-    values[0] - fromCollections,
-    values[1] + fromAlbums + fromCollections,
-    values[2] - fromAlbums,
-  ])
-}
-
-function paneLayoutAreaWidth(kind: PaneLayoutKind) {
-  const totalResizerWidth = kind === 'title' ? paneResizerWidth : paneResizerWidth * 2
-  const workspaceWidth = threePaneElement.value?.clientWidth ?? window.innerWidth
-  return Math.max(1, workspaceWidth - totalResizerWidth)
-}
-
-function paneLayoutObject(values: number[]) {
-  return {
-    [paneNames[0]]: values[0],
-    [paneNames[1]]: values[1],
-    [paneNames[2]]: values[2],
-  }
-}
-
-function isPaneLayoutObject(value: unknown): value is Record<(typeof paneNames)[number], number> {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-  const layout = value as Record<string, unknown>
-  return paneNames.every((name) => typeof layout[name] === 'number')
 }
 
 function applyColumnWidthDefaults() {
@@ -2340,9 +2133,8 @@ onMounted(async () => {
   applyColumnWidthDefaults()
   await loadColumnWidths()
   await loadPresenceFilters()
-  await loadPaneLayouts()
+  await loadPaneWidths()
   await store.loadCollections()
-  activatePaneLayout(activePaneLayoutKind())
   await store.loadScanJob()
   if (scanIsRunning.value) {
     store.startScanJobPolling()
@@ -2369,7 +2161,6 @@ onBeforeUnmount(() => {
 watch(selectedCollectionIsTitle, () => {
   selectedAlbumRowId.value = null
   selectedTitleRowId.value = null
-  activatePaneLayout(activePaneLayoutKind())
   resetArtistGridScroll()
   resetAlbumGridScroll()
   resetTitleGridScroll()

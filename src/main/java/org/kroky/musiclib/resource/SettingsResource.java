@@ -137,6 +137,7 @@ public class SettingsResource {
                 defaultDateFormat,
                 statusBarLocation.map(value -> normalizeStatusBarLocation(value.value(), defaultStatusBarLocation))
                         .orElse(defaultStatusBarLocation),
+                defaultPaneWidths(),
                 defaultWorkspaceColumnWidths(),
                 defaultArtistsScreenColumnWidths(),
                 tableGridColumnMinWidth,
@@ -144,6 +145,14 @@ public class SettingsResource {
                         defaultStatusVisible,
                         defaultScanPoll,
                         defaultProviderBatchRescanDelay));
+    }
+
+    private UiSettings.PaneWidths defaultPaneWidths() {
+        var defaults = config.ui().defaultPaneWidths();
+        return new UiSettings.PaneWidths(
+                Math.max(1, defaults.collections()),
+                Math.max(1, defaults.collectionArtists()),
+                Math.max(1, defaults.artistsScreen()));
     }
 
     private UiSettings.WorkspaceColumnWidths defaultWorkspaceColumnWidths() {
