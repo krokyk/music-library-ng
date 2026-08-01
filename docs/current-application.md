@@ -91,6 +91,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 
 - User-facing local scan actions run through scan job flows.
 - Scan jobs provide status, progress, cancellation, current-session report artifacts, and post-scan refresh behavior.
+- While a local or provider scan runs, scan buttons and write actions such as add, edit, delete, and provider-link changes are disabled.
 - Collection scans enumerate direct child directories under the selected collection root.
 - Collection scans build per-run DB album-path and disk-folder snapshots before processing folders.
 - Collection scans process only folders whose relative local path is not already known in the selected collection.
@@ -241,6 +242,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Kept-local year and title decisions remain visible as transparent, thin white outlined chips with normal-weight white text and white undo controls in the Artists detail known-albums list.
 - Using a provider title updates only the album title, composes the folder name from the chosen title plus unchanged year, accepts the matching provider group, dismisses the other title variants, and merges provider-only duplicates.
 - Using a provider title preserves the album checked state.
+- Using a provider title writes the chosen title to supported audio `ALBUM` tags after the database and folder transaction commits.
 - Opening the provider conflict dialog clears missing local paths for that artist once before conflicts are loaded.
 - A conflict action treats an album with no remaining local folder as provider-only, so it updates provider and album metadata without renaming a folder or editing audio tags.
 - Each album conflict action opens one database transaction, applies database changes first, renames the album's one local folder when needed, commits only after the rename succeeds, and restores the original folder plus rolls back database changes when any transactional step fails.

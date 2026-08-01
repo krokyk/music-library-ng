@@ -11,44 +11,28 @@ Every new Codex session should read these shared source-of-truth files before br
 - `docs/codex-ui-workflow-guide.md`
 
 For small, targeted questions or one-file fixes, read those three files plus only the files needed for the task.
-`docs/evolution-*.md` files are preserved historical decision records for archaeology only.
-Do not use them as current source-of-truth documentation or required startup context.
+`docs/evolution-*.md` files are historical archaeology only, not current source-of-truth or required startup context.
 When a proposal would reverse or remove a current architectural constraint, search the evolution documents for prior rationale and tell the user about any relevant earlier design before implementing the reversal.
 
 ## Agent skills
 
 ### Domain docs
 
-This is a single-context repository with an optional domain glossary and lazily created ADRs. See `docs/agents/domain.md`.
+See `docs/agents/domain.md` for domain-doc structure.
 
 ## Project Summary
 
-Music Library NG is a local-first music collection app for one user running on one PC at a time.
+See `README.md` for the project map and build/run, and `docs/current-application.md` (Product Boundary, Runtime And Configuration) for the stack, ports, data locations, and default-vs-DB preference rules.
 
-- Backend: Quarkus, Java 21, Gradle.
-- Database: SQLite, schema initialized by Flyway.
-- Frontend: Vue 3, Pinia, Vuetify, Vite.
-- Frontend assets are built into Quarkus resources and served by the backend.
-- Default app port: `8795`.
-- Runtime data lives under `data/`.
-- User-adjustable UI state belongs in the DB when it is a runtime preference.
-- First-run/default values belong in `src/main/resources/application.properties`.
+Key code paths not called out in `README.md`'s project map:
 
-Important paths:
-
-- `docs/current-application.md`: current app behavior, model, API, and constraints.
-- `docs/ui-guide.md`: current visual language and interaction rules.
-- `docs/codex-ui-workflow-guide.md`: frontend working process and verification rules.
-- `docs/ideas.md`: unimplemented ideas only.
 - `src/main/java/org/kroky/musiclib/resource`: HTTP resources.
 - `src/main/java/org/kroky/musiclib/repository`: SQLite access.
 - `src/main/java/org/kroky/musiclib/scan`: filesystem scan logic.
 - `src/main/java/org/kroky/musiclib/provider`: online provider checks.
-- `src/main/resources/db/migration/V1__init.sql`: current fresh DB schema.
 - `frontend/src/views`: top-level Vue screens.
 - `frontend/src/stores/library.ts`: main Pinia store.
 - `frontend/src/styles.css`: shared app styling.
-- `dev-shell.sh`: local helper functions.
 
 ## Workflow And UI Rules
 
@@ -69,11 +53,7 @@ Document behavior that a maintainer or user needs to know.
 
 - Update `README.md` when setup, build, runtime behavior, native packaging, config, or user-visible workflows change.
 - Update this file when repository conventions or agent workflow expectations change.
-- Update `docs/current-application.md` when current behavior, data model, API surface, provider behavior, scan behavior, settings behavior, or current constraints change.
-- Update `docs/ui-guide.md` when visual rules, interaction behavior, or reusable layout contracts change.
-- Update `docs/codex-ui-workflow-guide.md` when frontend workflow or verification expectations change.
-- Update `docs/ideas.md` when an unimplemented idea is implemented, rejected, split, or materially redefined.
-- Remove implemented or rejected ideas from `docs/ideas.md` instead of leaving stale backlog text behind.
+- Update each doc when its owned area changes, per the ownership map in "Workflow And UI Rules" above; `docs/ideas.md` owns its own lifecycle and removal rules.
 - Keep docs practical.
   Prefer commands, file locations, and rules over broad explanation.
 - Keep docs factual and maintainer-facing.
@@ -91,8 +71,7 @@ Document behavior that a maintainer or user needs to know.
 ## Git Workflow
 
 This is a solo, single-user hobby repository with no other contributors.
-Commit and push directly to `main`; do not create feature branches or pull requests unless explicitly asked.
-Keep committing or pushing only when the user asks.
+Only commit or push when the user explicitly asks; when committing, go straight to `main` with no feature branches or pull requests unless the user asks for one.
 
 ## Backend Rules
 
@@ -127,19 +106,15 @@ Keep committing or pushing only when the user asks.
 
 ## Collection Types And Parsing
 
+`docs/current-application.md` (Collection Types And Parsing) owns the current inference, locking, folder-shape, and release-year-storage behavior; the rules below are the design guardrails to preserve.
+
 - Keep collection type separate from per-folder parser/layout detection.
-- Collection type answers what the primary browsing entity is: `ARTIST` or `TITLE`.
-- Artist collections dynamically accept flat `Artist - Year - Album` folders and nested `Artist/Year - Album` folders in the same scan.
-- Collection type is inferred once when a folder is added, can be corrected while the collection has no albums, and is locked after its first album.
 - Do not normalize by renaming folders on disk.
   Keep raw folder/path values as evidence and normalize into DB metadata fields.
 - Parsed metadata should be user-editable.
   Track whether metadata came from automatic parsing or manual override so later scans do not overwrite manual fixes.
 - Title-centric collections such as soundtracks need a parser pipeline, not one regex.
   Parse the final metadata suffix first, e.g. `Title (Artist, Year)`, while preserving inner parentheses in titles.
-- Release year is stored as a nullable integer from `1000` through `9999`.
-  Folder parsing, display, sorting, filtering, and provider comparison use year precision only.
-  Audio tags may retain higher precision when their existing value begins with the correct four-digit year.
 - Album ownership is many-to-many through album/artist links.
   Do not reintroduce a single `artist_id` owner on albums.
 - Title items also store `sortName`/`sort_name` for chronology/grouping.
@@ -149,7 +124,8 @@ Keep committing or pushing only when the user asks.
 
 ## Build And Test Commands
 
-Use `codex-ui-workflow-guide.md` for verification rules and UI smoke-test workflow.
+`README.md` (Setup, Running, Build And Package) owns build/run commands and ports.
+`docs/codex-ui-workflow-guide.md` owns verification rules and the UI smoke-test workflow, including the `scripts/check-ui-layout.ps1` CDP check.
 
 Useful dev-shell commands after sourcing `dev-shell.sh`:
 
@@ -161,33 +137,4 @@ freshrun
 runjar
 ```
 
-Use `freshrun` when DB state may be invalid or stale.
-It stops app processes, deletes `data/`, builds, and runs the packaged jar.
-
-For packaged frontend verification, open:
-
-```text
-http://localhost:8795/
-```
-
-Port `5173` is Vite dev server only.
-
-UI smoke test shortcut:
-
-1. Build and run the packaged app, usually with `brun` or:
-
-```bash
-./gradlew build
-java -jar build/quarkus-app/quarkus-run.jar
-```
-
-2. From WSL, run the Windows browser/CDP smoke test:
-
-```bash
-powershell.exe -NoProfile -ExecutionPolicy Bypass \
-  -File "$(wslpath -w scripts/check-ui-layout.ps1)" \
-  -AppUrl "http://localhost:8795/"
-```
-
-Use `-AppUrl "http://localhost:<port>/"` when testing a temporary port.
-The script uses headless Chrome/Edge, checks workspace panes, internal scrolling, and core artist/title layouts, and writes screenshots to the Windows temp directory.
+Use `freshrun` when DB state may be invalid or stale; it rebuilds from a deleted `data/` and runs the packaged jar.
