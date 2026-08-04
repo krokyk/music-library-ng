@@ -130,6 +130,7 @@ Do not copy a control and allow screen-specific versions to drift.
   During blocking full collection scan modals, keep the bar's layout slot visible and do not render detailed progress there.
 - If the status bar is configured at the bottom, popups/history should open above it.
   If it is at the top, they should open below it.
+- Status history grows to its longest unwrapped entry up to a viewport-safe `70vw` width and grows vertically up to half of the available workspace on the side where it opens, with overflow scrolling inside the history window.
 
 ## Pane Layout Rules
 
@@ -306,6 +307,7 @@ Do not copy a control and allow screen-specific versions to drift.
 - Dialog dimensions and overflow must be owned explicitly by each dialog type or intentional dialog family instead of broad shared selectors.
 - Every real dialog, including confirmation dialogs, is centered horizontally and vertically in the browser viewport.
 - Anchored menus, dropdowns, status history, and connected edit overlays keep their anchors and do not use dialog centering.
+- Blocking scan-progress dialogs share a content-independent, viewport-safe `40vw` width capped at `1000px` and an exact `180px` height.
 - Provider matching, provider conflict, bulk provider-match results, and plain-text reports share a fixed `55vw` width up to `1500px` and a fixed `75vh` height.
 - Plain-text report lines remain unwrapped and use horizontal scrolling when they exceed the report viewport, while provider matching and conflict content contracts horizontally and scrolls vertically.
 - Collection deletion uses its own `460px` responsive confirmation width.
@@ -407,7 +409,7 @@ Nonlocal and other-collection rows use `calc(1em - 1px)`.
 - Collection scans compare DB local-path and disk-folder snapshots before processing folders.
 - Collection scans process only folders whose relative local path is not already known in the selected collection.
 - Collection scans do not scan track files.
-- Full collection scans use a blocking modal with a fixed-size progress bar and a cancel button.
+- Full collection scans use the shared blocking scan-progress dialog with a fixed-size progress bar and a cancel button.
 - The modal owns running collection scan progress, so the status bar may show scan start or running text but not progress counts, and collection rows do not show scan spinners or progress fills during full collection scans.
 - Full collection scan progress first shows snapshot comparison text, then counts only folders that need processing.
 - Nested artist collection scans pre-enumerate nested album folders before the processing progress total is known.

@@ -328,6 +328,58 @@ try {
     $initialPath = Join-Path $OutputDir "musiclib-initial.png"
     Save-Screenshot $socket $initialPath
 
+    if (-not (Eval-Js $socket "(() => { const store = document.querySelector('#app')?.__vue_app__?.config.globalProperties.`$pinia?._s.get('library'); if (!store) return false; store.`$patch({ scanJob: { status: 'RUNNING', kind: 'COLLECTION', requestedCollectionId: 1, requestedCollectionName: 'Layout check', itemTotal: 10, itemProcessed: 4, artistCount: 0, parsedCount: 0, createdCount: 0, skippedCount: 0, cancelRequested: false, reports: [] } }); return true; })()")) {
+        throw "Unable to inject collection scan dialog state."
+    }
+    if (-not (Wait-ForJs $socket "document.querySelector('.collection-scan-dialog') !== null" 3000)) {
+        throw "Collection scan dialog did not open."
+    }
+    Start-Sleep -Milliseconds 500
+    $scanDialogMetricsJs = "(() => { const rect = document.querySelector('.collection-scan-dialog').getBoundingClientRect(); return JSON.stringify({ width: rect.width, height: rect.height, expectedWidth: Math.min(innerWidth * 0.4, 1000, innerWidth - 32), centerOffsetX: Math.abs(rect.left + rect.width / 2 - innerWidth / 2), centerOffsetY: Math.abs(rect.top + rect.height / 2 - innerHeight / 2) }); })()"
+    $scanDialogState = Eval-Js $socket $scanDialogMetricsJs
+    $scanDialog = $scanDialogState | ConvertFrom-Json
+    if ([Math]::Abs($scanDialog.width - $scanDialog.expectedWidth) -gt 0.5 -or [Math]::Abs($scanDialog.height - 180) -gt 0.5 -or $scanDialog.centerOffsetX -gt 0.5 -or $scanDialog.centerOffsetY -gt 0.5) {
+        throw "Collection scan dialog is not centered at its fixed responsive size: $scanDialogState"
+    }
+    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+        width = 3200
+        height = $Height
+        deviceScaleFactor = 1
+        mobile = $false
+    } | Out-Null
+    Start-Sleep -Milliseconds 500
+    $wideScanDialogState = Eval-Js $socket $scanDialogMetricsJs
+    $wideScanDialog = $wideScanDialogState | ConvertFrom-Json
+    if ([Math]::Abs($wideScanDialog.width - 1000) -gt 0.5 -or [Math]::Abs($wideScanDialog.height - 180) -gt 0.5 -or $wideScanDialog.centerOffsetX -gt 0.5 -or $wideScanDialog.centerOffsetY -gt 0.5) {
+        throw "Collection scan dialog ignored its 1000px width cap or fixed height: $wideScanDialogState"
+    }
+    Eval-Js $socket "document.querySelector('#app')?.__vue_app__?.config.globalProperties.`$pinia?._s.get('library').`$patch({ scanJob: null })" | Out-Null
+
+    if (-not (Eval-Js $socket "(() => { const store = document.querySelector('#app')?.__vue_app__?.config.globalProperties.`$pinia?._s.get('library'); if (!store) return false; store.`$patch({ statusHistory: [{ id: 1, message: 'Short', state: 'done', createdAt: '12:00:00', reports: [] }] }); document.querySelector('.global-status-bar')?.click(); return true; })()")) {
+        throw "Unable to inject status-history sizing data."
+    }
+    if (-not (Wait-ForJs $socket "document.querySelector('.status-history-dialog') !== null" 3000)) {
+        throw "Status history did not open."
+    }
+    Start-Sleep -Milliseconds 500
+    $shortHistoryWidth = Eval-Js $socket "document.querySelector('.status-history-dialog').getBoundingClientRect().width"
+    $historyWidthCap = Eval-Js $socket "innerWidth * 0.7"
+    if ($shortHistoryWidth -ge $historyWidthCap) {
+        throw "Short status history did not size to its content: width=$shortHistoryWidth cap=$historyWidthCap"
+    }
+    Eval-Js $socket "(() => { const store = document.querySelector('#app').__vue_app__.config.globalProperties.`$pinia._s.get('library'); store.`$patch({ statusHistory: Array.from({ length: 30 }, (_, index) => ({ id: index + 1, message: 'LONG_' + 'x'.repeat(400), state: 'done', createdAt: '12:00:00', reports: [] })) }); return true; })()" | Out-Null
+    Start-Sleep -Milliseconds 500
+    $historyState = Eval-Js $socket "(() => { const card = document.querySelector('.status-history-dialog'); const body = document.querySelector('.status-history-dialog__body'); const rect = card.getBoundingClientRect(); return JSON.stringify({ width: rect.width, height: rect.height, expectedWidth: innerWidth * 0.7, expectedMaxHeight: (innerHeight - 99) / 2, horizontalOverflow: body.scrollWidth > body.clientWidth, verticalOverflow: body.scrollHeight > body.clientHeight }); })()"
+    $history = $historyState | ConvertFrom-Json
+    if ([Math]::Abs($history.width - $history.expectedWidth) -gt 0.5 -or [Math]::Abs($history.height - $history.expectedMaxHeight) -gt 0.5 -or -not $history.horizontalOverflow -or -not $history.verticalOverflow) {
+        throw "Status history ignored its content sizing, 70vw width cap, half-workspace height cap, or internal scrolling: $historyState"
+    }
+    Eval-Js $socket "(() => { const scrim = document.querySelector('.status-history-dialog')?.closest('.v-overlay')?.querySelector('.v-overlay__scrim'); if (!scrim) return false; scrim.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); scrim.click(); return true; })()" | Out-Null
+    if (-not (Wait-ForJs $socket "document.querySelector('.status-history-dialog') === null" 3000)) {
+        throw "Status history did not close after its sizing check."
+    }
+    Eval-Js $socket "document.querySelector('#app')?.__vue_app__?.config.globalProperties.`$pinia?._s.get('library').`$patch({ statusHistory: [] })" | Out-Null
+
     $wideWidth = [Math]::Max(3200, $Width)
     Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
         width = $wideWidth

@@ -218,17 +218,22 @@ body,
 }
 
 .status-history-dialog {
-  max-height: calc(var(--app-vh) - 150px);
+  display: flex !important;
+  flex-direction: column;
+  max-height: calc((var(--app-vh) - 99px) / 2);
+  max-width: 100%;
+  overflow: hidden !important;
   width: 100%;
 }
 
 .status-history-overlay .v-overlay__content {
   left: 0 !important;
   margin: 0 !important;
-  max-width: none !important;
+  max-height: none !important;
+  max-width: min(70vw, calc(var(--app-vw) - 24px)) !important;
   position: fixed !important;
   transform: none !important;
-  width: min(calc(var(--app-vw) - 24px), 1320px) !important;
+  width: max-content !important;
 }
 
 .status-history-overlay--top .v-overlay__content {
@@ -242,11 +247,16 @@ body,
 }
 
 .status-history-dialog__text {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden !important;
   padding: 0;
 }
 
 .status-history-dialog__body {
-  max-height: calc(var(--app-vh) - 230px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   padding: 0 0 8px;
 }
@@ -410,11 +420,13 @@ body,
 }
 
 .collection-scan-dialog {
-  height: 154px;
-  max-width: min(40vw, calc(var(--app-vw, 100vw) - 32px)) !important;
-  min-height: 154px;
-  min-width: min(40vw, calc(var(--app-vw, 100vw) - 32px)) !important;
-  width: min(40vw, calc(var(--app-vw, 100vw) - 32px)) !important;
+  height: 180px !important;
+  margin-inline: auto;
+  max-height: 180px !important;
+  max-width: min(40vw, 1000px, calc(var(--app-vw, 100vw) - 32px)) !important;
+  min-height: 180px !important;
+  min-width: min(40vw, 1000px, calc(var(--app-vw, 100vw) - 32px)) !important;
+  width: min(40vw, 1000px, calc(var(--app-vw, 100vw) - 32px)) !important;
 }
 
 .collection-scan-dialog__title {
@@ -2626,12 +2638,6 @@ body.is-pane-resizing {
   min-height: 0 !important;
   min-width: 0 !important;
   width: 100% !important;
-}
-
-.status-history-overlay .v-overlay__content {
-  margin: 0 !important;
-  max-height: none !important;
-  max-width: none !important;
 }
 
 .collection-edit-overlay__content {
