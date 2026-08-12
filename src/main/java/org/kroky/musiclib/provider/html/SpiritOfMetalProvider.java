@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Semaphore;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -34,6 +35,7 @@ public class SpiritOfMetalProvider implements DiscographyProvider {
     private static final String SEARCH_URL = "https://www.spirit-of-metal.com/find.php?l=en&nom=%s";
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final int MAX_ATTEMPTS = 3;
+    private static final Semaphore REQUEST_SLOTS = new Semaphore(3);
     private static final Pattern BAND_ID = Pattern.compile("PopInfoGroupe\\('([^']+)'");
     private static final Pattern BAND_DESCRIPTOR = Pattern.compile("\\(([^()]*)\\)");
 
@@ -229,7 +231,7 @@ public class SpiritOfMetalProvider implements DiscographyProvider {
         ProviderException lastError = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                HttpResponse<String> response = httpClient.send(request(url), HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = send(request(url));
                 int status = response.statusCode();
                 if (status >= 200 && status < 300) {
                     return response.body();
@@ -260,6 +262,20 @@ public class SpiritOfMetalProvider implements DiscographyProvider {
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 .GET()
                 .build();
+    }
+
+    private HttpResponse<String> send(HttpRequest request) throws Exception {
+        try {
+            REQUEST_SLOTS.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ProviderException("Interrupted while waiting to call Spirit of Metal", e);
+        }
+        try {
+            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } finally {
+            REQUEST_SLOTS.release();
+        }
     }
 
     private static boolean isTransientStatus(int status) {

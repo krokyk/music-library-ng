@@ -441,6 +441,21 @@ body,
   overflow: hidden !important;
 }
 
+.collection-scan-dialog--bulk {
+  height: 210px !important;
+  max-height: 210px !important;
+  min-height: 210px !important;
+}
+
+.collection-scan-dialog__subject {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .collection-scan-progress {
   height: 30px;
   position: relative;

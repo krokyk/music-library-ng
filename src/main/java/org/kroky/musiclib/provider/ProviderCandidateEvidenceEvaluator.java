@@ -38,6 +38,7 @@ final class ProviderCandidateEvidenceEvaluator {
     private static final int YEAR_BONUS_PER_ALBUM = 3;
     private static final int MAX_ALBUM_EVIDENCE_SCORE = 100;
     private static final int MAX_YEAR_BONUS = 10;
+    private static final int MIN_AUTO_MATCH_NAME_SCORE = 65;
 
     private static final Set<String> GENERIC_TITLES = Set.of(
             "Greatest Hits",
@@ -76,36 +77,16 @@ final class ProviderCandidateEvidenceEvaluator {
                 albumEvidence);
     }
 
-    static boolean isHighConfidenceMatch(ArtistProviderCandidate candidate, ArtistProviderCandidate runnerUp) {
-        if (candidate == null) {
-            return false;
-        }
-        if (candidate.providerScore() < 80
-                || candidate.nameScore() < 65
-                || candidate.albumEvidenceScore() < 64
-                || candidate.finalScore() < 82) {
-            return false;
-        }
-        int margin = runnerUp == null ? 100 : candidate.finalScore() - runnerUp.finalScore();
-        if (margin < 8) {
-            return false;
-        }
-        List<ArtistProviderCandidateAlbum> scoringEvidence = scoringEvidence(candidate.albumEvidence());
-        if (scoringEvidence.isEmpty() || scoringEvidence.stream().allMatch(ArtistProviderCandidateAlbum::genericTitle)) {
-            return false;
-        }
-        long localStrongMatches = uniqueLocalAlbumCount(scoringEvidence.stream()
-                .filter(evidence -> KIND_LOCAL.equals(evidence.localEvidenceKind()))
-                .toList());
-        if (localStrongMatches >= 2) {
-            return true;
-        }
-        boolean oneLocalExactOrNormalized = scoringEvidence.stream()
-                .anyMatch(evidence -> KIND_LOCAL.equals(evidence.localEvidenceKind())
-                        && !evidence.genericTitle()
-                        && (MATCH_EXACT.equals(evidence.matchType())
-                                || MATCH_NORMALIZED.equals(evidence.matchType())));
-        return oneLocalExactOrNormalized && margin >= 12;
+    static boolean isHighConfidenceMatch(ArtistProviderCandidate candidate) {
+        return candidate != null
+                && candidate.nameScore() >= MIN_AUTO_MATCH_NAME_SCORE
+                && candidate.albumEvidence().stream().anyMatch(evidence ->
+                        KIND_LOCAL.equals(evidence.localEvidenceKind())
+                                && !evidence.genericTitle()
+                                && strongTitleMatch(evidence.matchType(), evidence.titleScore())
+                                && releaseYearsScoreCompatible(
+                                        evidence.localReleaseYear(),
+                                        evidence.providerReleaseYear()));
     }
 
     static TitleMatch titleMatch(String localTitle, String providerTitle) {

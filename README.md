@@ -175,6 +175,7 @@ Logs go to the console and `data/logs/music-library-ng.log`.
 
 Music Library NG organizes your music into artist-centric collections, which browse collections, artists, and albums, and title-centric collections such as soundtracks, which browse collections and titles.
 It scans your folders to discover albums, matches them against online providers such as MusicBrainz, Spirit of Metal, and Metal Archives to fill in and verify metadata, and lets you resolve title and release-year conflicts.
+Bulk provider matching runs in the background with per-artist progress and can be hidden, reopened from the running provider chip, or cancelled after the current artist finishes.
 Scans never delete your files, and never rename a folder or write audio tags except when you explicitly choose a provider title or year.
 
 Name album folders using one of these shapes so scans can parse them.

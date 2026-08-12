@@ -157,8 +157,8 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Release-year compatibility adds only a capped bonus for album evidence that already matched by title.
 - Release-year compatibility never creates an album-title evidence match by itself.
 - Provider candidates expose `finalScore`, `nameScore`, `albumEvidenceScore`, `yearBonus`, `evidenceSummary`, and per-album evidence with local title, provider title, match type, title score, evidence strength, and local evidence kind.
-- Bulk provider auto-matching requires provider search score at least `80`, artist-name score at least `65`, album evidence score at least `64`, final score at least `82`, and a final-score margin of at least `8` over the runner-up.
-- Bulk provider auto-matching requires local non-generic album-title evidence and never auto-matches from checked non-local, unchecked non-local, provider-only, generic-only, or one fuzzy-only album match.
+- Bulk provider auto-matching requires artist-name score at least `65` plus at least one local non-generic album title that matches exactly, in normalized form, or with a fuzzy score of at least `92`.
+- Bulk provider auto-matching requires compatible release years when both local and provider years are known and never auto-matches from checked non-local, unchecked non-local, provider-only, or generic-only album evidence.
 - Provider candidate dialogs show candidate albums as chips with overflow counts.
 - The Collections screen provider candidate dialog saves the clicked provider candidate immediately for the selected provider.
 - The Artists screen `Add providers` row action opens a fixed-size multi-provider dialog titled `Match Provider for <artist>`.
@@ -175,10 +175,15 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Provider candidate album chips are dimmed for provider-only albums and keep checked or unchecked non-local evidence visually distinct when there is no title or year conflict.
 - Provider candidate album chips sort stronger evidence first, prioritizing exact title plus matching year, then partial title or year matches, then weaker or unmatched evidence.
 - Provider candidate album chips have bounded widths and expose concise title and year match summaries through multiline tooltips.
-- Bulk provider matching is shared across supported providers through `POST /api/provider-matches/{providerId}/artists`.
+- Bulk provider matching runs as a background job started through `POST /api/provider-match-jobs/{providerId}` and preserves the synchronous `POST /api/provider-matches/{providerId}/artists` endpoint for direct callers.
 - Bulk provider matching receives exact artist IDs from the frontend visible scope.
 - Bulk provider matching skips artists that already have an identity for the requested provider.
 - Bulk provider matching auto-links only high-confidence matches and leaves ambiguous matches for manual selection.
+- Bulk provider matching reports the active artist and artist-count progress through the shared scan-progress dialog, can be hidden and reopened by clicking the running provider chip, and can be cancelled between artists.
+- Bulk result rows return only the accepted or leading candidate summary needed by the result dialog instead of every candidate discography.
+- Spirit of Metal and Metal Archives candidate detail requests run with at most three concurrent requests per provider.
+- Metal Archives bulk candidate scoring fetches discographies only, then fetches the selected artist profile once to populate country and active-status metadata.
+- MusicBrainz requests share one process-wide gate that allows one request start every configured interval, which defaults to `1100` milliseconds.
 - Provider checks run through provider job flows for user-facing scan buttons.
 - One-artist provider checks scan all enabled provider links for that artist.
 - Batch provider jobs skip provider links whose last successful check is inside the configured batch rescan delay.
@@ -381,7 +386,8 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Non-local album rehoming uses `PUT /api/albums/{albumId}/collection` with one required target collection ID.
 - One-artist provider identities use `PUT /api/artists/{artistId}/provider` and `DELETE /api/artists/{artistId}/providers/{providerId}`.
 - Provider candidate search uses `GET /api/artists/{artistId}/provider-candidates/{providerId}`.
-- Provider bulk matching uses `POST /api/provider-matches/{providerId}/artists`.
+- Provider bulk matching jobs use `POST /api/provider-match-jobs/{providerId}`, `GET /api/provider-match-jobs/current`, and `POST /api/provider-match-jobs/current/cancel`.
+- Synchronous provider bulk matching remains available through `POST /api/provider-matches/{providerId}/artists`.
 - Provider bulk matching requires an explicit `artistIds` array and never falls back to all artists.
 - Scan jobs use `/api/scan`.
 - Provider check jobs use `/api/provider-checks`.

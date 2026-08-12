@@ -39,16 +39,27 @@ public class ArtistProviderBulkMatchService {
     ArtistProviderMatchService matches;
 
     public ArtistProviderBulkMatchResult matchProviderArtists(String providerId, List<Long> requestedArtistIds) {
-        List<Long> artistIds = artistIds(requestedArtistIds);
+        return matchProviderArtists(providerId, requestedArtistIds, ProgressListener.NONE);
+    }
+
+    public ArtistProviderBulkMatchResult matchProviderArtists(String providerId, List<Long> requestedArtistIds,
+            ProgressListener progress) {
+        List<Long> artistIds = artistIds(requestedArtistIds).stream()
+                .filter(artistId -> albums.majorArtistCollection(artistId) != null)
+                .toList();
         List<ArtistProviderBulkMatchItem> items = new ArrayList<>();
+        progress.started(artistIds.size());
         for (Long artistId : artistIds) {
-            if (artistId == null) {
-                continue;
+            if (progress.isCancelled()) {
+                break;
             }
-            if (albums.majorArtistCollection(artistId) == null) {
-                continue;
-            }
-            items.add(matchArtist(providerId, artistId));
+            Artist artist = artists.find(artistId).orElse(null);
+            progress.artistStarted(artistId, artist == null ? "artist " + artistId : artist.name());
+            ArtistProviderBulkMatchItem item = artist == null
+                    ? errorItem(artistId, "Unknown artist: " + artistId)
+                    : matchArtist(providerId, artist);
+            items.add(item);
+            progress.itemFinished(item, items.size());
         }
 
         int matched = count(items, STATUS_MATCHED);
@@ -75,10 +86,8 @@ public class ArtistProviderBulkMatchService {
                 List.of(message));
     }
 
-    private ArtistProviderBulkMatchItem matchArtist(String providerId, long artistId) {
+    private ArtistProviderBulkMatchItem matchArtist(String providerId, Artist artist) {
         try {
-            Artist artist = artists.find(artistId)
-                    .orElseThrow(() -> new IllegalArgumentException("Unknown artist: " + artistId));
             var existing = providerLinks.findByArtistAndProvider(artist.id(), providerId);
             if (existing.isPresent()) {
                 ArtistProviderLink link = existing.get();
@@ -90,60 +99,55 @@ public class ArtistProviderBulkMatchService {
             }
 
             String label = providerLabel(providerId);
-            List<ArtistProviderCandidate> candidates = matches.searchCandidates(artist.id(), providerId);
+            List<ArtistProviderCandidate> candidates = matches.searchBulkCandidates(artist.id(), providerId);
             if (candidates.isEmpty()) {
-                return item(artist, STATUS_NO_MATCH, "No " + label + " candidates found.", null, null, candidates);
+                return item(artist, STATUS_NO_MATCH, "No " + label + " candidates found.", null, null, List.of());
             }
 
             ArtistProviderCandidate top = candidates.get(0);
-            ArtistProviderCandidate runnerUp = candidates.size() > 1 ? candidates.get(1) : null;
-            if (isHighConfidenceProviderMatch(artist.name(), top, runnerUp)) {
-                String providerUrl = canonicalProviderUrl(top);
+            ArtistProviderCandidate accepted = candidates.stream()
+                    .filter(ArtistProviderBulkMatchService::isHighConfidenceProviderMatch)
+                    .findFirst()
+                    .orElse(null);
+            if (accepted != null) {
+                ArtistProviderCandidate selected = enrichSelectedCandidate(accepted);
+                String providerUrl = canonicalProviderUrl(selected);
                 ArtistProviderLink link = providerLinks.upsertForArtist(
                         artist.id(),
-                        top.providerId(),
-                        top.providerArtistId(),
-                        top.providerArtistName(),
+                        selected.providerId(),
+                        selected.providerArtistId(),
+                        selected.providerArtistName(),
                         providerUrl,
-                        top.country(),
-                        top.disambiguation(),
-                        top.active(),
+                        selected.country(),
+                        selected.disambiguation(),
+                        selected.active(),
                         true);
                 return item(artist, STATUS_MATCHED,
-                        "Auto-linked " + label + " provider: " + top.providerArtistName()
-                                + " (" + top.evidenceSummary() + ")",
+                        "Auto-linked " + label + " provider: " + selected.providerArtistName()
+                                + " (" + selected.evidenceSummary() + ")",
                         link,
-                        top,
-                        candidates);
+                        summaryCandidate(selected),
+                        List.of());
             }
             return item(artist, STATUS_NEEDS_MANUAL,
                     label + " candidates need manual selection before linking.",
                     null,
                     null,
-                    candidates);
+                    List.of(summaryCandidate(top)));
         } catch (Exception e) {
-            return new ArtistProviderBulkMatchItem(
-                    artistId,
-                    null,
-                    STATUS_ERROR,
-                    e.getMessage(),
-                    null,
-                    null,
-                    List.of());
+            return errorItem(artist.id(), e.getMessage());
         }
     }
 
-    static boolean isHighConfidenceMusicBrainzMatch(String artistName, ArtistProviderCandidate candidate,
-            ArtistProviderCandidate runnerUp) {
-        return isHighConfidenceProviderMatch(artistName, candidate, runnerUp);
+    private ArtistProviderCandidate enrichSelectedCandidate(ArtistProviderCandidate candidate) {
+        return matches.enrichSelectedCandidate(candidate);
     }
 
-    static boolean isHighConfidenceProviderMatch(String artistName, ArtistProviderCandidate candidate,
-            ArtistProviderCandidate runnerUp) {
-        return ProviderCandidateEvidenceEvaluator.isHighConfidenceMatch(candidate, runnerUp);
+    static boolean isHighConfidenceProviderMatch(ArtistProviderCandidate candidate) {
+        return ProviderCandidateEvidenceEvaluator.isHighConfidenceMatch(candidate);
     }
 
-    private static String providerLabel(String providerId) {
+    public static String providerLabel(String providerId) {
         return switch (providerId) {
             case "musicbrainz" -> "MusicBrainz";
             case ProviderUrlNormalizer.SPIRIT_OF_METAL -> "Spirit of Metal";
@@ -187,5 +191,52 @@ public class ArtistProviderBulkMatchService {
                 providerLink,
                 acceptedCandidate,
                 candidates == null ? List.of() : candidates);
+    }
+
+    private static ArtistProviderBulkMatchItem errorItem(long artistId, String message) {
+        return new ArtistProviderBulkMatchItem(
+                artistId,
+                null,
+                STATUS_ERROR,
+                message,
+                null,
+                null,
+                List.of());
+    }
+
+    private static ArtistProviderCandidate summaryCandidate(ArtistProviderCandidate candidate) {
+        return new ArtistProviderCandidate(
+                candidate.providerId(),
+                candidate.providerArtistId(),
+                candidate.providerArtistName(),
+                candidate.providerUrl(),
+                candidate.country(),
+                candidate.disambiguation(),
+                candidate.active(),
+                candidate.providerScore(),
+                candidate.finalScore(),
+                candidate.nameScore(),
+                candidate.albumEvidenceScore(),
+                candidate.yearBonus(),
+                candidate.evidenceSummary(),
+                List.of());
+    }
+
+    public interface ProgressListener {
+        ProgressListener NONE = new ProgressListener() {
+        };
+
+        default void started(int itemTotal) {
+        }
+
+        default void artistStarted(long artistId, String artistName) {
+        }
+
+        default void itemFinished(ArtistProviderBulkMatchItem item, int itemProcessed) {
+        }
+
+        default boolean isCancelled() {
+            return false;
+        }
     }
 }

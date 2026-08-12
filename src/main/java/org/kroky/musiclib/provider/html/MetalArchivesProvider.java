@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Semaphore;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,6 +38,7 @@ public class MetalArchivesProvider implements DiscographyProvider {
     private static final String USER_AGENT = "music-library-ng";
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final int MAX_ATTEMPTS = 3;
+    private static final Semaphore REQUEST_SLOTS = new Semaphore(3);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -75,6 +77,19 @@ public class MetalArchivesProvider implements DiscographyProvider {
                     parseMainDiscography(fetch(discographyUrl, bandUrl.toString())));
         } catch (Exception e) {
             throw new ProviderException("Unable to fetch Metal Archives artist details from " + providerUrl, e);
+        }
+    }
+
+    public ProviderArtistDetails fetchArtistProfile(String providerUrl) throws ProviderException {
+        try {
+            URI bandUrl = bandPageUrl(providerUrl);
+            Document bandPage = Jsoup.parse(fetch(bandUrl, BASE_URL + "/search"), bandUrl.toString());
+            return new ProviderArtistDetails(
+                    countryFromBandPage(bandPage),
+                    activeFromBandPage(bandPage),
+                    List.of());
+        } catch (Exception e) {
+            throw new ProviderException("Unable to fetch Metal Archives artist profile from " + providerUrl, e);
         }
     }
 
@@ -195,8 +210,7 @@ public class MetalArchivesProvider implements DiscographyProvider {
         ProviderException lastError = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                HttpResponse<String> response = httpClient.send(request(url, refererUrl),
-                        HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response = send(request(url, refererUrl));
                 int status = response.statusCode();
                 if (status >= 200 && status < 300) {
                     return response.body();
@@ -230,6 +244,20 @@ public class MetalArchivesProvider implements DiscographyProvider {
             builder.header("Referer", refererUrl.trim());
         }
         return builder.build();
+    }
+
+    private HttpResponse<String> send(HttpRequest request) throws Exception {
+        try {
+            REQUEST_SLOTS.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ProviderException("Interrupted while waiting to call Metal Archives", e);
+        }
+        try {
+            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } finally {
+            REQUEST_SLOTS.release();
+        }
     }
 
     private static boolean isTransientStatus(int status) {

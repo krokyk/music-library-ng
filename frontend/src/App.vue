@@ -14,6 +14,8 @@ const {
   deletingCollectionId,
   artistCountryConflicts,
   artistStatusConflicts,
+  bulkMatchJob,
+  bulkMatchProgressVisible,
   manualStatus,
   providerJob,
   providerReleaseYearConflicts,
@@ -34,7 +36,9 @@ const completedStatusState = ref<'done' | 'warning' | 'failed' | 'info'>('done')
 const completedStatusTimer = ref<number | null>(null)
 const scanStartedAt = ref<number | null>(null)
 const providerStartedAt = ref<number | null>(null)
+const bulkMatchStartedAt = ref<number | null>(null)
 const collectionScanCancelPending = ref(false)
+const bulkMatchCancelPending = ref(false)
 
 const scanCollectionName = computed(() => {
   const collectionId = scanJob.value?.activeCollectionId ?? scanJob.value?.requestedCollectionId
@@ -54,6 +58,9 @@ const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
 const collectionScanModalVisible = computed(() =>
   scanIsRunning.value && scanJob.value?.kind === 'COLLECTION',
 )
+const bulkMatchIsRunning = computed(() => bulkMatchJob.value?.status === 'RUNNING')
+const bulkMatchModalVisible = computed(() => bulkMatchIsRunning.value && bulkMatchProgressVisible.value)
+const workProgressModalVisible = computed(() => collectionScanModalVisible.value || bulkMatchModalVisible.value)
 
 const scanRunningMessage = computed(() => {
   return `Scanning collection ${scanCollectionName.value}`
@@ -78,6 +85,27 @@ const collectionScanProgressPercent = computed(() => {
   const total = scanJob.value?.itemTotal ?? 0
   return total > 0 ? Math.min(100, (collectionScanProcessed.value / total) * 100) : 0
 })
+const workProgressTitle = computed(() => bulkMatchModalVisible.value
+  ? `Matching ${bulkMatchJob.value?.providerName ?? 'provider'}...`
+  : collectionScanTitle.value)
+const workProgressSubject = computed(() => bulkMatchModalVisible.value && bulkMatchJob.value?.activeArtistName
+  ? `Processing ${bulkMatchJob.value.activeArtistName}`
+  : '')
+const workProgressProcessed = computed(() => bulkMatchModalVisible.value
+  ? Math.min(
+    (bulkMatchJob.value?.itemProcessed ?? 0) + (bulkMatchJob.value?.activeArtistId ? 1 : 0),
+    bulkMatchJob.value?.itemTotal ?? 0,
+  )
+  : collectionScanProcessed.value)
+const workProgressTotal = computed(() => bulkMatchModalVisible.value
+  ? bulkMatchJob.value?.itemTotal ?? 0
+  : scanJob.value?.itemTotal ?? 0)
+const workProgressText = computed(() => bulkMatchModalVisible.value
+  ? `${workProgressProcessed.value} / ${workProgressTotal.value} artists`
+  : collectionScanProgressText.value)
+const workProgressPercent = computed(() => workProgressTotal.value > 0
+  ? Math.min(100, (workProgressProcessed.value / workProgressTotal.value) * 100)
+  : 0)
 
 const activeStatusMessage = computed(() => {
   if (scanIsRunning.value) {
@@ -89,11 +117,15 @@ const activeStatusMessage = computed(() => {
   if (providerStatus.value.running && providerStatus.value.message) {
     return providerStatus.value.message
   }
+  if (bulkMatchIsRunning.value && bulkMatchJob.value?.message) {
+    return bulkMatchJob.value.message
+  }
   return completedStatus.value || 'Idle (click for history)'
 })
 
 const statusState = computed(() => {
-  if (scanIsRunning.value || providerJob.value?.status === 'RUNNING' || providerStatus.value.running) {
+  if (scanIsRunning.value || providerJob.value?.status === 'RUNNING'
+    || providerStatus.value.running || bulkMatchIsRunning.value) {
     return 'running'
   }
   return completedStatus.value ? completedStatusState.value : 'idle'
@@ -292,6 +324,20 @@ async function cancelCollectionScan() {
   }
 }
 
+async function cancelBulkMatch() {
+  if (!bulkMatchIsRunning.value || bulkMatchJob.value?.cancelRequested || bulkMatchCancelPending.value) {
+    return
+  }
+  bulkMatchCancelPending.value = true
+  try {
+    await store.cancelBulkMatchJob()
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to cancel bulk provider match')
+  } finally {
+    bulkMatchCancelPending.value = false
+  }
+}
+
 watch(
   () => scanJob.value?.status ?? 'IDLE',
   (status, previousStatus) => {
@@ -381,6 +427,28 @@ watch(
   },
 )
 
+watch(
+  () => bulkMatchJob.value?.status ?? 'IDLE',
+  (status, previousStatus) => {
+    if (status === 'RUNNING' && previousStatus !== 'RUNNING') {
+      bulkMatchStartedAt.value = Date.now()
+      store.addStatusHistory(bulkMatchJob.value?.message ?? 'Matching providers...', 'running')
+      completedStatus.value = ''
+      return
+    }
+    if (previousStatus === 'RUNNING' && status !== 'RUNNING' && bulkMatchJob.value) {
+      const elapsed = formatElapsed(bulkMatchStartedAt.value)
+      bulkMatchStartedAt.value = null
+      const message = bulkMatchJob.value.message ?? `Bulk provider match ${status.toLowerCase()}`
+      const state = status === 'FAILED' || bulkMatchJob.value.errorCount > 0 ? 'failed'
+        : status === 'CANCELLED' ? 'warning'
+          : bulkMatchJob.value.manualCount > 0 || bulkMatchJob.value.noMatchCount > 0 ? 'warning'
+            : 'done'
+      completeStatus(message, state, withElapsed(message, elapsed))
+    }
+  },
+)
+
 watch(historyDialog, (open) => {
   if (open) {
     historyPinnedToBottom.value = true
@@ -402,6 +470,7 @@ onMounted(async () => {
     store.loadCollections(),
     store.loadScanJob(),
     store.loadProviderJob(),
+    store.loadBulkMatchJob(),
     store.loadProviderConflicts(),
   ])
   if (scanJob.value?.status === 'RUNNING') {
@@ -409,6 +478,9 @@ onMounted(async () => {
   }
   if (providerJob.value?.status === 'RUNNING') {
     store.startProviderJobPolling()
+  }
+  if (bulkMatchJob.value?.status === 'RUNNING') {
+    store.startBulkMatchJobPolling()
   }
 })
 </script>
@@ -499,36 +571,51 @@ onMounted(async () => {
     </v-main>
 
     <v-dialog
-      :model-value="collectionScanModalVisible"
+      :model-value="workProgressModalVisible"
       max-width="none"
       persistent
       no-click-animation
     >
-      <v-card class="dialog-card collection-scan-dialog">
+      <v-card
+        class="dialog-card collection-scan-dialog"
+        :class="{ 'collection-scan-dialog--bulk': bulkMatchModalVisible }"
+      >
         <v-card-title class="collection-scan-dialog__title">
-          {{ collectionScanTitle }}
+          {{ workProgressTitle }}
         </v-card-title>
         <v-card-text class="collection-scan-dialog__body">
+          <div v-if="workProgressSubject" class="collection-scan-dialog__subject">
+            {{ workProgressSubject }}
+          </div>
           <div class="collection-scan-progress">
             <v-progress-linear
-              :model-value="collectionScanProgressPercent"
+              :model-value="workProgressPercent"
               color="primary"
               bg-color="surface-variant"
               height="30"
               rounded
             ></v-progress-linear>
-            <span class="collection-scan-progress__label">{{ collectionScanProgressText }}</span>
+            <span class="collection-scan-progress__label">{{ workProgressText }}</span>
           </div>
         </v-card-text>
         <v-card-actions class="collection-scan-dialog__actions">
           <v-spacer></v-spacer>
           <v-btn
+            v-if="bulkMatchModalVisible"
+            variant="text"
+            @click="store.hideBulkMatchProgress()"
+          >
+            Close
+          </v-btn>
+          <v-btn
             color="warning"
             variant="text"
-            :disabled="scanJob?.cancelRequested || collectionScanCancelPending"
-            @click="cancelCollectionScan"
+            :disabled="bulkMatchModalVisible
+              ? bulkMatchJob?.cancelRequested || bulkMatchCancelPending
+              : scanJob?.cancelRequested || collectionScanCancelPending"
+            @click="bulkMatchModalVisible ? cancelBulkMatch() : cancelCollectionScan()"
           >
-            {{ scanJob?.cancelRequested ? 'Cancelling' : 'Cancel' }}
+            {{ (bulkMatchModalVisible ? bulkMatchJob?.cancelRequested : scanJob?.cancelRequested) ? 'Cancelling' : 'Cancel' }}
           </v-btn>
         </v-card-actions>
       </v-card>

@@ -64,6 +64,7 @@ const {
   albums,
   artistCountryConflicts,
   artistStatusConflicts,
+  bulkMatchJob,
   collections,
   providerJob,
   providerReleaseYearConflicts,
@@ -185,7 +186,10 @@ let artistsPaneWidthObserver: ResizeObserver | null = null
 let artistsPaneResizeActive = false
 let artistSearchDebounceTimer: number | null = null
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
-const providerIsRunning = computed(() => providerJob.value?.status === 'RUNNING' || providerStatus.value.running)
+const bulkMatchIsRunning = computed(() => bulkMatchJob.value?.status === 'RUNNING')
+const providerIsRunning = computed(() =>
+  providerJob.value?.status === 'RUNNING' || providerStatus.value.running || bulkMatchIsRunning.value,
+)
 const writeActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value)
 
 const filteredArtists = computed(() => {
@@ -1824,6 +1828,10 @@ async function startProviderSetup(artist: Artist) {
 }
 
 async function runBulkProviderMatch(providerId: ProviderId) {
+  if (bulkMatchIsRunning.value && bulkMatchJob.value?.providerId === providerId) {
+    store.showBulkMatchProgress()
+    return
+  }
   const missing = visibleArtistsMissingProvider(providerId)
   if (writeActionsDisabled.value || bulkMatchLoadingProviderId.value || missing.length === 0) {
     return
@@ -1832,15 +1840,21 @@ async function runBulkProviderMatch(providerId: ProviderId) {
   bulkMatchLoadingProviderId.value = providerId
   bulkMatchResult.value = null
   try {
-    bulkMatchResult.value = await store.bulkMatchProvider(providerId, artistIds)
-    bulkMatchDialog.value = true
+    await store.runBulkMatchJob(providerId, artistIds)
   } catch (error) {
-    if (!store.providerStatus.message?.includes('bulk match failed')) {
-      store.showErrorStatus(error, `${providerDefinition(providerId).label} bulk match failed`)
-    }
+    store.showErrorStatus(error, `${providerDefinition(providerId).label} bulk match failed`)
   } finally {
     bulkMatchLoadingProviderId.value = null
   }
+}
+
+function bulkProviderActionDisabled(providerId: ProviderId) {
+  if (bulkMatchIsRunning.value && bulkMatchJob.value?.providerId === providerId) {
+    return false
+  }
+  return writeActionsDisabled.value
+    || missingProviderCount(providerId) === 0
+    || Boolean(bulkMatchLoadingProviderId.value)
 }
 
 async function useBulkCandidate(item: ArtistProviderBulkMatchItem) {
@@ -2279,6 +2293,16 @@ watch(providerConflictDialog, (open) => {
   providerConflictArtistId.value = null
   openProviderConflictSectionKey.value = null
 })
+
+watch(
+  () => bulkMatchJob.value?.status ?? 'IDLE',
+  (status, previousStatus) => {
+    if (previousStatus === 'RUNNING' && status !== 'RUNNING' && bulkMatchJob.value?.result) {
+      bulkMatchResult.value = bulkMatchJob.value.result
+      bulkMatchDialog.value = true
+    }
+  },
+)
 </script>
 
 <template>
@@ -2309,12 +2333,13 @@ watch(providerConflictDialog, (open) => {
                     :count="missingProviderCount(provider.id)"
                     action
                     :compact="!bulkProviderChipLabelsVisible"
-                    :disabled="writeActionsDisabled || missingProviderCount(provider.id) === 0 || Boolean(bulkMatchLoadingProviderId)"
+                    :disabled="bulkProviderActionDisabled(provider.id)"
                     @click="runBulkProviderMatch(provider.id)"
                   >
                     <template #prepend>
                       <AppSpinner
-                        v-if="bulkMatchLoadingProviderId === provider.id"
+                        v-if="bulkMatchLoadingProviderId === provider.id
+                          || bulkMatchIsRunning && bulkMatchJob?.providerId === provider.id"
                         class="provider-action-chip__spinner"
                       />
                         <img

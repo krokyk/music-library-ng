@@ -284,6 +284,25 @@ export interface ArtistProviderBulkMatchResult {
   messages: string[]
 }
 
+export interface ArtistProviderBulkMatchJobStatus {
+  status: string
+  kind: 'PROVIDER_BULK_MATCH'
+  providerId?: string | null
+  providerName?: string | null
+  activeArtistId?: number | null
+  activeArtistName?: string | null
+  itemTotal: number
+  itemProcessed: number
+  matchedCount: number
+  manualCount: number
+  noMatchCount: number
+  skippedCount: number
+  errorCount: number
+  cancelRequested: boolean
+  message?: string | null
+  result?: ArtistProviderBulkMatchResult | null
+}
+
 export interface ProviderCheckJobStatus {
   status: string
   kind: 'PROVIDER_ARTIST' | 'PROVIDER_COLLECTION'

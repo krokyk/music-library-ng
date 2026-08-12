@@ -154,6 +154,7 @@ public class MusicBrainzClient {
     }
 
     private HttpResponse<String> sendWithLimiter(URI uri) throws ProviderException {
+        HttpRequest request;
         synchronized (LIMITER_LOCK) {
             long now = System.currentTimeMillis();
             long waitMillis = Math.max(0, nextRequestAtMillis - now);
@@ -165,22 +166,19 @@ public class MusicBrainzClient {
                     throw new ProviderException("Interrupted while waiting for MusicBrainz rate limit", e);
                 }
             }
-            HttpRequest request = HttpRequest.newBuilder(uri)
+            nextRequestAtMillis = System.currentTimeMillis()
+                    + Math.max(1000, config.providers().musicbrainz().requestMinIntervalMs());
+            request = HttpRequest.newBuilder(uri)
                     .timeout(Duration.ofSeconds(30))
                     .header("User-Agent", config.providers().musicbrainz().userAgent().orElseThrow())
                     .header("Accept", "application/json")
                     .GET()
                     .build();
-            try {
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                nextRequestAtMillis = System.currentTimeMillis()
-                        + Math.max(1000, config.providers().musicbrainz().requestMinIntervalMs());
-                return response;
-            } catch (Exception e) {
-                nextRequestAtMillis = System.currentTimeMillis()
-                        + Math.max(1000, config.providers().musicbrainz().requestMinIntervalMs());
-                throw new ProviderException("Unable to call MusicBrainz " + uri, e);
-            }
+        }
+        try {
+            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (Exception e) {
+            throw new ProviderException("Unable to call MusicBrainz " + uri, e);
         }
     }
 

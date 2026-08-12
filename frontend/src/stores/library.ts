@@ -1,13 +1,13 @@
 import { defineStore } from 'pinia'
 import { apiGet, apiSend } from '@/api'
 import { formatDateWithJavaPattern } from '@/dateFormat'
-import { providerDefinition, type ProviderId } from '@/providers'
+import type { ProviderId } from '@/providers'
 import type {
   Album,
   Artist,
   ArtistCountryConflict,
   ArtistProviderConflicts,
-  ArtistProviderBulkMatchResult,
+  ArtistProviderBulkMatchJobStatus,
   ArtistProviderCandidate,
   ArtistProviderLink,
   ArtistStatusConflict,
@@ -74,6 +74,8 @@ interface State {
   musicRoot: MusicRootInfo | null
   scanJob: ScanJobStatus | null
   providerJob: ProviderCheckJobStatus | null
+  bulkMatchJob: ArtistProviderBulkMatchJobStatus | null
+  bulkMatchProgressVisible: boolean
   artistCountryConflicts: ArtistCountryConflict[]
   artistStatusConflicts: ArtistStatusConflict[]
   providerReleaseYearConflicts: ProviderReleaseYearConflict[]
@@ -107,6 +109,7 @@ function withQuery(path: string, params: Record<string, string | number | boolea
 let scanJobPoller: number | null = null
 let scanJobPollingActive = false
 let providerJobPoller: number | null = null
+let bulkMatchJobPoller: number | null = null
 let pendingAlbumUpdate: Promise<void> | null = null
 
 export const useLibraryStore = defineStore('library', {
@@ -134,6 +137,8 @@ export const useLibraryStore = defineStore('library', {
     musicRoot: null,
     scanJob: null,
     providerJob: null,
+    bulkMatchJob: null,
+    bulkMatchProgressVisible: false,
     artistCountryConflicts: [],
     artistStatusConflicts: [],
     providerReleaseYearConflicts: [],
@@ -1063,39 +1068,78 @@ export const useLibraryStore = defineStore('library', {
     async searchProviderCandidates(artistId: number, providerId: ProviderId) {
       return apiGet<ArtistProviderCandidate[]>(`/api/artists/${artistId}/provider-candidates/${providerId}`)
     },
-    async bulkMatchProvider(providerId: ProviderId, artistIds: number[]) {
-      const count = artistIds.length
-      const provider = providerDefinition(providerId)
-      this.providerStatus = {
-        running: true,
-        message: `Matching ${provider.label} for ${count} artist${count === 1 ? '' : 's'}`,
-        state: 'running',
+    async runBulkMatchJob(providerId: ProviderId, artistIds: number[]) {
+      if (this.bulkMatchJob?.status === 'RUNNING') {
+        this.bulkMatchProgressVisible = true
+        this.startBulkMatchJobPolling()
+        return this.bulkMatchJob
       }
-      try {
-        const result = await apiSend<ArtistProviderBulkMatchResult>(
-          `/api/provider-matches/${providerId}/artists`,
-          'POST',
-          { artistIds },
-        )
-        const refreshedArtistIds = uniqueArtistIds(result.items.map((item) => item.artistId))
-        const collectionScope = this.currentCollectionScopeForArtists(refreshedArtistIds)
-        await this.refreshArtistsAfterScopedJob(refreshedArtistIds, collectionScope)
-        this.invalidateCollectionMetadata(collectionScope ?? undefined)
-        const detail = result.messages.join(' ').trim()
-        const message = detail || `${provider.label} bulk match complete: ${result.matchedCount} matched`
-        this.providerStatus = {
-          running: false,
-          message,
-          state: result.errorCount > 0 ? 'failed'
-            : result.manualCount > 0 || result.noMatchCount > 0 ? 'warning'
-              : 'done',
+      this.bulkMatchJob = await apiSend<ArtistProviderBulkMatchJobStatus>(
+        `/api/provider-match-jobs/${providerId}`,
+        'POST',
+        { artistIds },
+      )
+      this.bulkMatchProgressVisible = true
+      this.startBulkMatchJobPolling()
+      return this.bulkMatchJob
+    },
+    startBulkMatchJobPolling() {
+      if (bulkMatchJobPoller !== null) {
+        return
+      }
+      const intervalMs = Math.min(2000, Math.max(100, this.uiSettings.scanPollIntervalMs))
+      const poll = async () => {
+        try {
+          const status = await this.loadBulkMatchJob()
+          if (status?.status === 'RUNNING') {
+            return
+          }
+          this.stopBulkMatchJobPolling()
+          this.bulkMatchProgressVisible = false
+          const result = status?.result
+          if (result) {
+            const refreshedArtistIds = uniqueArtistIds(result.items.map((item) => item.artistId))
+            const collectionScope = this.currentCollectionScopeForArtists(refreshedArtistIds)
+            await this.refreshArtistsAfterScopedJob(refreshedArtistIds, collectionScope)
+            this.invalidateCollectionMetadata(collectionScope ?? undefined)
+          }
+        } catch (error) {
+          this.stopBulkMatchJobPolling()
+          this.bulkMatchProgressVisible = false
+          this.showErrorStatus(error, 'Unable to poll bulk provider match status')
         }
-        return result
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        this.providerStatus = { running: false, message: `${provider.label} bulk match failed: ${message}`, state: 'failed' }
-        throw error
       }
+      bulkMatchJobPoller = window.setInterval(() => void poll(), intervalMs)
+    },
+    stopBulkMatchJobPolling() {
+      if (bulkMatchJobPoller === null) {
+        return
+      }
+      window.clearInterval(bulkMatchJobPoller)
+      bulkMatchJobPoller = null
+    },
+    async loadBulkMatchJob() {
+      try {
+        this.bulkMatchJob = await apiGet<ArtistProviderBulkMatchJobStatus>('/api/provider-match-jobs/current')
+      } catch (error) {
+        this.showErrorStatus(error, 'Unable to load bulk provider match status')
+      }
+      return this.bulkMatchJob
+    },
+    async cancelBulkMatchJob() {
+      this.bulkMatchJob = await apiSend<ArtistProviderBulkMatchJobStatus>(
+        '/api/provider-match-jobs/current/cancel',
+        'POST',
+      )
+      return this.bulkMatchJob
+    },
+    showBulkMatchProgress() {
+      if (this.bulkMatchJob?.status === 'RUNNING') {
+        this.bulkMatchProgressVisible = true
+      }
+    },
+    hideBulkMatchProgress() {
+      this.bulkMatchProgressVisible = false
     },
     async saveArtistProvider(artistId: number, payload: ProviderLinkPayload) {
       const provider = await apiSend<ArtistProviderLink>(`/api/artists/${artistId}/provider`, 'PUT', {

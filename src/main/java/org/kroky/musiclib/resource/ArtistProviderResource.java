@@ -64,6 +64,8 @@ public class ArtistProviderResource {
         } else {
             providerUrl = normalizedProviderUrl;
         }
+        var metadata = matches.enrichSelectedMetadata(
+                request.providerId(), providerUrl, request.providerCountry(), request.providerActive());
         try {
             return providerLinks.upsertForArtist(
                     artistId,
@@ -71,9 +73,9 @@ public class ArtistProviderResource {
                     providerArtistId,
                     request.providerArtistName(),
                     providerUrl,
-                    request.providerCountry(),
+                    metadata.country(),
                     request.providerDisambiguation(),
-                    request.providerActive(),
+                    metadata.active(),
                     request.enabledOrDefault());
         } catch (IllegalArgumentException e) {
             throw new BadRequestException(e.getMessage(), e);

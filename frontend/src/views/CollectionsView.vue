@@ -67,6 +67,7 @@ const {
   collectionMetadataLoading,
   selectedCollectionId,
   selectedArtistId,
+  bulkMatchJob,
   providerJob,
   providerStatus,
   scanJob,
@@ -347,7 +348,9 @@ const providerSetupDefinition = computed(() =>
 
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
 const providerJobIsRunning = computed(() => providerJob.value?.status === 'RUNNING')
-const providerIsRunning = computed(() => providerJobIsRunning.value || providerStatus.value.running)
+const providerIsRunning = computed(() =>
+  providerJobIsRunning.value || providerStatus.value.running || bulkMatchJob.value?.status === 'RUNNING',
+)
 const scanActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value || Boolean(deletingCollectionId.value))
 const writeActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value || Boolean(deletingCollectionId.value))
 const collectionPaneWidthPreferenceKey = 'collections-screen.collections-pane.width'

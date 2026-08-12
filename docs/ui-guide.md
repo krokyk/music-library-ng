@@ -251,6 +251,7 @@ Do not copy a control and allow screen-specific versions to drift.
 - Main Artists screen bulk provider controls live in the Artists pane title bar with the label `Bulk match missing providers`.
   Bulk provider controls use provider chips with normal provider display names.
   Collapse provider chip labels before removing the bulk-match label, and preserve provider icons plus counts before shrinking other title-bar content.
+  A running provider chip remains clickable and reopens its hidden bulk-match progress dialog, while other bulk provider chips and write actions remain disabled.
 - Main Artists screen row provider setup uses one `Add providers` action, not one action per provider.
   The action opens the fixed-size multi-provider dialog, starts matching missing providers immediately, preselects existing provider links, and saves only changed selections.
   Existing provider links are removed by deselecting their candidate row and clicking `Save`.
@@ -410,6 +411,8 @@ Nonlocal and other-collection rows use `calc(1em - 1px)`.
 - Collection scans process only folders whose relative local path is not already known in the selected collection.
 - Collection scans do not scan track files.
 - Full collection scans use the shared blocking scan-progress dialog with a fixed-size progress bar and a cancel button.
+- Bulk provider matching reuses the scan-progress dialog, shows `Processing <artist>` above the bar and the current `N / total artists` inside it, and adds a Close action so matching can continue while the dialog is hidden.
+- Closing bulk-match progress does not cancel the job, clicking the running provider chip reopens it, and cancelling waits for the current artist to finish.
 - The modal owns running collection scan progress, so the status bar may show scan start or running text but not progress counts, and collection rows do not show scan spinners or progress fills during full collection scans.
 - Full collection scan progress first shows snapshot comparison text, then counts only folders that need processing.
 - Nested artist collection scans pre-enumerate nested album folders before the processing progress total is known.

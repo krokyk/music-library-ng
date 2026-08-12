@@ -22,7 +22,7 @@ interface UiForm {
 }
 
 const store = useLibraryStore()
-const { providerJob, providerStatus, scanJob, musicRoot, uiSettings } = storeToRefs(store)
+const { bulkMatchJob, providerJob, providerStatus, scanJob, musicRoot, uiSettings } = storeToRefs(store)
 
 const scanPollMin = 100
 const scanPollMax = 2000
@@ -49,7 +49,11 @@ const savingUiSettings = ref(false)
 const uiSaveTimer = ref<number | null>(null)
 const pendingUiSettingKeys = new Set<EditableUiSettingKey>()
 const scanIsRunning = computed(() => scanJob.value?.status === 'RUNNING')
-const providerIsRunning = computed(() => providerJob.value?.status === 'RUNNING' || providerStatus.value.running)
+const providerIsRunning = computed(() =>
+  providerJob.value?.status === 'RUNNING'
+    || providerStatus.value.running
+    || bulkMatchJob.value?.status === 'RUNNING',
+)
 const scanActionsDisabled = computed(() => scanIsRunning.value || providerIsRunning.value)
 
 function syncUiForm() {

@@ -119,7 +119,7 @@ class ArtistProviderMatchServiceTest {
 
         assertEquals(80, evidence.albumEvidenceScore());
         assertTrue(evidence.albumEvidence().stream().allMatch(ArtistProviderCandidateAlbum::genericTitle));
-        assertFalse(ArtistProviderBulkMatchService.isHighConfidenceMusicBrainzMatch("Generic Band", candidate, null));
+        assertFalse(ArtistProviderBulkMatchService.isHighConfidenceProviderMatch(candidate));
     }
 
     @Test
@@ -215,7 +215,7 @@ class ArtistProviderMatchServiceTest {
         var candidate = ArtistProviderBulkMatchServiceTest.candidate("Ancient Bards", 100, evidence);
 
         assertEquals(72, evidence.albumEvidenceScore());
-        assertFalse(ArtistProviderBulkMatchService.isHighConfidenceMusicBrainzMatch("Ancient Bards", candidate, null));
+        assertFalse(ArtistProviderBulkMatchService.isHighConfidenceProviderMatch(candidate));
     }
 
     @Test

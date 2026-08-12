@@ -355,6 +355,29 @@ try {
     }
     Eval-Js $socket "document.querySelector('#app')?.__vue_app__?.config.globalProperties.`$pinia?._s.get('library').`$patch({ scanJob: null })" | Out-Null
 
+    if (-not (Eval-Js $socket "(() => { const store = document.querySelector('#app')?.__vue_app__?.config.globalProperties.`$pinia?._s.get('library'); if (!store) return false; store.`$patch({ bulkMatchProgressVisible: true, bulkMatchJob: { status: 'RUNNING', kind: 'PROVIDER_BULK_MATCH', providerId: 'musicbrainz', providerName: 'MusicBrainz', activeArtistId: 7, activeArtistName: 'Layout Artist', itemTotal: 10, itemProcessed: 3, matchedCount: 2, manualCount: 1, noMatchCount: 0, skippedCount: 0, errorCount: 0, cancelRequested: false, message: 'Matching MusicBrainz for Layout Artist.', result: null } }); return true; })()")) {
+        throw "Unable to inject bulk provider match dialog state."
+    }
+    if (-not (Wait-ForJs $socket "document.querySelector('.collection-scan-dialog--bulk') !== null" 3000)) {
+        throw "Bulk provider match dialog did not open."
+    }
+    $bulkDialogState = Eval-Js $socket "(() => { const dialog = document.querySelector('.collection-scan-dialog--bulk'); const rect = dialog.getBoundingClientRect(); return JSON.stringify({ height: rect.height, subject: dialog.querySelector('.collection-scan-dialog__subject')?.textContent.trim(), progress: dialog.querySelector('.collection-scan-progress__label')?.textContent.trim() }); })()"
+    $bulkDialog = $bulkDialogState | ConvertFrom-Json
+    if ([Math]::Abs($bulkDialog.height - 210) -gt 0.5 -or $bulkDialog.subject -ne "Processing Layout Artist" -or $bulkDialog.progress -ne "4 / 10 artists") {
+        throw "Bulk provider match dialog ignored its fixed size or progress content: $bulkDialogState"
+    }
+    Eval-Js $socket "(() => { const close = [...document.querySelectorAll('.collection-scan-dialog--bulk button')].find((node) => node.textContent.trim() === 'Close'); if (!close) return false; close.click(); return true; })()" | Out-Null
+    if (-not (Wait-ForJs $socket "document.querySelector('.collection-scan-dialog--bulk') === null" 3000)) {
+        throw "Bulk provider match dialog did not close."
+    }
+    if (-not (Eval-Js $socket "(() => { const store = document.querySelector('#app')?.__vue_app__?.config.globalProperties.`$pinia?._s.get('library'); if (store?.bulkMatchJob?.status !== 'RUNNING') return false; store.showBulkMatchProgress(); return true; })()")) {
+        throw "Bulk provider match did not remain active after closing progress."
+    }
+    if (-not (Wait-ForJs $socket "document.querySelector('.collection-scan-dialog--bulk') !== null" 3000)) {
+        throw "Bulk provider match dialog did not reopen."
+    }
+    Eval-Js $socket "document.querySelector('#app')?.__vue_app__?.config.globalProperties.`$pinia?._s.get('library').`$patch({ bulkMatchProgressVisible: false, bulkMatchJob: null })" | Out-Null
+
     if (-not (Eval-Js $socket "(() => { const store = document.querySelector('#app')?.__vue_app__?.config.globalProperties.`$pinia?._s.get('library'); if (!store) return false; store.`$patch({ statusHistory: [{ id: 1, message: 'Short', state: 'done', createdAt: '12:00:00', reports: [] }] }); document.querySelector('.global-status-bar')?.click(); return true; })()")) {
         throw "Unable to inject status-history sizing data."
     }
