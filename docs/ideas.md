@@ -5,11 +5,6 @@ When an idea is implemented, remove it from this file or replace it with the sma
 When an idea is rejected, remove it from this file.
 Current behavior belongs in `docs/current-application.md`.
 
-## App Lock File
-
-- Add an app-level lock file so the app can warn when another app instance or another machine appears to be using the same SQLite database.
-- The warning should protect the intended one-PC-at-a-time workflow without pretending SQLite is a multi-user sync system.
-
 ## Backup And Restore
 
 - Add startup and shutdown backup handling for the SQLite database.

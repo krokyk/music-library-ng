@@ -18,6 +18,9 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Shared defaults live in `src/main/resources/application.properties`.
 - Private or machine-specific overrides live in ignored `config/application.properties` or JVM `-D...` properties.
 - The SQLite path defaults to `data/music-library-ng.sqlite`.
+- Startup atomically creates a `<database-path>.lock` directory before Flyway migration and fails fast when another Windows or WSL app process may already use that database.
+- Normal shutdown removes the lock directory, while a hard crash can leave it behind and requires manual removal after confirming that no app process is running.
+- The Windows dev-shell `kp` helper stops a known Windows lock owner and removes its lock after confirming that the process exited, while WSL or unknown owners require manual verification and cleanup.
 - SQLite connections use WAL mode, `synchronous=NORMAL`, foreign keys, and a 30 second busy timeout so UI reads can continue during background scan writes.
 - Logs default to console output plus `data/logs/music-library-ng.log`.
 - Generated reports default to `data/reports`.
@@ -404,7 +407,6 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 ## Current Constraints
 
 - SQLite is intended for one running app instance against one database at a time.
-- The app currently has no app-level lock file.
 - The app currently has no automatic startup or shutdown backup flow.
 - Track-level collection membership is not implemented.
 - Track file scanning and audio tag parsing are not part of normal collection scans.

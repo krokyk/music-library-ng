@@ -60,6 +60,21 @@ Use `scripts/check-ui-layout.ps1` for any non-trivial UI change involving:
 
 Recommended final UI check:
 
+From native Windows PowerShell:
+
+```powershell
+.\gradlew.bat build
+& "$env:JAVA_HOME\bin\java.exe" -jar build\quarkus-app\quarkus-run.jar
+```
+
+Then, in another PowerShell terminal:
+
+```powershell
+.\scripts\check-ui-layout.ps1 -AppUrl "http://localhost:8795/"
+```
+
+From WSL:
+
 ```bash
 ./gradlew build
 java -jar build/quarkus-app/quarkus-run.jar

@@ -4,6 +4,8 @@ build/
 
 # Frontend
 frontend/node_modules/
+frontend/node_modules_win/
+frontend/node_modules_wsl/
 frontend/dist/
 
 # Runtime data

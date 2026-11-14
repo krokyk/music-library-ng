@@ -18,7 +18,11 @@ The default app URL is `http://localhost:8795/`, and runtime data lives under `d
 
 ## Setup
 
-Use WSL for regular development.
+Regular development is supported from either WSL or native Windows PowerShell.
+Java 21 and Node.js are required, and the repository includes the Gradle wrapper so Maven and a system Gradle install are unnecessary.
+
+### WSL
+
 Install the basic tools:
 
 ```bash
@@ -26,8 +30,6 @@ sudo apt update
 sudo apt install -y curl git unzip sqlite3
 ```
 
-Java 21 is required.
-Node.js is required for the Vue/Vuetify frontend.
 `nvm` is the easiest Node setup:
 
 ```bash
@@ -48,8 +50,29 @@ npm -v
 sqlite3 --version
 ```
 
-You do not need Maven or a system Gradle install.
-The repo includes the Gradle wrapper.
+### Windows PowerShell
+
+Install Git for Windows, JDK 21, and Node.js.
+Set `JAVA_HOME` to the JDK 21 directory and add its `bin` directory to the current terminal when `java` is not already on `Path`:
+
+```powershell
+$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+```
+
+Verify the native toolchain:
+
+```powershell
+Set-Location <project-root>
+java -version
+.\gradlew.bat --version
+node --version
+npm.cmd --version
+```
+
+The Gradle frontend tasks keep Windows dependencies under `frontend/node_modules_win` and WSL dependencies under `frontend/node_modules_wsl` when inactive.
+They swap the current platform directory into the standard `frontend/node_modules` name before npm or Vite runs, so switching platforms reuses each platform's existing installation.
+For an installation created before platform markers were introduced, rename `frontend/node_modules` once to `frontend/node_modules_win` or `frontend/node_modules_wsl` according to where it was installed, then run `frontendInstall`.
+Do not run Windows and WSL frontend builds or Vite processes at the same time because they share the active `node_modules` path.
 
 Create ignored local config before first run because MusicBrainz requires a private contact User-Agent:
 
@@ -80,6 +103,12 @@ Backend dev mode:
 ./gradlew quarkusDev -Dmusic-library.music-root="<music-root>"
 ```
 
+Native Windows PowerShell:
+
+```powershell
+.\gradlew.bat quarkusDev "-Dmusic-library.music-root=<music-root>"
+```
+
 Open:
 
 ```text
@@ -89,10 +118,12 @@ http://localhost:8795/
 Frontend-only dev mode requires Quarkus to be running because Vite proxies `/api` to the backend:
 
 ```bash
+./gradlew frontendInstall
 cd frontend
-npm install
 npm run dev
 ```
+
+Use `.\gradlew.bat frontendInstall` before `npm.cmd run dev --prefix frontend` in native Windows PowerShell.
 
 Open:
 
@@ -108,6 +139,12 @@ Build everything:
 ./gradlew build
 ```
 
+Native Windows PowerShell:
+
+```powershell
+.\gradlew.bat build
+```
+
 The build runs npm install, the Vue/Vuetify production build, Java compilation, tests, and Quarkus packaging.
 
 Run the packaged app:
@@ -117,11 +154,28 @@ java -Dmusic-library.music-root="<music-root>" \
   -jar build/quarkus-app/quarkus-run.jar
 ```
 
-Optional helper commands live in `dev-shell.sh`.
+Native Windows PowerShell:
+
+```powershell
+& "$env:JAVA_HOME\bin\java.exe" "-Dmusic-library.music-root=<music-root>" -jar build\quarkus-app\quarkus-run.jar
+```
+
+Optional helper commands live in `dev-shell.sh` for WSL and `dev-shell.ps1` for native Windows PowerShell.
 `freshrun` stops app processes, deletes `data/`, rebuilds, and runs the packaged jar.
+The Windows helper checks the lock owner's PID and process start time, stops that Windows process even when the app uses a different HTTP port, and removes its lock after confirming the process exited.
+It aborts when stopping fails or the lock belongs to WSL, an unknown owner, or a reused PID, and `freshrun` refuses to delete `data/` while any lock directory remains inside it.
+Stop WSL apps from WSL and remove a leftover WSL lock manually only after confirming that the app has exited.
 
 ```bash
 source dev-shell.sh
+brun
+freshrun
+```
+
+Native Windows PowerShell:
+
+```powershell
+. .\dev-shell.ps1
 brun
 freshrun
 ```
@@ -132,7 +186,7 @@ Build the native Windows `.exe` from Windows, not WSL.
 Install Visual Studio Build Tools with Desktop development with C++, MSVC Build Tools v143 or newer, and the Windows 11 SDK.
 Install GraalVM for JDK 21, Windows x64 archive, and point `GRAALVM_HOME` at it.
 
-Build frontend assets in WSL first with the normal Gradle build when frontend changes need to be included.
+Build frontend assets with the normal Gradle build on Windows or WSL first when frontend changes need to be included.
 Run the batch launcher from Windows PowerShell, Command Prompt, Explorer, or Total Commander:
 
 ```bat
@@ -202,6 +256,9 @@ See `docs/current-application.md` for the full collection, scanning, and provide
 ## SQLite Usage
 
 The default SQLite connection uses WAL mode, `synchronous=NORMAL`, foreign keys, and a 30 second busy timeout so UI reads can continue during background scan writes.
+Startup atomically creates a `<database-path>.lock` directory, and a second Windows or WSL app process using the same database fails fast.
+Normal shutdown removes the directory.
+After a hard crash, remove a stale lock directory manually only after confirming that no app process is running.
 
 This is safe for the intended workflow:
 

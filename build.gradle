@@ -23,20 +23,58 @@ version = '1.0.0-SNAPSHOT'
 def frontendDir = layout.projectDirectory.dir('frontend')
 def frontendDistDir = frontendDir.dir('dist')
 def generatedFrontendDir = layout.buildDirectory.dir('generated/frontend')
+def isWindows = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows')
+def frontendPlatform = isWindows ? 'win' : 'wsl'
+def frontendModulesDir = frontendDir.dir('node_modules')
+def frontendModulesCacheDir = frontendDir.dir("node_modules_${frontendPlatform}")
 
-def npmCommand(String command) {
-    if (System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows')) {
+def npmCommand = { String command ->
+    if (isWindows) {
         return ['cmd', '/c', command]
     }
     return ['bash', '-lc', "source \"\$HOME/.nvm/nvm.sh\" 2>/dev/null || true; ${command}"]
 }
 
-tasks.register('frontendInstall', Exec) {
+tasks.register('frontendActivateDependencies') {
+    doLast {
+        File activeDir = frontendModulesDir.asFile
+        File desiredCacheDir = frontendModulesCacheDir.asFile
+        File marker = new File(activeDir, '.music-library-platform')
+        String activePlatform = marker.isFile() ? marker.text.trim() : null
+
+        if (activeDir.exists() && !(activePlatform in ['win', 'wsl'])) {
+            throw new GradleException('Existing frontend/node_modules has no valid platform marker. Move it to frontend/node_modules_win or frontend/node_modules_wsl according to where it was installed, then rerun frontendInstall.')
+        }
+
+        if (activeDir.exists() && activePlatform != frontendPlatform) {
+            File inactiveCacheDir = frontendDir.dir("node_modules_${activePlatform}").asFile
+            if (inactiveCacheDir.exists()) {
+                throw new GradleException("Cannot cache frontend dependencies because ${inactiveCacheDir} already exists")
+            }
+            java.nio.file.Files.move(activeDir.toPath(), inactiveCacheDir.toPath())
+        }
+
+        if (!activeDir.exists() && desiredCacheDir.exists()) {
+            java.nio.file.Files.move(desiredCacheDir.toPath(), activeDir.toPath())
+            marker.text = frontendPlatform
+        }
+    }
+}
+
+def platformFrontendInstall = tasks.register("frontendInstall${frontendPlatform.capitalize()}", Exec) {
+    dependsOn tasks.named('frontendActivateDependencies')
     workingDir frontendDir.asFile
     commandLine npmCommand('npm install')
     inputs.file(frontendDir.file('package.json'))
     inputs.file(frontendDir.file('package-lock.json')).optional()
-    outputs.dir(frontendDir.dir('node_modules'))
+    outputs.dir(frontendModulesDir)
+    doLast {
+        new File(frontendModulesDir.asFile, '.music-library-platform').text = frontendPlatform
+    }
+}
+
+tasks.register('frontendInstall') {
+    dependsOn platformFrontendInstall
 }
 
 tasks.register('frontendBuild', Exec) {

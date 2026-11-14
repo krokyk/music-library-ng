@@ -141,4 +141,7 @@ freshrun
 runjar
 ```
 
+The same commands are available in native Windows PowerShell after dot-sourcing `dev-shell.ps1`.
+When changing `dev-shell.ps1`, run `powershell.exe -NoProfile -File .\scripts\test-dev-shell.ps1` for its process-stop and lock safety checks.
+
 Use `freshrun` when DB state may be invalid or stale; it rebuilds from a deleted `data/` and runs the packaged jar.

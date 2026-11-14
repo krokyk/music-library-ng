@@ -9,6 +9,7 @@ import java.util.Optional;
 
 import org.flywaydb.core.Flyway;
 import org.jboss.logging.Logger;
+import org.kroky.musiclib.config.DatabaseProcessLock;
 import org.kroky.musiclib.config.MusicLibraryConfig;
 import org.kroky.musiclib.model.MusicRootInfo;
 import org.kroky.musiclib.model.RootCandidate;
@@ -28,6 +29,9 @@ public class MusicRootService {
     MusicLibraryConfig config;
 
     @Inject
+    DatabaseProcessLock databaseProcessLock;
+
+    @Inject
     PathResolver pathResolver;
 
     @Inject
@@ -37,6 +41,7 @@ public class MusicRootService {
 
     @PostConstruct
     void validateAtStartup() {
+        databaseProcessLock.acquire(Path.of(config.dbPath()));
         Path root = requireRoot();
         LOG.infof("Using music root: %s", root);
         flyway.migrate();
