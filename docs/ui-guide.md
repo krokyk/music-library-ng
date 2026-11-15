@@ -60,6 +60,9 @@ Do not copy a control and allow screen-specific versions to drift.
 - An action that opens a menu remains a button; the menu choices may be chips when they represent compact values or destinations.
 - Toggle groups use the existing compact rounded toolbar toggle.
   Selected toggles use primary cyan fill; unselected toggles remain neutral.
+- Unchecked checkboxes use the shared one-pixel outline while retaining the standard checkbox icon slot and click area.
+- Presence filter groups keep their complete labels and do not scroll horizontally.
+  The Collections screen Artists filter bar wraps complete groups onto another line when the pane is too narrow.
 - Do not use a disabled select, text field, or combo box to display a value.
   Use text or a read-only chip instead.
 - Do not add confirmation for fast, reversible, non-destructive actions unless the workflow explicitly requires it.
@@ -74,6 +77,9 @@ Do not copy a control and allow screen-specific versions to drift.
 - Filter choices belong in the shared compact button-toggle treatment, not standalone ad hoc chips.
 - Warning, success, and error chips use their semantic colors only when the chip itself represents that state.
 - Provider chips use `ProviderChip` and its provider-specific visual identity instead of a generic chip.
+- Artist rows, Artist Info, and conflict-dialog headers show one chip per provider, preferring the selected credited name's own page and falling back to its canonical or another shared page when it has none.
+  Conflict source chips use the album's credited name or the page supplying the displayed country/status value, rather than reusing the header's representative page.
+  Provider search candidates and distinct conflicting metadata values remain separate choices; presentation never removes stored provider evidence.
 - Read-only provider identity chips in Artist Info and conflict sources use `ProviderChip` external-open behavior and open the provider artist page when a URL is available.
 - Clickable and read-only versions of the same chip must be distinguishable by color and pointer behavior without adding a tooltip solely to explain clickability.
 - Keep related chips the same height and geometry within one row or list.
@@ -145,6 +151,8 @@ Do not copy a control and allow screen-specific versions to drift.
 - Each workspace layout designates one flexible pane, normally the rightmost pane, while user-adjusted non-flexible pane widths are persisted as CSS pixels.
 - Browser-window resizing, maximizing, restoring, and snapping must preserve preferred non-flexible pane widths and apply the width difference to the flexible pane.
 - Browser-driven or constraint-driven pane resizing must never overwrite preferred pane widths.
+- Pane dividers follow the pointer throughout a drag, with the live width owned by Vue state and the final preference saved only on release.
+- Dragging uses the currently rendered fixed pane widths as the layout baseline, including temporarily contracted widths, so sibling panes move as a block and the released layout persists without a jump.
 - When the viewport cannot fit every preferred width, temporarily contract panes from right to left toward their practical minimums and restore the preferred widths as space returns.
 - The Collections pane uses one shared width in artist-centric and title-centric collection layouts.
   Current pane-width preference keys are `collections-screen.collections-pane.width`, `collections-screen.artists-pane.width`, and `artists-screen.artists-pane.width`.
@@ -248,6 +256,9 @@ Do not copy a control and allow screen-specific versions to drift.
   When space gets tight, remove labels first; never allow the pane, row, or action column to shrink below the width required to show all required icons.
 - Main Artists screen bulk provider matching uses visible unlinked artists after search and collection filters.
   Keep the displayed count and submitted artist IDs from the same filtered list.
+  Linked credited names count as one canonical artist for each bulk provider scope, while both credited-name rows remain visible.
+  Artist totals count canonical identities and show the additional name count when multiple credits share an identity.
+  Row album counts remain credit-specific and provider totals count stored provider identities without repeating inherited links.
 - Main Artists screen bulk provider controls live in the Artists pane title bar with the label `Bulk match missing providers`.
   Bulk provider controls use provider chips with normal provider display names.
   Collapse provider chip labels before removing the bulk-match label, and preserve provider icons plus counts before shrinking other title-bar content.
@@ -255,6 +266,14 @@ Do not copy a control and allow screen-specific versions to drift.
 - Main Artists screen row provider setup uses one `Add providers` action, not one action per provider.
   The action opens the fixed-size multi-provider dialog, starts matching missing providers immediately, preselects existing provider links, and saves only changed selections.
   Existing provider links are removed by deselecting their candidate row and clicking `Save`.
+  For shared identities, the dialog prefers the selected credited name's own provider page.
+  Changing the selection replaces that name's own link or removes it to inherit a page already owned by a linked name, leaving the other name's page unchanged.
+  Clearing the selection removes the actual owning link, including an inherited link.
+- Bulk provider results show the known artist name even on failures.
+  Their table always starts with a visible `Collection` column showing read-only collection chips for the result artist's shared identity.
+  The Evidence column shows `Confidence`, `Name`, and `Albums` on separate labeled lines; the Message column describes the outcome without repeating those scores.
+  Provider search scores and provider identity IDs are not displayed in candidate rows or bulk results.
+  A provider identity belonging to another artist shows a named manual-review result and a `Link names` action with an explicit confirmation that both browsing names, album credits, and folders are retained.
 - Main Artists screen conflict resolution uses a warning `Conflicts` row action scoped to the selected artist.
   Do not automatically open provider conflict dialogs after provider association or provider scans.
 - While a provider check is running for the selected artist, block the complete Artist Info pane beneath the standard centered `60px` pane spinner.
@@ -309,7 +328,8 @@ Do not copy a control and allow screen-specific versions to drift.
 - Every real dialog, including confirmation dialogs, is centered horizontally and vertically in the browser viewport.
 - Anchored menus, dropdowns, status history, and connected edit overlays keep their anchors and do not use dialog centering.
 - Blocking scan-progress dialogs share a content-independent, viewport-safe `40vw` width capped at `1000px` and an exact `180px` height.
-- Provider matching, provider conflict, bulk provider-match results, and plain-text reports share a fixed `55vw` width up to `1500px` and a fixed `75vh` height.
+- Provider matching, provider conflict, bulk provider-match results, and plain-text reports share a preferred `65vw` width, a `900px` minimum, a `1700px` maximum, and a fixed `75vh` height.
+  Width limits yield to the available viewport width minus `32px` so the dialog stays visible in a narrower window.
 - Plain-text report lines remain unwrapped and use horizontal scrolling when they exceed the report viewport, while provider matching and conflict content contracts horizontally and scrolls vertically.
 - Collection deletion uses its own `460px` responsive confirmation width.
 - Anchor a pane to a control only when that is the better workflow fit, such as cell editors, menus, dropdowns, or status history near the status bar.
@@ -350,9 +370,7 @@ Do not copy a control and allow screen-specific versions to drift.
 - Main Artists screen:
   - The first multi-row load shows the standard pane spinner, and returning during the same browser session renders cached artists, albums, and layout preferences without a repeated full load.
   - Clicking anywhere on a selected collection-filter chip removes that filter, while the close icon remains visible.
-  - `Delete` is a real library database delete.
-  - If the artist belongs to any collection or has local albums, require a second warning confirmation.
-  - Deleting from the library DB never deletes folders or files on disk.
+  - The screen does not expose an artist Delete action.
   - The right detail pane is the main edit place for artist name and sort name.
   - The right detail pane should show effective country and status, clear override actions next to overridden values, and provider evidence beside the override.
   - The provider artist type must not be shown as an artist type because providers do not agree on the meaning.

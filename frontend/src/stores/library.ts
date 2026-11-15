@@ -411,6 +411,19 @@ export const useLibraryStore = defineStore('library', {
     async loadArtist(artistId: number, collectionId?: number | null) {
       return apiGet<Artist>(withQuery(`/api/artists/${artistId}`, { collectionId }))
     },
+    artistGroupIds(artistId: number): number[] {
+      const artist = this.artists.find((item) => item.id === artistId)
+        ?? this.collectionArtists.find((item) => item.id === artistId)
+        ?? Object.values(this.collectionArtistsByCollection).flat().find((item) => item.id === artistId)
+      return artist?.groupArtistIds?.length ? artist.groupArtistIds : [artistId]
+    },
+    async linkArtistNames(canonicalArtistId: number, artistId: number) {
+      const ids = uniqueArtistIds([...this.artistGroupIds(canonicalArtistId), ...this.artistGroupIds(artistId)])
+      const scope = this.currentCollectionScopeForArtists(ids)
+      await apiSend(`/api/artists/${canonicalArtistId}/credited-names`, 'POST', { artistId })
+      await this.refreshArtistsAfterScopedJob(ids, scope)
+      await this.loadProviderConflicts()
+    },
     async selectCollection(collectionId: number) {
       this.selectedCollectionId = collectionId
       this.selectedArtistId = null
@@ -540,7 +553,10 @@ export const useLibraryStore = defineStore('library', {
           }),
         )
         this.replaceGlobalAlbumsForArtists([artistId], albums)
-        this.collectionAlbumsByArtist = { ...this.collectionAlbumsByArtist, [cacheKey]: albums }
+        this.collectionAlbumsByArtist = {
+          ...this.collectionAlbumsByArtist,
+          ...Object.fromEntries(this.artistGroupIds(artistId).map((id) => [String(id), albums])),
+        }
         if (this.selectedArtistId === artistId) {
           this.collectionAlbums = albums
         }
@@ -607,6 +623,9 @@ export const useLibraryStore = defineStore('library', {
       if (payload.id) {
         this.replaceArtist(artist)
         this.replaceCollectionArtist(artist, this.currentCollectionScopeForArtist(artist.id))
+        if (this.artistGroupIds(artist.id).length > 1) {
+          await this.refreshArtistAfterScopedJob(artist.id, this.currentCollectionScopeForArtist(artist.id))
+        }
         await this.loadProviderConflicts()
         return artist
       }
@@ -656,7 +675,7 @@ export const useLibraryStore = defineStore('library', {
       await this.refreshArtistsAfterScopedJob([artistId], collectionId)
     },
     async refreshArtistsAfterScopedJob(artistIds: number[], collectionId?: number | null) {
-      const ids = uniqueArtistIds(artistIds)
+      const ids = uniqueArtistIds(artistIds.flatMap((id) => this.artistGroupIds(id)))
       if (ids.length === 0) {
         return
       }
@@ -736,9 +755,10 @@ export const useLibraryStore = defineStore('library', {
       this.albums = await apiGet<Album[]>('/api/albums')
     },
     replaceGlobalAlbumsForArtists(artistIds: number[], refreshedAlbums: Album[]) {
-      const ids = new Set(artistIds)
+      const ids = new Set(artistIds.flatMap((id) => this.artistGroupIds(id)))
+      const refreshedIds = new Set(refreshedAlbums.map((album) => album.id))
       this.albums = [
-        ...this.albums.filter((album) => !album.artistIds.some((artistId) => ids.has(artistId))),
+        ...this.albums.filter((album) => !refreshedIds.has(album.id) && !album.artistIds.some((artistId) => ids.has(artistId))),
         ...refreshedAlbums,
       ]
     },
@@ -861,9 +881,10 @@ export const useLibraryStore = defineStore('library', {
       )
     },
     invalidateAlbumCacheForArtist(artistId: number) {
-      const cacheKey = String(artistId)
-      const { [cacheKey]: _albums, ...rest } = this.collectionAlbumsByArtist
-      this.collectionAlbumsByArtist = rest
+      const ids = new Set(this.artistGroupIds(artistId).map(String))
+      this.collectionAlbumsByArtist = Object.fromEntries(
+        Object.entries(this.collectionAlbumsByArtist).filter(([key]) => !ids.has(key)),
+      )
     },
     async runScanJob(collectionId?: number) {
       await this.startScanJob(collectionId)
@@ -1017,20 +1038,21 @@ export const useLibraryStore = defineStore('library', {
       return conflicts
     },
     replaceArtistProviderConflicts(artistId: number, conflicts: ArtistProviderConflicts) {
+      const ids = new Set(this.artistGroupIds(artistId))
       this.artistCountryConflicts = [
-        ...this.artistCountryConflicts.filter((conflict) => conflict.artistId !== artistId),
+        ...this.artistCountryConflicts.filter((conflict) => !ids.has(conflict.artistId)),
         ...conflicts.countries,
       ]
       this.artistStatusConflicts = [
-        ...this.artistStatusConflicts.filter((conflict) => conflict.artistId !== artistId),
+        ...this.artistStatusConflicts.filter((conflict) => !ids.has(conflict.artistId)),
         ...conflicts.statuses,
       ]
       this.providerTitleConflicts = [
-        ...this.providerTitleConflicts.filter((conflict) => conflict.artistId !== artistId),
+        ...this.providerTitleConflicts.filter((conflict) => !ids.has(conflict.artistId)),
         ...conflicts.titles,
       ]
       this.providerReleaseYearConflicts = [
-        ...this.providerReleaseYearConflicts.filter((conflict) => conflict.artistId !== artistId),
+        ...this.providerReleaseYearConflicts.filter((conflict) => !ids.has(conflict.artistId)),
         ...conflicts.years,
       ]
     },
@@ -1077,7 +1099,7 @@ export const useLibraryStore = defineStore('library', {
       this.bulkMatchJob = await apiSend<ArtistProviderBulkMatchJobStatus>(
         `/api/provider-match-jobs/${providerId}`,
         'POST',
-        { artistIds },
+        { artistIds: uniqueArtistIds(artistIds.map((id) => this.artists.find((artist) => artist.id === id)?.canonicalArtistId ?? id)) },
       )
       this.bulkMatchProgressVisible = true
       this.startBulkMatchJobPolling()
@@ -1163,7 +1185,8 @@ export const useLibraryStore = defineStore('library', {
       if (!this.selectedCollectionId) {
         return null
       }
-      return this.collectionArtists.some((artist) => artist.id === artistId)
+      const ids = new Set(this.artistGroupIds(artistId))
+      return this.collectionArtists.some((artist) => ids.has(artist.id))
         ? this.selectedCollectionId
         : null
     },
@@ -1171,7 +1194,7 @@ export const useLibraryStore = defineStore('library', {
       if (!this.selectedCollectionId || artistIds.length === 0) {
         return null
       }
-      const ids = new Set(artistIds)
+      const ids = new Set(artistIds.flatMap((id) => this.artistGroupIds(id)))
       return this.collectionArtists.some((artist) => ids.has(artist.id))
         ? this.selectedCollectionId
         : null

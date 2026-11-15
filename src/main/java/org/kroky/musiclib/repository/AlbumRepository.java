@@ -48,6 +48,11 @@ public class AlbumRepository {
     }
 
     public List<Album> list(Long artistId, Long collectionId, Boolean checked, Boolean hasLocalPath, String search) {
+        return list(artistId, collectionId, checked, hasLocalPath, search, true);
+    }
+
+    private List<Album> list(Long artistId, Long collectionId, Boolean checked, Boolean hasLocalPath, String search,
+            boolean combinedIdentity) {
         StringBuilder sql = new StringBuilder("""
                 SELECT DISTINCT a.id
                 FROM albums a
@@ -55,7 +60,8 @@ public class AlbumRepository {
                 """);
         List<Object> parameters = new ArrayList<>();
         if (artistId != null) {
-            sql.append(" AND EXISTS (SELECT 1 FROM album_artists aa_filter WHERE aa_filter.album_id=a.id AND aa_filter.artist_id=?)");
+            sql.append(" AND EXISTS (SELECT 1 FROM album_artists aa_filter WHERE aa_filter.album_id=a.id AND aa_filter.artist_id ");
+            sql.append(combinedIdentity ? "IN (" + ArtistRepository.IDENTITY_MEMBERS_SQL + "))" : "= ?)");
             parameters.add(artistId);
         }
         if (collectionId != null) {
@@ -281,7 +287,7 @@ public class AlbumRepository {
     }
 
     public int countOnDiskLocalAlbumsForArtist(Long collectionId, long artistId) {
-        return (int) list(artistId, collectionId, null, true, null).stream().filter(Album::onDisk).count();
+        return (int) list(artistId, collectionId, null, true, null, false).stream().filter(Album::onDisk).count();
     }
 
     public Long majorArtistCollection(long artistId) {
@@ -291,11 +297,11 @@ public class AlbumRepository {
                         FROM albums a
                         JOIN collections c ON c.id = a.collection_id AND c.type = 'ARTIST'
                         JOIN album_artists aa ON aa.album_id = a.id
-                        WHERE aa.artist_id = ?
+                        WHERE aa.artist_id IN (%s)
                         GROUP BY c.id, c.name
                         ORDER BY COUNT(*) DESC, lower(c.name), c.id
                         LIMIT 1
-                        """)) {
+                        """.formatted(ArtistRepository.IDENTITY_MEMBERS_SQL))) {
             statement.setLong(1, artistId);
             try (ResultSet rs = statement.executeQuery()) { return rs.next() ? rs.getLong(1) : null; }
         } catch (Exception e) {
@@ -341,10 +347,10 @@ public class AlbumRepository {
             try {
                 List<Long> duplicates = new ArrayList<>();
                 try (PreparedStatement statement = connection.prepareStatement("""
-                        SELECT a.id, a.title, a.release_year
+                        SELECT DISTINCT a.id, a.title, a.release_year
                         FROM albums a JOIN album_artists aa ON aa.album_id = a.id
-                        WHERE aa.artist_id = ? AND a.id <> ? AND a.local_relative_path IS NULL
-                        """)) {
+                        WHERE aa.artist_id IN (%s) AND a.id <> ? AND a.local_relative_path IS NULL
+                        """.formatted(ArtistRepository.IDENTITY_MEMBERS_SQL))) {
                     statement.setLong(1, artistId);
                     statement.setLong(2, keepAlbumId);
                     try (ResultSet rs = statement.executeQuery()) {
@@ -382,8 +388,8 @@ public class AlbumRepository {
                 JOIN collections c ON c.id = a.collection_id
                 JOIN album_artists aa ON aa.album_id = a.id
                 WHERE a.local_relative_path IS NOT NULL
-                  AND aa.artist_id = ?
-                """;
+                  AND aa.artist_id IN (%s)
+                """.formatted(ArtistRepository.IDENTITY_MEMBERS_SQL);
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, artistId);
@@ -523,9 +529,9 @@ public class AlbumRepository {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT a.id, a.release_year
                 FROM albums a JOIN album_artists aa ON aa.album_id = a.id
-                WHERE aa.artist_id = ? AND a.normalized_title = ?
+                WHERE aa.artist_id IN (%s) AND a.normalized_title = ?
                 ORDER BY CASE WHEN a.release_year = ? THEN 0 WHEN a.release_year IS NULL OR ? IS NULL THEN 1 ELSE 2 END, a.id
-                """)) {
+                """.formatted(ArtistRepository.IDENTITY_MEMBERS_SQL))) {
             statement.setLong(1, artistIds.get(0));
             statement.setString(2, Names.normalize(title));
             setInteger(statement, 3, releaseYear);

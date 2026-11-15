@@ -1545,6 +1545,18 @@ body,
   text-transform: uppercase;
 }
 
+.artists-pane > .pane-filter-bar {
+  flex-basis: auto;
+  flex-wrap: wrap;
+  min-height: 32px;
+  padding-block: 4px;
+  row-gap: 4px;
+}
+
+.pane-filter-bar > .presence-filter-toggle {
+  flex-shrink: 0;
+}
+
 .collection-list {
   display: flex;
   flex-direction: column;
@@ -1762,6 +1774,14 @@ body,
   position: relative;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.v-checkbox-btn .mdi-checkbox-blank-outline::before {
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  content: "";
+  height: 18px;
+  width: 18px;
 }
 
 .checkbox-cell {
@@ -2639,9 +2659,10 @@ body.is-pane-resizing {
 .v-dialog > .v-overlay__content.large-dialog-content {
   height: 75vh !important;
   max-height: 75vh !important;
-  max-width: min(55vw, 1500px) !important;
+  max-width: min(1700px, calc(var(--app-vw, 100vw) - 32px)) !important;
   min-height: 75vh !important;
-  width: min(55vw, 1500px) !important;
+  min-width: min(900px, calc(var(--app-vw, 100vw) - 32px)) !important;
+  width: 65vw !important;
 }
 
 .large-dialog-content > .dialog-card {

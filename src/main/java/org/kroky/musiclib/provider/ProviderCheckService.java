@@ -12,6 +12,7 @@ import java.util.Set;
 
 import org.jboss.logging.Logger;
 import org.kroky.musiclib.model.Album;
+import org.kroky.musiclib.model.Artist;
 import org.kroky.musiclib.model.ArtistProviderLink;
 import org.kroky.musiclib.model.MusicCollection;
 import org.kroky.musiclib.model.ProviderCheckSummary;
@@ -106,8 +107,16 @@ public class ProviderCheckService {
             throw new IllegalArgumentException("Provider checks are not available for title-centric collections.");
         }
         List<ArtistProviderLink> links = providerLinks.listEnabledByCollection(collection.id());
-        int artistCount = artists.list(null, collection.id()).size();
-        int artistsWithProviders = (int) links.stream().map(ArtistProviderLink::artistId).distinct().count();
+        int artistCount = (int) artists.list(null, collection.id()).stream()
+                .map(Artist::id)
+                .map(artists::canonicalArtistId)
+                .distinct()
+                .count();
+        int artistsWithProviders = (int) links.stream()
+                .map(ArtistProviderLink::artistId)
+                .map(artists::canonicalArtistId)
+                .distinct()
+                .count();
         int skippedArtists = Math.max(0, artistCount - artistsWithProviders);
         ProviderCheckReport report = new ProviderCheckReport(collection.name() + " provider check");
         if (skippedArtists > 0) {
@@ -158,9 +167,10 @@ public class ProviderCheckService {
             progress.artistStarted(link);
             try {
                 processedArtists++;
-                if (!reconciledArtistIds.contains(link.artistId())) {
+                long canonicalArtistId = artists.canonicalArtistId(link.artistId());
+                if (!reconciledArtistIds.contains(canonicalArtistId)) {
                     removeStaleLocalPaths(link);
-                    reconciledArtistIds.add(link.artistId());
+                    reconciledArtistIds.add(canonicalArtistId);
                 }
                 FetchedDiscography fetched = fetchDiscography(link, report);
                 foundAlbums += fetched.foundCount();

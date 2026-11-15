@@ -390,7 +390,6 @@ function refreshAll() {
               <div class="provider-candidate-row__evidence">
                 {{ candidateEvidenceSummary(candidate) }}
               </div>
-              <div class="mono-path">{{ candidate.providerArtistId }}</div>
               <div v-if="candidateAlbums(candidate).length" class="provider-candidate-albums">
                 <v-tooltip
                   v-for="album in visibleCandidateAlbums(candidate)"

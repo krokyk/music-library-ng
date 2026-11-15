@@ -31,7 +31,8 @@ public class ArtistProviderLinkRepository {
 
     public List<ArtistProviderLink> listByArtist(long artistId) {
         String sql = baseSelect()
-                + " WHERE apl.artist_id = ? ORDER BY apl.provider_id, coalesce(apl.provider_artist_name, apl.provider_url, '')";
+                + " WHERE apl.artist_id IN (" + ArtistRepository.IDENTITY_MEMBERS_SQL + ")"
+                + " ORDER BY apl.provider_id, coalesce(apl.provider_artist_name, apl.provider_url, ''), apl.id";
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, artistId);
@@ -52,9 +53,15 @@ public class ArtistProviderLinkRepository {
             return Map.of();
         }
         String placeholders = String.join(", ", artistIds.stream().map(id -> "?").toList());
-        String sql = baseSelect()
-                + " WHERE apl.artist_id IN (" + placeholders + ")"
-                + " ORDER BY apl.artist_id, apl.provider_id, coalesce(apl.provider_artist_name, apl.provider_url, '')";
+        String sql = """
+                SELECT requested.id AS requested_artist_id, links.*
+                FROM artists requested
+                JOIN (
+                """ + baseSelect() + """
+                ) links ON links.identity_artist_id = coalesce(requested.canonical_artist_id, requested.id)
+                """
+                + " WHERE requested.id IN (" + placeholders + ")"
+                + " ORDER BY requested.id, links.provider_id, coalesce(links.provider_artist_name, links.provider_url, ''), links.id";
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             for (int index = 0; index < artistIds.size(); index++) {
@@ -64,7 +71,7 @@ public class ArtistProviderLinkRepository {
                 Map<Long, List<ArtistProviderLink>> links = new LinkedHashMap<>();
                 while (rs.next()) {
                     ArtistProviderLink link = map(rs);
-                    links.computeIfAbsent(link.artistId(), ignored -> new ArrayList<>()).add(link);
+                    links.computeIfAbsent(rs.getLong("requested_artist_id"), ignored -> new ArrayList<>()).add(link);
                 }
                 return links;
             }
@@ -74,11 +81,14 @@ public class ArtistProviderLinkRepository {
     }
 
     public Optional<ArtistProviderLink> findByArtistAndProvider(long artistId, String providerId) {
-        String sql = baseSelect() + " WHERE apl.artist_id = ? AND apl.provider_id = ? ORDER BY apl.id LIMIT 1";
+        String sql = baseSelect()
+                + " WHERE apl.artist_id IN (" + ArtistRepository.IDENTITY_MEMBERS_SQL + ") AND apl.provider_id = ?"
+                + " ORDER BY CASE WHEN apl.artist_id = ? THEN 0 ELSE 1 END, apl.id LIMIT 1";
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, artistId);
             statement.setString(2, providerId);
+            statement.setLong(3, artistId);
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() ? Optional.of(map(rs)) : Optional.empty();
             }
@@ -87,14 +97,33 @@ public class ArtistProviderLinkRepository {
         }
     }
 
+    public Optional<ArtistProviderLink> findByProviderIdentity(String providerId, String providerArtistId) {
+        String remoteId = blankToNull(providerArtistId);
+        if (remoteId == null) {
+            return Optional.empty();
+        }
+        String sql = baseSelect() + " WHERE apl.provider_id = ? AND apl.provider_artist_id = ? LIMIT 1";
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, providerId);
+            statement.setString(2, remoteId);
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next() ? Optional.of(map(rs)) : Optional.empty();
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to find provider identity", e);
+        }
+    }
+
     public List<ArtistProviderLink> listEnabledByCollection(long collectionId) {
         String sql = baseSelect() + """
                  WHERE apl.enabled = 1
                    AND EXISTS (
                        SELECT 1 FROM albums a JOIN album_artists aa ON aa.album_id=a.id
-                       WHERE aa.artist_id=apl.artist_id AND a.collection_id=?
+                       JOIN artists member ON member.id=aa.artist_id
+                       WHERE coalesce(member.canonical_artist_id, member.id)=canonical.id AND a.collection_id=?
                    )
-                 ORDER BY ar.name, apl.provider_id
+                 ORDER BY canonical.name, apl.provider_id, apl.id
                 """;
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -113,8 +142,8 @@ public class ArtistProviderLinkRepository {
 
     public List<ArtistCountryConflict> listCountryConflicts() {
         Map<Long, ArtistConflictAccumulator> conflicts = artistConflictAccumulators("""
-                WHERE ar.country_override IS NULL
-                ORDER BY ar.name, apl.provider_id
+                WHERE canonical.country_override IS NULL
+                ORDER BY canonical.name, apl.provider_id, apl.id
                 """);
         return conflicts.values().stream()
                 .filter(accumulator -> ArtistProviderMetadata.countryConflict(accumulator.links()))
@@ -124,8 +153,8 @@ public class ArtistProviderLinkRepository {
 
     public List<ArtistStatusConflict> listStatusConflicts() {
         Map<Long, ArtistConflictAccumulator> conflicts = artistConflictAccumulators("""
-                WHERE ar.active_override IS NULL
-                ORDER BY ar.name, apl.provider_id
+                WHERE canonical.active_override IS NULL
+                ORDER BY canonical.name, apl.provider_id, apl.id
                 """);
         return conflicts.values().stream()
                 .filter(accumulator -> ArtistProviderMetadata.activeConflict(accumulator.links()))
@@ -144,6 +173,16 @@ public class ArtistProviderLinkRepository {
             String providerDisambiguation, Boolean providerActive, boolean enabled) {
         if (!hasArtistCollectionAlbum(artistId)) {
             throw new IllegalArgumentException("Provider links are not available for title-centric artists.");
+        }
+        var identityOwner = findByProviderIdentity(providerId, providerArtistId);
+        if (identityOwner.isPresent() && identityOwner.get().artistId() != artistId) {
+            ArtistProviderLink link = identityOwner.get();
+            if (listByArtist(artistId).stream().anyMatch(existing -> existing.id() == link.id())) {
+                deleteByArtistAndProvider(artistId, providerId);
+                return link;
+            }
+            throw new IllegalArgumentException("This provider identity is already linked to " + link.artistName()
+                    + ". Link the credited names to use one shared artist.");
         }
         String sql = """
                 INSERT INTO artist_provider_links (
@@ -192,8 +231,8 @@ public class ArtistProviderLinkRepository {
                 SELECT 1 FROM album_artists aa
                 JOIN albums a ON a.id=aa.album_id
                 JOIN collections c ON c.id=a.collection_id AND c.type='ARTIST'
-                WHERE aa.artist_id=? LIMIT 1
-                """;
+                WHERE aa.artist_id IN (
+                """ + ArtistRepository.IDENTITY_MEMBERS_SQL + ") LIMIT 1";
         try (Connection connection=dataSource.getConnection();PreparedStatement statement=connection.prepareStatement(sql)) {
             statement.setLong(1,artistId);
             try(ResultSet rs=statement.executeQuery()){return rs.next();}
@@ -275,9 +314,11 @@ public class ArtistProviderLinkRepository {
                        apl.country, apl.disambiguation, apl.active,
                        apl.provider_url, apl.enabled,
                        apl.last_success_at, apl.last_error_at, apl.last_error_message,
-                       apl.created_at, apl.updated_at
+                       apl.created_at, apl.updated_at,
+                       canonical.id AS identity_artist_id, canonical.name AS identity_artist_name
                 FROM artist_provider_links apl
                 JOIN artists ar ON ar.id = apl.artist_id
+                JOIN artists canonical ON canonical.id = coalesce(ar.canonical_artist_id, ar.id)
                 """;
     }
 
@@ -312,8 +353,10 @@ public class ArtistProviderLinkRepository {
                 if (!link.enabled()) {
                     continue;
                 }
-                conflicts.computeIfAbsent(link.artistId(),
-                        ignored -> new ArtistConflictAccumulator(link.artistId(), link.artistName(), new ArrayList<>()))
+                long identityId = rs.getLong("identity_artist_id");
+                String identityName = rs.getString("identity_artist_name");
+                conflicts.computeIfAbsent(identityId,
+                        ignored -> new ArtistConflictAccumulator(identityId, identityName, new ArrayList<>()))
                         .links()
                         .add(link);
             }

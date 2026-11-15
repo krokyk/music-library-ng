@@ -197,7 +197,13 @@ public class MusicCollectionRepository {
         if (find(id).isEmpty()) throw new IllegalArgumentException("Unknown collection: " + id);
         String sql = """
                 SELECT (SELECT count(*) FROM albums WHERE collection_id=?) album_count,
-                       (SELECT count(*) FROM artists ar WHERE EXISTS (SELECT 1 FROM album_artists aa JOIN albums a ON a.id=aa.album_id WHERE aa.artist_id=ar.id AND a.collection_id=?) AND NOT EXISTS (SELECT 1 FROM album_artists aa JOIN albums a ON a.id=aa.album_id WHERE aa.artist_id=ar.id AND a.collection_id<>?)) artist_count
+                       (SELECT count(*) FROM artists ar
+                        WHERE EXISTS (SELECT 1 FROM album_artists aa JOIN albums a ON a.id=aa.album_id
+                                      JOIN artists credit ON credit.id=aa.artist_id
+                                      WHERE coalesce(credit.canonical_artist_id,credit.id)=coalesce(ar.canonical_artist_id,ar.id) AND a.collection_id=?)
+                          AND NOT EXISTS (SELECT 1 FROM album_artists aa JOIN albums a ON a.id=aa.album_id
+                                          JOIN artists credit ON credit.id=aa.artist_id
+                                          WHERE coalesce(credit.canonical_artist_id,credit.id)=coalesce(ar.canonical_artist_id,ar.id) AND a.collection_id<>?)) artist_count
                 """;
         try (Connection connection=dataSource.getConnection();PreparedStatement statement=connection.prepareStatement(sql)) {
             statement.setLong(1,id);statement.setLong(2,id);statement.setLong(3,id);
@@ -215,7 +221,12 @@ public class MusicCollectionRepository {
                             "DELETE FROM collections WHERE id = ?")) {
                 deleteCollection.setLong(1, id);
                 deleteCollection.executeUpdate();
-                try (PreparedStatement orphaned = connection.prepareStatement("DELETE FROM artists WHERE NOT EXISTS (SELECT 1 FROM album_artists aa WHERE aa.artist_id=artists.id)")) {
+                try (PreparedStatement orphaned = connection.prepareStatement("""
+                        DELETE FROM artists WHERE NOT EXISTS (
+                            SELECT 1 FROM album_artists aa JOIN artists credit ON credit.id=aa.artist_id
+                            WHERE coalesce(credit.canonical_artist_id,credit.id)=coalesce(artists.canonical_artist_id,artists.id)
+                        )
+                        """)) {
                     orphaned.executeUpdate();
                 }
                 connection.commit();

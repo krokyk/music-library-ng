@@ -36,7 +36,9 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 
 ## Data Model
 
-- `artists` stores artist identity, display name, optional sort name, optional country override, and optional active-status override.
+- `artists` stores visible credited-name entries, optional sort names, and an optional canonical artist reference linking several credits to one musical identity.
+- Canonical artist country and active-status overrides apply to every linked credited name, while name and sort-name edits remain specific to the selected credited name.
+- Album counts and collection presence on artist rows remain specific to the credited name, so displaying several names does not duplicate library totals.
 - `albums` stores durable album or title identity, one required home collection, optional local relative path, nullable release year, sort name, checked state, and notes.
 - `album_artists` links albums to known artists and preserves contributor order; title-centric albums may have no link when their folder contains no contributor metadata.
 - `collections` stores user-visible collection homes with generated integer IDs, a collection `type`, and no persisted folder parser.
@@ -86,7 +88,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - A newly discovered local folder can rehome a matching non-local album, while finding a second folder for an already-local album is reported as duplicate storage and does not replace the canonical path.
 - When a local folder disappears, the scan clears the album's local path but preserves its home collection, metadata, checked state, and provider evidence.
 - Artist presence in collections is derived entirely from the home collections of the artist's albums.
-- Artists with no remaining albums are removed rather than persisted as albumless collection members.
+- Credited names remain while any name in their shared identity has albums; an identity with no remaining albums is removed rather than persisted as an albumless collection member.
 - A soundtrack contributor can be linked to one title without implying that the full artist discography belongs to that collection.
 - Deleting a collection deletes its albums, provider relationships that cascade from those albums, and artists left with no albums, but never deletes files or folders on disk.
 
@@ -124,7 +126,13 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 ## Providers
 
 - Supported provider IDs are `musicbrainz`, `spirit_of_metal`, and `metal_archives`.
-- Each artist can have multiple provider identities, with at most one link per provider.
+- Each credited artist name can own at most one link per provider, and a remote provider artist identity can belong to only one canonical artist identity.
+- Linked credited names share all their provider evidence, including multiple pages from one provider when those pages belong to different credited names.
+- Provider matching searches every credited name and evaluates the combined catalogue once per remote identity.
+- Bulk provider matching processes a canonical artist identity once even when several of its credited names are visible.
+- An already-linked provider identity belonging to another artist produces a named manual-review result with a `Link names` action rather than a database error.
+- Linking names requires explicit confirmation, keeps both browsing entries and all existing album credits, and never renames folders or edits audio tags.
+- Unexpected bulk-match failures retain the credited artist name and log the full exception and root cause with provider and artist context.
 - MusicBrainz identities use MBIDs and derive site URLs from those MBIDs.
 - Spirit of Metal and Metal Archives identities use provider URLs validated and normalized by provider-specific code.
 - Metal Archives artist provider links are stored as band-page URLs under `/bands/<band-name>/<id>` or `/bands/_/<id>`.
@@ -134,7 +142,8 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Provider country values `International`, `Multinational`, and `Other` normalize to `XW`.
 - Artist country and active-status overrides live on the artist row and are never overwritten by provider rescans.
 - Effective artist country and status prefer the artist override, then provider consensus, then unknown.
-- Provider consensus uses enabled provider links only.
+- Provider consensus uses enabled provider links only and gives each provider one vote, regardless of how many pages it contributes.
+- Conflicting pages from one provider contribute an unknown vote and remain visible as evidence rather than manufacturing a majority.
 - Provider country consensus uses exact normalized country values only and has no scoring or fuzzy matching.
 - A specific country wins only with strict provider majority.
 - `XW` International wins automatically only when every enabled provider with country evidence resolves to `XW`.
@@ -193,6 +202,8 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Failed provider checks do not block immediate retry.
 - Individual artist provider checks always run even when the artist was checked recently.
 - Provider checks do not infer local disk presence.
+- Provider checks reconcile the complete canonical artist catalogue while preserving existing credited artist links and local paths.
+- Genuinely new provider-only albums use the canonical credited name until local folder evidence supplies an existing historical credit.
 - Provider checks do not delete local albums or clear local path evidence because a provider omits a release.
 - Provider checks generate plain text report files under the configured report directory.
 - Provider report files use a timestamp and short report subject in their filename, with a numeric suffix only when needed to avoid overwriting an existing file.
@@ -216,7 +227,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Status history is not persisted in SQLite and is lost after reload or app exit.
 - Completed scan and provider-check status entries can carry one or more report artifacts returned by the completed job.
 - Report dialog navigation such as `1/3` is the current report index inside the in-memory status history.
-- The report dialog keeps a content-independent size of `55vw` up to `1500px` by `75vh`, and long report lines remain unwrapped with horizontal scrolling.
+- The report dialog uses a content-independent preferred width of `65vw`, a `900px` minimum, a `1700px` maximum, and a fixed `75vh` height; width limits yield to the viewport width minus `32px`, and long report lines remain unwrapped with horizontal scrolling.
 - Reports omit internal identifiers.
 - Durable audit data comes from the generated plain text files under `data/reports`, not from database job tables.
 - The artist-scoped provider conflict resolver groups artist metadata conflicts by field and album metadata conflicts by local album and conflict type.
@@ -303,6 +314,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - The Albums pane `Show All` toggle defaults to on when no saved preference exists.
 - With `Show All` off, the Albums pane shows the selected artist's albums whose home is the selected collection and hides the `Collection` column.
 - With `Show All` on, the Albums pane shows all albums for the selected artist and the `Collection` column shows each album's home as a compact chip.
+- For linked credited names, `Show All` includes their shared catalogue and displays each album's credited name; with it off, only the selected credited name in the current collection is shown.
 - A current-collection chip is dimmed and inert, while another collection's chip navigates to that collection, the same artist, and the same album.
 - The Albums pane action column provides `Move to` for immediate non-local album reassignment through same-type destination chips.
 - `Move to` remains visible but disabled for local albums and when no alternative same-type collection exists.
@@ -315,7 +327,6 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Collection deletion confirms how many albums and newly albumless artists will be deleted from the database and never deletes the collection folder.
 - After Delete is confirmed, the dialog closes immediately, the collection is unselected, its disabled dimmed row says `Deleting <name>…` beside a type-slot spinner until completion, mutations and global Artists navigation are disabled, and browsing another collection or Settings remains available.
 - Successful collection deletion status identifies the deleted collection and reports its album and newly albumless artist counts.
-- Deleting an artist from the global Artists screen is a real library database delete and never deletes files on disk.
 
 ## Artists Screen
 
@@ -347,6 +358,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Status cells show only the effective status, and clicking the status opens a cell-anchored menu with Active, Inactive, and clear controls.
 - Status menu edits write only the artist active-status override.
 - The Artists detail pane is the main artist metadata edit surface for name and sort name.
+- Linked credited names remain separate Artists rows; Artist Info identifies their shared artist and displays the combined discography with original album credits.
 - The Artists detail pane shows effective country and status plus provider evidence when an override differs from the provider value.
 - Provider chips in Artist Info open that provider's artist page in a new browser tab.
 - A provider check for the selected artist blocks Artist Info beneath the standard centered pane spinner until that artist check finishes.
@@ -371,7 +383,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - `Remove` means unlink from the current context.
 - `Delete` means delete from the library database.
 - Present-on-disk rows use local presence styling scoped to the selected collection.
-- Album display states in the Collections screen are defined in the workflow guide.
+- Album display states in the Collections screen are defined in the UI guide.
 
 ## API Surface
 
@@ -385,6 +397,9 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 - Collection deletion impact uses `GET /api/collections/{id}/delete-preview`.
 - Deleting a collection uses `DELETE /api/collections/{id}` and returns album and artist deletion counts.
 - Artists use `GET`, `PUT`, and `DELETE` routes under `/api/artists`; standalone partial artist creation is not exposed.
+- Artist deletion is an API-only library database operation and never deletes files or folders on disk; the Artists screen does not expose a Delete action.
+- `POST /api/artists/{canonicalArtistId}/credited-names` with `{ "artistId": <credited-name-id> }` explicitly links credited-name identities while preserving albums and paths.
+- Linking names rejects differing manual country or status overrides until they are resolved.
 - Albums use `GET` and `PUT` routes under `/api/albums`; standalone partial album creation is not exposed.
 - Non-local album rehoming uses `PUT /api/albums/{albumId}/collection` with one required target collection ID.
 - One-artist provider identities use `PUT /api/artists/{artistId}/provider` and `DELETE /api/artists/{artistId}/providers/{providerId}`.
@@ -406,6 +421,7 @@ Use `docs/evolution-*.md` only as historical context when the current implementa
 
 ## Current Constraints
 
+- Individual deletion of a credited name belonging to a shared identity is rejected until an explicit group-deletion workflow is defined.
 - SQLite is intended for one running app instance against one database at a time.
 - The app currently has no automatic startup or shutdown backup flow.
 - Track-level collection membership is not implemented.

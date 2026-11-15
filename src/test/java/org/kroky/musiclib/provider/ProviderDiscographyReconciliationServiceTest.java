@@ -141,6 +141,44 @@ class ProviderDiscographyReconciliationServiceTest {
         assertEquals(0, scalarLong("SELECT count(*) FROM album_provider_links"));
     }
 
+    @Test
+    void reconcilesTheCombinedCatalogWithoutReplacingAlbumCreditsOrPaths() throws Exception {
+        try (Connection connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO artists(id,name,normalized_name) VALUES(2,'Rhapsody of Fire','rhapsody of fire')");
+            statement.executeUpdate("UPDATE artists SET name='Rhapsody',normalized_name='rhapsody',canonical_artist_id=2 WHERE id=1");
+            statement.executeUpdate("INSERT INTO artists(id,name,normalized_name) VALUES(3,'Luca Turilli''s Rhapsody','luca turillis rhapsody')");
+        }
+        String oldPath = "RHAPSODY - 1997 - Legendary Tales";
+        String currentPath = "RHAPSODY OF FIRE - 2006 - Triumph or Agony";
+        long oldAlbum = albums.upsertScanned(1, "Legendary Tales", 1997, oldPath, OLD_COLLECTION_ID).id();
+        long currentAlbum = albums.upsertScanned(2, "Triumph or Agony", 2006, currentPath, OLD_COLLECTION_ID).id();
+        long separateBandAlbum = albums.upsertScanned(3, "Prometheus", 2015,
+                "LUCA TURILLI'S RHAPSODY - 2015 - Prometheus", SELECTED_COLLECTION_ID).id();
+
+        var result = service.reconcile(providerLink(), "IT", true, List.of(
+                release("legendary", "Legendary Tales", 1997),
+                release("triumph", "Triumph or Agony", 2006),
+                release("challenge", "Challenge the Wind", 2024)), SELECTED_COLLECTION_ID);
+        var oldNameProvider = providerLinks.upsertForArtist(1, "spirit_of_metal", "old-name", "Rhapsody",
+                "https://www.spirit-of-metal.com/en/band/Rhapsody", true);
+        service.reconcile(oldNameProvider, "IT", false,
+                List.of(release("spirit_of_metal", "som-legendary", "Legendary Tales", 1997)), SELECTED_COLLECTION_ID);
+
+        assertEquals(1, result.createdAlbumCount());
+        assertEquals(3, albums.list(1L, null, null, null, null).size());
+        assertEquals(3, albums.list(2L, null, null, null, null).size());
+        assertEquals(List.of(1L), albums.find(oldAlbum).orElseThrow().artistIds());
+        assertEquals("Rhapsody", albums.find(oldAlbum).orElseThrow().artistName());
+        assertEquals(oldPath, albums.find(oldAlbum).orElseThrow().localRelativePath());
+        assertEquals(2, albums.find(oldAlbum).orElseThrow().providerLinks().size());
+        assertEquals(List.of(2L), albums.find(currentAlbum).orElseThrow().artistIds());
+        assertEquals(currentPath, albums.find(currentAlbum).orElseThrow().localRelativePath());
+        assertEquals(List.of(2L), albums.list(1L, null, null, null, "Challenge the Wind").get(0).artistIds());
+        assertEquals(List.of(3L), albums.find(separateBandAlbum).orElseThrow().artistIds());
+        assertTrue(albums.find(separateBandAlbum).orElseThrow().providerLinks().isEmpty());
+        assertEquals(1, albums.list(3L, null, null, null, null).size());
+    }
+
     private ArtistProviderLink providerLink() {
         return providerLink("metal_archives");
     }

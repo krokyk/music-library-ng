@@ -190,6 +190,86 @@ class LibraryDomainRepositoryTest {
     }
 
     @Test
+    void creditedNamesShareIdentityWithoutChangingAlbumCreditsPathsOrOtherBands() throws Exception {
+        artists.update(1, "Rhapsody of Fire", null, null, null);
+        var oldName = artists.create("Rhapsody", null, null, null);
+        var luca = artists.create("Luca Turilli's Rhapsody", null, null, null);
+        Path earlyFolder = MUSIC_ROOT.resolve("TEST-OLD/RHAPSODY - 1997 - Legendary Tales");
+        Files.createDirectories(earlyFolder);
+        long earlyId = albums.upsertScanned(oldName.id(), "Legendary Tales", 1997,
+                "RHAPSODY - 1997 - Legendary Tales", OLD_COLLECTION_ID).id();
+        long laterId = albums.upsertScanned(1, "Triumph or Agony", 2006,
+                "RHAPSODY OF FIRE - 2006 - Triumph or Agony", NEW_COLLECTION_ID).id();
+        albums.create(luca.id(), "Prometheus", 2015, true, null, NEW_COLLECTION_ID);
+        var metalArchives = providerLinks.upsertForArtist(1, "metal_archives", "32", "Rhapsody of Fire",
+                "https://www.metal-archives.com/bands/Rhapsody_of_Fire/32", true);
+        providerLinks.upsertForArtist(oldName.id(), "spirit_of_metal", "89969", "Rhapsody", "https://www.spirit-of-metal.com/en/band/Rhapsody", true);
+        providerLinks.upsertForArtist(1, "spirit_of_metal", "1314", "Rhapsody of Fire", "https://www.spirit-of-metal.com/en/band/Rhapsody_Of_Fire", true);
+
+        var linked = artists.linkCreditedName(1, oldName.id());
+
+        assertEquals(1, linked.canonicalArtistId());
+        assertEquals(Set.of(1L, oldName.id()), Set.copyOf(linked.groupArtistIds()));
+        assertEquals(List.of("Rhapsody", "Rhapsody of Fire"), linked.creditedNames());
+        assertEquals(1, linked.albumCount());
+        assertEquals(1, linked.localAlbumCount());
+        assertEquals(List.of(OLD_COLLECTION_ID), linked.collectionIds());
+        assertEquals(Set.of("Rhapsody", "Rhapsody of Fire", "Luca Turilli's Rhapsody"),
+                artists.list(null).stream().map(org.kroky.musiclib.model.Artist::name).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(Set.of(earlyId, laterId), albums.list(oldName.id(), null, null, null, null).stream()
+                .map(org.kroky.musiclib.model.Album::id).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(List.of(oldName.id()), albums.find(earlyId).orElseThrow().artistIds());
+        assertEquals("Rhapsody", albums.find(earlyId).orElseThrow().artistName());
+        assertEquals("RHAPSODY - 1997 - Legendary Tales", albums.find(earlyId).orElseThrow().localRelativePath());
+        assertTrue(Files.isDirectory(earlyFolder));
+        assertEquals(3, linked.providerLinks().size());
+        assertEquals(metalArchives.id(), providerLinks.upsertForArtist(oldName.id(), "metal_archives", "32",
+                "Rhapsody of Fire", metalArchives.providerUrl(), true).id());
+        assertEquals(luca.id(), artists.canonicalArtistId(luca.id()));
+        assertEquals(1, albums.list(luca.id(), null, null, null, null).size());
+        assertEquals(oldName.id(), artists.upsertByName("Rhapsody").id());
+
+        long providerAlbum = albums.create(1, "Dawn of Victory", 2000, false, null, OLD_COLLECTION_ID).id();
+        assertEquals(providerAlbum, albums.upsertScanned(oldName.id(), "Dawn of Victory", 2000,
+                "RHAPSODY - 2000 - Dawn of Victory", OLD_COLLECTION_ID).id());
+        assertEquals(List.of(oldName.id()), albums.find(providerAlbum).orElseThrow().artistIds());
+        assertThrows(IllegalArgumentException.class, () -> artists.delete(oldName.id()));
+    }
+
+    @Test
+    void linkingNamesRollsBackConflictingOverridesAndSharesAgreedMetadata() {
+        artists.update(1, "Rhapsody of Fire", null, "IT", true);
+        var oldName = artists.create("Rhapsody", null, "DE", false);
+        assertThrows(IllegalArgumentException.class, () -> artists.linkCreditedName(1, oldName.id()));
+        assertEquals(oldName.id(), artists.canonicalArtistId(oldName.id()));
+        assertEquals("IT", artists.find(1).orElseThrow().countryOverride());
+        assertEquals("DE", artists.find(oldName.id()).orElseThrow().countryOverride());
+
+        artists.update(oldName.id(), oldName.name(), null, null, null);
+        artists.linkCreditedName(1, oldName.id());
+        artists.update(oldName.id(), oldName.name(), null, "FR", false);
+        assertEquals("FR", artists.find(1).orElseThrow().countryOverride());
+        assertEquals(false, artists.find(1).orElseThrow().activeOverride());
+        assertEquals("Rhapsody of Fire", artists.find(1).orElseThrow().name());
+    }
+
+    @Test
+    void collectionDeletionRetainsCombinedIdentityUntilItsLastAlbumIsGone() {
+        var oldName = artists.create("Old name", null, null, null);
+        albums.create(1, "Later album", 2006, true, null, OLD_COLLECTION_ID);
+        albums.create(oldName.id(), "Early album", 1997, true, null, NEW_COLLECTION_ID);
+        artists.linkCreditedName(1, oldName.id());
+        assertEquals(0, collections.deletePreview(OLD_COLLECTION_ID).artistCount());
+        collections.delete(OLD_COLLECTION_ID);
+        assertTrue(artists.find(1).isPresent());
+        assertTrue(artists.find(oldName.id()).isPresent());
+        assertEquals(1, artists.canonicalArtistId(oldName.id()));
+        assertEquals(2, collections.deletePreview(NEW_COLLECTION_ID).artistCount());
+        collections.delete(NEW_COLLECTION_ID);
+        assertTrue(artists.list(null).isEmpty());
+    }
+
+    @Test
     void titleOnlyArtistsRejectProviderLinksAndAreExcludedFromBulkMatch() {
         albums.create(1, "Soundtrack", 2000, true, null, TITLE_COLLECTION_ID);
 

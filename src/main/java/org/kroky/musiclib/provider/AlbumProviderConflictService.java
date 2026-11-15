@@ -93,7 +93,8 @@ public class AlbumProviderConflictService {
         require(request.albumId() != null, "Album is required.");
         Action action = Action.valueOf(requireText(request.action(), "Action").toUpperCase(Locale.ROOT));
         Album before = albums.find(request.albumId()).orElseThrow(() -> new IllegalArgumentException("Unknown album: " + request.albumId()));
-        require(before.artistIds().contains(request.artistId()), "Album does not belong to artist.");
+        Set<Long> identityArtistIds = Set.copyOf(artists.identityArtistIds(request.artistId()));
+        require(before.artistIds().stream().anyMatch(identityArtistIds::contains), "Album does not belong to artist.");
         Artist conflictArtist = artist(request.artistId());
         AlbumProviderLink chosen = request.providerLinkId() == null ? null
                 : providerLinks.find(request.providerLinkId()).orElseThrow(() -> new IllegalArgumentException("Unknown provider link: " + request.providerLinkId()));
@@ -236,12 +237,13 @@ public class AlbumProviderConflictService {
 
     public ProviderConflictSnapshot open(long artistId) {
         artist(artistId);
+        Set<Long> identityArtistIds = Set.copyOf(artists.identityArtistIds(artistId));
         albums.removeStaleLocalPathsForArtist(artistId);
         return new ProviderConflictSnapshot(
-                artistProviderLinks.listCountryConflicts().stream().filter(c -> c.artistId() == artistId).toList(),
-                artistProviderLinks.listStatusConflicts().stream().filter(c -> c.artistId() == artistId).toList(),
-                providerLinks.listTitleConflicts().stream().filter(c -> c.artistId() == artistId).toList(),
-                providerLinks.listReleaseYearConflicts().stream().filter(c -> c.artistId() == artistId).toList());
+                artistProviderLinks.listCountryConflicts().stream().filter(c -> identityArtistIds.contains(c.artistId())).toList(),
+                artistProviderLinks.listStatusConflicts().stream().filter(c -> identityArtistIds.contains(c.artistId())).toList(),
+                providerLinks.listTitleConflicts().stream().filter(c -> identityArtistIds.contains(c.artistId())).toList(),
+                providerLinks.listReleaseYearConflicts().stream().filter(c -> identityArtistIds.contains(c.artistId())).toList());
     }
 
     private Artist artist(long id) { return artists.find(id).orElseThrow(() -> new IllegalArgumentException("Unknown artist: " + id)); }

@@ -10,7 +10,7 @@ import ProviderMatchDialog from '@/components/ProviderMatchDialog.vue'
 import RowActionButton from '@/components/RowActionButton.vue'
 import { countryFlagSrc, countryName, countryOptions, normalizeCountryCode } from '@/countries'
 import { fitFixedPaneWidths } from '@/paneWidths'
-import { providerDefinition, providerDefinitions, providerExternalArtistUrl, type ProviderId } from '@/providers'
+import { displayedArtistProviders, providerDefinition, providerDefinitions, providerExternalArtistUrl, type ProviderId } from '@/providers'
 import { useWorkspaceGridColumns } from '@/workspaceGridColumns'
 import type {
   Album,
@@ -99,6 +99,8 @@ const assigningProviders = ref(false)
 const bulkMatchLoadingProviderId = ref<ProviderId | null>(null)
 const bulkMatchDialog = ref(false)
 const bulkMatchResult = ref<ArtistProviderBulkMatchResult | null>(null)
+const linkNamesItem = ref<ArtistProviderBulkMatchItem | null>(null)
+const linkingArtistNames = ref(false)
 const providerConflictDialog = ref(false)
 const providerConflictArtistId = ref<number | null>(null)
 const providerConflictActionKey = ref('')
@@ -242,14 +244,22 @@ const artistsVirtualBottomSpacerHeight = computed(() =>
 )
 
 const artistStats = computed(() => ({
-  total: artists.value.length,
+  total: new Set(artists.value.map((artist) => artist.canonicalArtistId ?? artist.id)).size,
+  names: artists.value.length,
   unchecked: artists.value.reduce((sum, artist) => sum + artist.uncheckedAlbumCount, 0),
-  providers: artists.value.reduce((sum, artist) => sum + artist.providerLinks.length, 0),
+  providers: new Set(artists.value.flatMap((artist) => artist.providerLinks.map((link) => link.id))).size,
 }))
 const bulkProviderChipLabelsVisible = computed(() =>
   artistsPaneWidths.artists === 0 || artistsPaneWidths.artists >= artistsBulkExpandedMinimumWidth,
 )
 const bulkMatchItems = computed(() => bulkMatchResult.value?.items ?? [])
+
+function bulkItemCollections(item: ArtistProviderBulkMatchItem) {
+  const artistIds = store.artistGroupIds(item.artistId)
+  const collectionIds = new Set(artists.value.filter((artist) => artistIds.includes(artist.id))
+    .flatMap((artist) => artist.collectionIds))
+  return collections.value.filter((collection) => collectionIds.has(collection.id))
+}
 const selectedFilterCollections = computed(() =>
   artistCollectionFilterIds.value
     .map((id) => collections.value.find((collection) => collection.id === id))
@@ -268,9 +278,10 @@ const selectedArtistProviderCheckRunning = computed(() => {
   if (!artistId || job?.status !== 'RUNNING') {
     return false
   }
+  const ids = store.artistGroupIds(artistId)
   return job.requestedArtistId != null
-    ? job.requestedArtistId === artistId
-    : job.activeArtistId === artistId
+    ? ids.includes(job.requestedArtistId)
+    : job.activeArtistId != null && ids.includes(job.activeArtistId)
 })
 const selectedProvider = computed(() => selectedArtist.value ? providerForArtist(selectedArtist.value) : null)
 const providerSelectionDirty = computed(() =>
@@ -290,9 +301,9 @@ const selectedAlbums = computed(() => {
   if (!selectedArtist.value) {
     return []
   }
-  const artistId = selectedArtist.value.id
+  const artistIds = store.artistGroupIds(selectedArtist.value.id)
   return albums.value
-    .filter((album) => album.artistIds.includes(artistId))
+    .filter((album) => album.artistIds.some((id) => artistIds.includes(id)))
     .slice()
     .sort((left, right) =>
       (left.releaseYear ?? Number.MAX_SAFE_INTEGER) - (right.releaseYear ?? Number.MAX_SAFE_INTEGER)
@@ -324,18 +335,19 @@ const providerConflictSections = computed(() => {
   if (!artistId) {
     return []
   }
+  const artistIds = store.artistGroupIds(artistId)
   const sections = new Map<string, ProviderConflictSection>()
   artistCountryConflicts.value
-    .filter((conflict) => conflict.artistId === artistId)
+    .filter((conflict) => artistIds.includes(conflict.artistId))
     .forEach((conflict) => addArtistCountryConflictSection(sections, conflict))
   artistStatusConflicts.value
-    .filter((conflict) => conflict.artistId === artistId)
+    .filter((conflict) => artistIds.includes(conflict.artistId))
     .forEach((conflict) => addArtistStatusConflictSection(sections, conflict))
   providerTitleConflicts.value
-    .filter((conflict) => conflict.artistId === artistId)
+    .filter((conflict) => artistIds.includes(conflict.artistId))
     .forEach((conflict) => addProviderConflictVariant(sections, 'title', conflict))
   providerReleaseYearConflicts.value
-    .filter((conflict) => conflict.artistId === artistId)
+    .filter((conflict) => artistIds.includes(conflict.artistId))
     .forEach((conflict) => addProviderConflictVariant(sections, 'release-year', conflict))
   return [...sections.values()]
     .map((section) => ({
@@ -798,10 +810,18 @@ function providerConflictChoiceClasses(choice: ProviderConflictChoice) {
   }
 }
 
-function providerConflictProviderUrl(providerId: ProviderId) {
-  return providerConflictLinkedProviders.value
-    .find((provider) => provider.providerId === providerId)
-    ?.providerUrl
+function providerConflictProviderUrl(providerId: ProviderId, choice: ProviderConflictChoice) {
+  const artist = providerConflictArtist.value
+  if (!artist) return undefined
+  let links = artist.providerLinks.filter((link) => link.providerId === providerId)
+  if ('countryValue' in choice) {
+    links = links.filter((link) => normalizeCountryCode(link.providerCountry) === choice.countryValue)
+  } else if ('activeValue' in choice) {
+    links = links.filter((link) => (link.providerActive ?? null) === (choice.activeValue ?? null))
+  }
+  const album = choice.conflict && albums.value.find((item) => item.id === choice.conflict?.albumId)
+  const creditIds = album?.artistIds ?? [choice.conflict?.artistId ?? artist.id]
+  return displayedArtistProviders({ ...artist, providerLinks: links }, creditIds)[0]?.providerUrl
 }
 
 function providerConflictChipTooltip(providerId: ProviderId) {
@@ -1038,7 +1058,7 @@ function releaseYearsDiffer(localYear: number | null | undefined, providerYear: 
 }
 
 function artistHasProviderConflict(artist: Artist) {
-  return providerConflictArtistIds.value.has(artist.id)
+  return (artist.groupArtistIds ?? [artist.id]).some((id) => providerConflictArtistIds.value.has(id))
 }
 
 function albumReleaseYearConflictLinks(album: Album) {
@@ -1437,7 +1457,7 @@ function startArtistsPaneResize(event: PointerEvent) {
       return
     }
     currentWidth = pendingWidth
-    target!.style.flex = `0 0 ${currentWidth}px`
+    artistsPanePreferredWidth.value = currentWidth
     artistsPaneWidths.artists = Math.round(currentWidth)
     artistsPaneWidths.details = Math.round(areaWidth - currentWidth)
     pendingWidth = null
@@ -1765,12 +1785,15 @@ async function saveProviderSelections() {
     for (const provider of providerDefinitions) {
       const originalId = providerSelectionId(originalProviderCandidateIds, provider.id)
       const selectedId = providerSelectionId(selectedProviderCandidateIds, provider.id)
+      const originalLink = artist.providerLinks.find((link) =>
+        link.providerId === provider.id && link.providerArtistId === originalId,
+      )
       if (originalId === selectedId) {
         continue
       }
       if (!selectedId) {
         if (originalId) {
-          await store.clearArtistProvider(artistId, provider.id)
+          await store.clearArtistProvider(originalLink?.artistId ?? artistId, provider.id)
           removedCount += 1
         }
         continue
@@ -1836,7 +1859,7 @@ async function runBulkProviderMatch(providerId: ProviderId) {
   if (writeActionsDisabled.value || bulkMatchLoadingProviderId.value || missing.length === 0) {
     return
   }
-  const artistIds = missing.map((artist) => artist.id)
+  const artistIds = missing.map((artist) => artist.canonicalArtistId ?? artist.id)
   bulkMatchLoadingProviderId.value = providerId
   bulkMatchResult.value = null
   try {
@@ -1858,6 +1881,10 @@ function bulkProviderActionDisabled(providerId: ProviderId) {
 }
 
 async function useBulkCandidate(item: ArtistProviderBulkMatchItem) {
+  if (bulkIdentityConflict(item)) {
+    linkNamesItem.value = item
+    return
+  }
   const artist = artists.value.find((candidate) => candidate.id === item.artistId)
   if (writeActionsDisabled.value || !artist || !artistProviderEligible(artist)) {
     return
@@ -1893,7 +1920,7 @@ async function useBulkCandidate(item: ArtistProviderBulkMatchItem) {
         ? {
             ...current,
             status: 'MATCHED',
-            message: `${provider.label} provider saved: ${candidate.providerArtistName}`,
+            message: `${provider.label} provider saved.`,
             providerLink,
             acceptedCandidate: candidate,
           }
@@ -1909,13 +1936,53 @@ function bulkCandidate(item: ArtistProviderBulkMatchItem) {
   return item.acceptedCandidate ?? item.candidates[0] ?? null
 }
 
-function bulkEvidenceText(item: ArtistProviderBulkMatchItem) {
+function bulkIdentityConflict(item: ArtistProviderBulkMatchItem) {
+  return item.status === 'NEEDS_MANUAL' && item.providerLink != null && !item.acceptedCandidate
+}
+
+async function confirmLinkArtistNames() {
+  const item = linkNamesItem.value
+  const owner = item?.providerLink
+  if (!item || !owner || linkingArtistNames.value || writeActionsDisabled.value) {
+    return
+  }
+  linkingArtistNames.value = true
+  try {
+    await store.linkArtistNames(owner.artistId, item.artistId)
+    if (bulkMatchResult.value) {
+      bulkMatchResult.value = {
+        ...bulkMatchResult.value,
+        matchedCount: bulkMatchResult.value.matchedCount + 1,
+        manualCount: Math.max(0, bulkMatchResult.value.manualCount - 1),
+        items: bulkMatchResult.value.items.map((current) => current.artistId === item.artistId
+          ? {
+              ...current,
+              status: 'MATCHED',
+              message: `${item.artistName} and ${owner.artistName} now share one artist identity.`,
+              acceptedCandidate: bulkCandidate(item),
+            }
+          : current),
+      }
+    }
+    store.showStatus(`Linked artist names ${item.artistName} and ${owner.artistName}.`, 'done')
+    linkNamesItem.value = null
+  } catch (error) {
+    store.showErrorStatus(error, 'Unable to link artist names')
+  } finally {
+    linkingArtistNames.value = false
+  }
+}
+
+function bulkEvidenceLines(item: ArtistProviderBulkMatchItem) {
   const candidate = bulkCandidate(item)
   if (!candidate) {
-    return ''
+    return []
   }
-  const provider = providerDefinition(candidate.providerId)
-  return `${candidate.evidenceSummary} / ${candidate.providerScore} ${provider.label}`
+  return [
+    `Confidence: ${candidate.finalScore}`,
+    `Name: ${candidate.nameScore}`,
+    `Albums: ${candidate.evidenceSummary.split(' / Albums ')[1] ?? 'no evidence'}`,
+  ]
 }
 
 function bulkStatusText(status: ArtistProviderBulkMatchItem['status']) {
@@ -1950,13 +2017,13 @@ function bulkStatusColor(status: ArtistProviderBulkMatchItem['status']) {
   }
 }
 
-async function clearArtistProvider(artist: Artist, providerId: string) {
+async function clearArtistProvider(artist: Artist, provider: ArtistProviderLink) {
   selectedArtistId.value = artist.id
   if (writeActionsDisabled.value || !artistProviderEligible(artist)) {
     return
   }
   try {
-    await store.clearArtistProvider(artist.id, providerId)
+    await store.clearArtistProvider(provider.artistId, provider.providerId)
     store.showStatus(`Provider cleared for ${artist.name}.`, 'done')
   } catch (error) {
     store.showErrorStatus(error, 'Unable to clear provider')
@@ -2075,19 +2142,24 @@ async function saveArtistActiveOverride(artist: Artist, active: boolean | null) 
 }
 
 function providersForArtist(artist: Artist) {
-  return artist.providerLinks
+  return displayedArtistProviders(artist)
 }
 
 function providerForArtist(artist: Artist, providerId?: string | null) {
   const providers = providersForArtist(artist)
   if (providerId) {
-    return providers.find((provider) => provider.providerId === providerId) ?? null
+    return providers.find((provider) => provider.providerId === providerId && provider.artistId === artist.id)
+      ?? providers.find((provider) => provider.providerId === providerId)
+      ?? null
   }
-  return providers[0] ?? null
+  return providers.find((provider) => provider.artistId === artist.id) ?? providers[0] ?? null
 }
 
 function artistProviderEligible(artist: Artist) {
-  const artistCollections = artist.collectionIds
+  const ids = artist.groupArtistIds ?? [artist.id]
+  const members = ids.length > 1 ? artists.value.filter((member) => ids.includes(member.id)) : [artist]
+  const artistCollections = members
+    .flatMap((member) => member.collectionIds)
     .map((collectionId) => collections.value.find((collection) => collection.id === collectionId))
     .filter((collection): collection is MusicCollection => Boolean(collection))
   return artistCollections.some((collection) => collection.type === 'ARTIST')
@@ -2100,7 +2172,15 @@ function artistProviderActionTooltip(artist: Artist, action: string) {
 }
 
 function visibleArtistsMissingProvider(providerId: ProviderId) {
-  return sortedArtists.value.filter((artist) => artistProviderEligible(artist) && !providerForArtist(artist, providerId))
+  const seen = new Set<number>()
+  return sortedArtists.value.filter((artist) => {
+    const id = artist.canonicalArtistId ?? artist.id
+    if (!artistProviderEligible(artist) || providerForArtist(artist, providerId) || seen.has(id)) {
+      return false
+    }
+    seen.add(id)
+    return true
+  })
 }
 
 function missingProviderCount(providerId: ProviderId) {
@@ -2121,6 +2201,12 @@ function providerChipText(artist: Artist) {
 
 function providerLinkChipText(provider: ArtistProviderLink) {
   return providerDefinition(provider.providerId).label
+}
+
+function providerLinkTooltip(provider: ArtistProviderLink) {
+  return provider.providerArtistName
+    ? `${providerLinkChipText(provider)}: ${provider.providerArtistName}`
+    : providerLinkChipText(provider)
 }
 
 function providerIdentityLabel() {
@@ -2313,7 +2399,7 @@ watch(
           <div class="pane-header__primary">
             <span class="pane-header__title">Artists</span>
             <span class="pane-header__meta">
-              {{ artistStats.total }} artists / {{ artistStats.unchecked }} unchecked / {{ artistStats.providers }} providers
+              {{ artistStats.total }} artists<span v-if="artistStats.names !== artistStats.total"> / {{ artistStats.names }} names</span> / {{ artistStats.unchecked }} unchecked / {{ artistStats.providers }} providers
             </span>
           </div>
           <div class="pane-header__actions artists-header-actions">
@@ -2665,9 +2751,9 @@ watch(
               <div v-if="providersForArtist(artist).length" class="artists-provider-list">
                 <v-tooltip
                   v-for="provider in providersForArtist(artist)"
-                  :key="provider.providerId"
+                  :key="provider.id"
                   :text="artistProviderEligible(artist)
-                    ? providerLinkChipText(provider)
+                    ? providerLinkTooltip(provider)
                     : 'Provider actions are unavailable for artists that only occur in title-centric collections.'"
                   location="top"
                 >
@@ -2683,7 +2769,7 @@ watch(
                       close-icon="mdi-trash-can-outline"
                       :disabled="writeActionsDisabled || !artistProviderEligible(artist)"
                       @click.stop="scanArtistProvider(artist)"
-                      @click:close.stop="clearArtistProvider(artist, provider.providerId)"
+                      @click:close.stop="clearArtistProvider(artist, provider)"
                     ></ProviderChip>
                   </template>
                 </v-tooltip>
@@ -2767,10 +2853,16 @@ watch(
         <div v-else class="artist-details-pane__body">
           <section class="artist-details-section">
             <div class="artist-details-heading">Identity</div>
+            <div v-if="selectedArtist.groupArtistIds?.length > 1" class="artist-info-grid mb-4">
+              <div class="cell-muted">Shared artist</div>
+              <div>{{ selectedArtist.canonicalName }}</div>
+              <div class="cell-muted">Credited names</div>
+              <div>{{ selectedArtist.creditedNames.join(' · ') }}</div>
+            </div>
             <div class="artist-identity-form">
               <v-text-field
                 v-model="artistDetailsForm.name"
-                label="Name"
+                :label="selectedArtist.groupArtistIds?.length > 1 ? 'Credited name' : 'Name'"
                 density="compact"
                 variant="outlined"
                 hide-details="auto"
@@ -2885,15 +2977,20 @@ watch(
                 <span v-if="selectedArtist.collectionIds.length === 0" class="cell-muted">None</span>
               </div>
               <div class="cell-muted">Albums</div>
-              <div>{{ selectedArtist.albumCount }} total, {{ selectedArtist.uncheckedAlbumCount }} unchecked</div>
+              <div>
+                <template v-if="selectedArtist.groupArtistIds?.length > 1">
+                  {{ selectedArtist.albumCount }} credited as {{ selectedArtist.name }}, {{ selectedArtist.uncheckedAlbumCount }} unchecked / {{ selectedAlbums.length }} in shared discography
+                </template>
+                <template v-else>{{ selectedArtist.albumCount }} total, {{ selectedArtist.uncheckedAlbumCount }} unchecked</template>
+              </div>
               <div class="cell-muted">Providers</div>
               <div>
                 <div v-if="providersForArtist(selectedArtist).length" class="dialog-chip-row">
                   <ProviderChip
                     v-for="provider in providersForArtist(selectedArtist)"
-                    :key="provider.providerId"
+                    :key="provider.id"
                     :provider-id="provider.providerId"
-                    :label="providerLinkChipText(provider)"
+                    :label="selectedArtist.groupArtistIds?.length > 1 ? providerLinkTooltip(provider) : providerLinkChipText(provider)"
                     :external-url="provider.providerUrl"
                     :error="Boolean(provider.lastErrorMessage)"
                     open-external
@@ -2995,6 +3092,7 @@ watch(
                   </span>
                   <span v-else class="cell-muted">No year</span>
                 </span>
+                <div class="d-flex align-center ga-2" style="min-width: 0">
                 <span
                   v-if="albumTitleUsesChip(album)"
                   class="album-metadata-chip-badge artist-known-album__title-badge artist-known-album__title"
@@ -3062,6 +3160,12 @@ watch(
                     </span>
                   </template>
                 </v-tooltip>
+                <EllipsizedText
+                  v-if="selectedArtist.groupArtistIds?.length > 1 && album.artistName"
+                  :text="album.artistName"
+                  class="cell-muted text-truncate"
+                />
+                </div>
               </div>
             </div>
           </section>
@@ -3119,8 +3223,9 @@ watch(
           >
             <ProviderChip
               v-for="provider in providerConflictLinkedProviders"
-              :key="provider.providerId"
+              :key="provider.id"
               :provider-id="provider.providerId"
+              :label="(providerConflictArtist?.groupArtistIds?.length ?? 0) > 1 ? providerLinkTooltip(provider) : providerLinkChipText(provider)"
               :external-url="provider.providerUrl"
               open-external
             ></ProviderChip>
@@ -3296,7 +3401,7 @@ watch(
                               <ProviderChip
                                 v-bind="props"
                                 :provider-id="providerId"
-                                :external-url="providerConflictProviderUrl(providerId)"
+                                :external-url="providerConflictProviderUrl(providerId, choice)"
                                 :show-label="false"
                                 class="provider-conflict-source-chip"
                                 open-external
@@ -3363,6 +3468,7 @@ watch(
             <v-table class="music-table" density="compact">
               <thead>
                 <tr>
+                  <th>Collection</th>
                   <th>Artist</th>
                   <th>Status</th>
                   <th>Candidate</th>
@@ -3373,7 +3479,20 @@ watch(
               </thead>
               <tbody>
                 <tr v-for="item in bulkMatchItems" :key="item.artistId">
-                  <td class="cell-strong">{{ item.artistName || `artist ${item.artistId}` }}</td>
+                  <td>
+                    <div class="dialog-chip-row">
+                      <v-chip
+                        v-for="collection in bulkItemCollections(item)"
+                        :key="collection.id"
+                        size="x-small"
+                        variant="tonal"
+                        class="collection-chip"
+                      >
+                        {{ collection.name }}
+                      </v-chip>
+                    </div>
+                  </td>
+                  <td class="cell-strong">{{ item.artistName || artists.find((artist) => artist.id === item.artistId)?.name || 'Unknown artist' }}</td>
                   <td>
                     <v-chip size="x-small" :color="bulkStatusColor(item.status)" variant="tonal">
                       {{ bulkStatusText(item.status) }}
@@ -3382,11 +3501,12 @@ watch(
                   <td>
                     <template v-if="bulkCandidate(item)">
                       <div class="cell-strong">{{ bulkCandidate(item)?.providerArtistName }}</div>
-                      <div class="mono-path">{{ bulkCandidate(item)?.providerArtistId }}</div>
                     </template>
                     <span v-else class="cell-muted">None</span>
                   </td>
-                  <td>{{ bulkEvidenceText(item) }}</td>
+                  <td>
+                    <div v-for="line in bulkEvidenceLines(item)" :key="line" class="text-no-wrap">{{ line }}</div>
+                  </td>
                   <td>{{ item.message }}</td>
                   <td class="text-right">
                     <v-btn
@@ -3404,7 +3524,7 @@ watch(
                       :disabled="!bulkCandidate(item) || writeActionsDisabled"
                       @click="useBulkCandidate(item)"
                     >
-                      Use
+                      {{ bulkIdentityConflict(item) ? 'Link names' : 'Use' }}
                     </v-btn>
                   </td>
                 </tr>
@@ -3415,6 +3535,28 @@ watch(
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn variant="text" @click="bulkMatchDialog = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog
+      :model-value="Boolean(linkNamesItem)"
+      max-width="460"
+      :persistent="linkingArtistNames"
+      @update:model-value="(open) => { if (!open && !linkingArtistNames) linkNamesItem = null }"
+    >
+      <v-card class="dialog-card">
+        <v-card-title>Link artist names</v-card-title>
+        <v-card-text v-if="linkNamesItem" class="edit-form">
+          <p>Link {{ linkNamesItem.artistName }} and {{ linkNamesItem.providerLink?.artistName }} as one artist?</p>
+          <p>Both names remain visible. Albums keep their credited names and folders. Provider matching and the shared discography use the combined identity.</p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" :disabled="linkingArtistNames" @click="linkNamesItem = null">Cancel</v-btn>
+          <v-btn color="primary" :loading="linkingArtistNames" :disabled="writeActionsDisabled || linkingArtistNames" @click="confirmLinkArtistNames">
+            Link names
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

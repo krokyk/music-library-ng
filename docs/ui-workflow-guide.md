@@ -20,6 +20,7 @@ Read `docs/ui-guide.md` for the app's visual and interaction contract.
   Add helpers only when they centralize real repeated behavior.
 - For risky or destructive behavior, separate similar verbs precisely: `Remove` means unlink from the current context; `Delete` means delete from the library database.
 - Do not use UI validation scripts to click destructive actions unless the user explicitly wants test data mutated.
+- Use isolated browser fixtures for conflict presentation checks instead of requiring unresolved conflicts in the user's library.
 
 ## Session Collaboration And Handoff
 
@@ -131,6 +132,7 @@ For simple CSS-only changes, a frontend build may be enough, but if the visual r
 - For outlined form fields, verify empty, focused, populated, error, and disabled states and reject any clipped or overpainted floating label.
 - Compare analogous grids and controls across screens and confirm that every visual or interaction difference is intentional and documented in `docs/ui-guide.md`.
 - Run at least `npm run build --prefix frontend` for frontend changes.
+- Run `node scripts/test-provider-display.mjs` with Node.js 24 or newer when changing the shared provider-page display selection.
 - Run `./gradlew test` for backend or shared behavior changes.
 - Run `./gradlew build` and `scripts/check-ui-layout.ps1` for substantial UI layout changes.
 - Stop any app process started for validation.

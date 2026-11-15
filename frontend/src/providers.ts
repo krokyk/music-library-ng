@@ -1,3 +1,5 @@
+import type { Artist, ArtistProviderLink } from './types'
+
 export type ProviderId = 'musicbrainz' | 'spirit_of_metal' | 'metal_archives'
 
 export interface ProviderDefinition {
@@ -31,6 +33,22 @@ export const providerDefinitions: ProviderDefinition[] = [
     chipClass: 'provider-chip--metal-archives',
   },
 ]
+
+export function displayedArtistProviders(artist: Artist, creditedArtistIds: readonly number[] = [artist.id]) {
+  const preferredIds = [...creditedArtistIds, artist.canonicalArtistId]
+  const rank = (link: ArtistProviderLink) => {
+    const index = preferredIds.indexOf(link.artistId)
+    return index < 0 ? preferredIds.length : index
+  }
+  const selected = new Map<string, ArtistProviderLink>()
+  for (const link of artist.providerLinks) {
+    const current = selected.get(link.providerId)
+    if (!current || rank(link) < rank(current)) {
+      selected.set(link.providerId, link)
+    }
+  }
+  return [...selected.values()]
+}
 
 export function providerDefinition(providerId?: string | null) {
   return providerDefinitions.find((provider) => provider.id === providerId)

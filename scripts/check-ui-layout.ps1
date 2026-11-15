@@ -217,6 +217,79 @@ function Save-Screenshot {
     [IO.File]::WriteAllBytes($Path, [Convert]::FromBase64String($response.result.data))
 }
 
+function Assert-PaneDragTracksPointer {
+    param(
+        [System.Net.WebSockets.ClientWebSocket]$Socket,
+        [string]$PaneSelector
+    )
+
+    $expression = @'
+(async (selector) => {
+  const pane = document.querySelector(selector);
+  const resizer = pane?.nextElementSibling;
+  if (!pane || !resizer?.classList.contains('pane-resizer')) return JSON.stringify({ error: 'Pane or divider missing.' });
+  const originalWidth = pane.getBoundingClientRect().width;
+  const settle = async () => {
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  };
+  const drag = async (deltas, check) => {
+    const startWidth = pane.getBoundingClientRect().width;
+    const panes = [...pane.parentElement.children].filter((element) => element.classList.contains('pane'));
+    const flexible = panes.at(-1);
+    const flexibleStartWidth = flexible.getBoundingClientRect().width;
+    const siblings = panes.slice(0, -1).filter((element) => element !== pane)
+      .map((element) => ({ element, width: element.getBoundingClientRect().width }));
+    const startX = resizer.getBoundingClientRect().left + resizer.getBoundingClientRect().width / 2;
+    let x = startX;
+    let beforeRelease;
+    resizer.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: startX, pointerId: 1, isPrimary: true }));
+    try {
+      for (const delta of deltas) {
+        x = startX + delta;
+        window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, buttons: 1, clientX: x, pointerId: 1, isPrimary: true }));
+        await settle();
+        const actual = pane.getBoundingClientRect().width;
+        if (check && (!document.body.classList.contains('is-pane-resizing') || Math.abs(actual - startWidth - delta) > 1)) {
+          throw new Error(`Held drag delta ${delta}: expected width ${startWidth + delta}, got ${actual}.`);
+        }
+        if (check && (siblings.some(({ element, width }) => Math.abs(element.getBoundingClientRect().width - width) > 1)
+          || Math.abs(flexible.getBoundingClientRect().width - flexibleStartWidth + delta) > 1)) {
+          throw new Error('Dragging changed another fixed pane or did not transfer the width to the flexible pane.');
+        }
+        await settle();
+        if (check && Math.abs(pane.getBoundingClientRect().width - actual) > 1) {
+          throw new Error('Pane snapped back while the pointer remained down.');
+        }
+      }
+      beforeRelease = pane.getBoundingClientRect().width;
+    } finally {
+      window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, clientX: x, pointerId: 1, isPrimary: true }));
+      await settle();
+    }
+    if (check && Math.abs(pane.getBoundingClientRect().width - beforeRelease) > 1) {
+      throw new Error('Pane jumped when the pointer was released.');
+    }
+  };
+  let error = null;
+  try {
+    await drag([24, 72, 40, 88, 32, 0], true);
+  } catch (failure) {
+    error = failure.message;
+  } finally {
+    await drag([originalWidth - pane.getBoundingClientRect().width], false);
+  }
+  return JSON.stringify({ selector, error });
+})(__PANE_SELECTOR__)
+'@
+    $state = Eval-Js $Socket ($expression.Replace('__PANE_SELECTOR__', ($PaneSelector | ConvertTo-Json -Compress)))
+    $result = $state | ConvertFrom-Json
+    if (-not $result -or $result.error) {
+        throw "Pane divider does not track the pointer during a held drag: $state"
+    }
+}
+
 $metricsJs = @'
 (() => {
   function box(selector, index = 0) {
@@ -285,6 +358,7 @@ foreach ($key in @(
     "collections-screen.collections-pane.width",
     "collections-screen.artists-pane.width",
     "artists-screen.artists-pane.width",
+    "artists-screen.collection-filter.ids",
     "collections-screen.titles-pane.title",
     "artists-screen.artists-pane.name"
 )) {
@@ -301,6 +375,11 @@ foreach ($key in @(
 }
 
 try {
+    $collectionFilterKey = 'artists-screen.collection-filter.ids'
+    if ($layoutPreferenceBackup[$collectionFilterKey].exists) {
+        $filterUrl = "$($AppUrl.TrimEnd('/'))/api/preferences/$([Uri]::EscapeDataString($collectionFilterKey))"
+        Invoke-RestMethod -Uri $filterUrl -Method Delete | Out-Null
+    }
     New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
     $target = Get-PageTarget $cdpBase
@@ -413,6 +492,8 @@ try {
     Start-Sleep -Milliseconds 500
     $widePaneState = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.three-pane > .pane')].map((pane) => pane.getBoundingClientRect().width)))()"
     $widePanes = $widePaneState | ConvertFrom-Json
+    Assert-PaneDragTracksPointer $socket '.collections-pane'
+    Assert-PaneDragTracksPointer $socket '.artists-pane'
     Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
         width = 1200
         height = $Height
@@ -420,6 +501,31 @@ try {
         mobile = $false
     } | Out-Null
     Start-Sleep -Milliseconds 500
+    $filterState = Eval-Js $socket @'
+(() => {
+  const bar = document.querySelector('.artists-pane .pane-filter-bar');
+  if (!bar) return JSON.stringify({ valid: false, error: 'Artist filter bar missing.' });
+  const bounds = bar.getBoundingClientRect();
+  const groups = [...bar.querySelectorAll('.presence-filter-toggle')];
+  const buttons = [...bar.querySelectorAll('button')];
+  return JSON.stringify({
+    valid: groups.length === 2 && buttons.length === 3
+      && groups.every((group) => group.scrollWidth <= group.clientWidth)
+      && buttons.every((button) => {
+        const rect = button.getBoundingClientRect();
+        return rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1
+          && rect.top >= bounds.top - 1 && rect.bottom <= bounds.bottom + 1;
+      }),
+    viewport: innerWidth,
+    groups: groups.map((group) => ({ width: group.clientWidth, scrollWidth: group.scrollWidth }))
+  });
+})()
+'@
+    if (-not ($filterState | ConvertFrom-Json).valid) {
+        throw "Artist filter controls scroll or clip at the constrained viewport: $filterState"
+    }
+    $narrowFiltersPath = Join-Path $OutputDir 'musiclib-narrow-filters.png'
+    Save-Screenshot $socket $narrowFiltersPath
     Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
         width = $wideWidth
         height = $Height
@@ -530,10 +636,10 @@ try {
         if (-not (Wait-ForJs $socket "document.querySelector('.scan-report-dialog__content')?.textContent.startsWith('LONG_')" 3000)) {
             throw "Long report did not open."
         }
-        $longState = Eval-Js $socket "(() => { const dialog = document.querySelector('.scan-report-dialog-content'); const rect = dialog.getBoundingClientRect(); const scroller = document.querySelector('.scan-report-dialog__scroller'); return JSON.stringify({ width: rect.width, height: rect.height, expectedWidth: Math.min(innerWidth * 0.55, 1500), expectedHeight: innerHeight * 0.75, centerOffsetX: Math.abs(rect.left + rect.width / 2 - innerWidth / 2), centerOffsetY: Math.abs(rect.top + rect.height / 2 - innerHeight / 2), clientWidth: scroller.clientWidth, scrollWidth: scroller.scrollWidth, whiteSpace: getComputedStyle(document.querySelector('.scan-report-dialog__content')).whiteSpace }); })()"
+        $longState = Eval-Js $socket "(() => { const dialog = document.querySelector('.scan-report-dialog-content'); const rect = dialog.getBoundingClientRect(); const scroller = document.querySelector('.scan-report-dialog__scroller'); return JSON.stringify({ width: rect.width, height: rect.height, expectedWidth: Math.min(innerWidth - 32, Math.max(900, Math.min(innerWidth * 0.65, 1700))), expectedHeight: innerHeight * 0.75, centerOffsetX: Math.abs(rect.left + rect.width / 2 - innerWidth / 2), centerOffsetY: Math.abs(rect.top + rect.height / 2 - innerHeight / 2), clientWidth: scroller.clientWidth, scrollWidth: scroller.scrollWidth, whiteSpace: getComputedStyle(document.querySelector('.scan-report-dialog__content')).whiteSpace }); })()"
         $long = $longState | ConvertFrom-Json
         if ([Math]::Abs($short.width - $long.width) -gt 0.5 -or [Math]::Abs($short.height - $long.height) -gt 0.5 -or [Math]::Abs($long.width - $long.expectedWidth) -gt 0.5 -or [Math]::Abs($long.height - $long.expectedHeight) -gt 0.5) {
-            throw "Report dialog size changed or ignored the 55vw/1500px by 75vh rule: short=$shortState long=$longState."
+            throw "Report dialog size changed or ignored the 65vw/900px minimum/1700px cap by 75vh rule: short=$shortState long=$longState."
         }
         if ($long.centerOffsetX -gt 0.5 -or $long.centerOffsetY -gt 0.5) {
             throw "Report dialog is not centered in the browser viewport: $longState"
@@ -837,253 +943,261 @@ try {
     if (-not (Wait-ForJs $socket "document.querySelectorAll('.artists-screen-grid .workspace-row').length > 0" 60000)) {
         throw "Artists page did not finish its initial multi-row load."
     }
-    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
-        width = $wideWidth
-        height = $Height
-        deviceScaleFactor = 1
-        mobile = $false
-    } | Out-Null
-    Start-Sleep -Milliseconds 500
-    $wideArtistsPaneState = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.artists-two-pane > .pane')].map((pane) => pane.getBoundingClientRect().width)))()"
-    $wideArtistsPanes = $wideArtistsPaneState | ConvertFrom-Json
-    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
-        width = $wideWidth + 240
-        height = $Height
-        deviceScaleFactor = 1
-        mobile = $false
-    } | Out-Null
-    Start-Sleep -Milliseconds 500
-    $expandedArtistsPaneState = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.artists-two-pane > .pane')].map((pane) => pane.getBoundingClientRect().width)))()"
-    $expandedArtistsPanes = $expandedArtistsPaneState | ConvertFrom-Json
-    if ([Math]::Abs($expandedArtistsPanes[0] - $wideArtistsPanes[0]) -gt 0.5 -or [Math]::Abs(($expandedArtistsPanes[1] - $wideArtistsPanes[1]) - 240) -gt 0.5) {
-        throw "Browser resize did not preserve the Artists table pane and resize only Artist Info: before=$wideArtistsPaneState after=$expandedArtistsPaneState"
-    }
-    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
-        width = $Width
-        height = $Height
-        deviceScaleFactor = 1
-        mobile = $false
-    } | Out-Null
-    Start-Sleep -Milliseconds 500
-    if (-not (Eval-Js $socket "(() => { const row = [...document.querySelectorAll('.artists-screen-grid .workspace-row')].find((node) => node.textContent.includes('Across the Rain')); if (!row) return false; row.click(); return true; })()")) {
-        throw "The Artists page year-chip fixture was not visible."
-    }
-    if (-not (Wait-ForJs $socket "document.querySelector('.artist-known-album__year .numeric-chip--year') !== null" 5000)) {
-        throw "The selected artist did not render a shared Known Albums year chip."
-    }
-$artistColumnState = Eval-Js $socket @'
+    $providerOverviewState = Eval-Js $socket @'
 (async () => {
-  const rows = [...document.querySelectorAll('.artists-screen-grid .workspace-row')];
-  const countChips = [...document.querySelectorAll('.artists-screen-grid .numeric-chip--count')];
-  const countValid = countChips.every((chip) => {
-    const style = getComputedStyle(chip);
-    const cell = getComputedStyle(chip.closest('.artists-count-cell'));
-    const underlay = chip.querySelector('.v-chip__underlay');
-    return Math.abs(chip.getBoundingClientRect().height - 24) <= 0.5
-      && Math.abs(underlay.getBoundingClientRect().height - 24) <= 0.5
-      && parseFloat(style.fontSize) === 14
-      && Number(style.fontWeight) === 400
-      && style.fontVariantNumeric.includes('tabular-nums')
-      && chip.scrollWidth <= chip.clientWidth
-      && cell.justifyContent === 'flex-end';
-  });
-  const knownYearChips = [...document.querySelectorAll('.artist-known-album__year .numeric-chip--year')];
-  const knownYearsUseSharedChips = knownYearChips.length > 0 && knownYearChips.every((chip) => {
-    const style = getComputedStyle(chip);
-    const underlay = chip.querySelector('.v-chip__underlay');
-    return Math.abs(chip.getBoundingClientRect().height - 26) <= 0.5
-      && Math.abs(underlay.getBoundingClientRect().height - 26) <= 0.5
-      && parseFloat(style.fontSize) === 16
-      && Number(style.fontWeight) === 600;
-  });
-  const colorProbe = document.createElement('span');
-  colorProbe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--app-text-attention-muted').trim();
-  document.body.append(colorProbe);
-  const attentionColor = getComputedStyle(colorProbe).color;
-  colorProbe.remove();
-  const positiveUncheckedChips = [...document.querySelectorAll('.artists-screen-grid [data-column="artists.unchecked"] .unchecked-count-chip')];
-  const uncheckedColorValid = positiveUncheckedChips.length > 0 && positiveUncheckedChips.every((chip) => {
-    const style = getComputedStyle(chip);
-    const underlayStyle = getComputedStyle(chip.querySelector('.v-chip__underlay'));
-    return style.color === attentionColor
-      && underlayStyle.backgroundColor === attentionColor
-      && parseFloat(underlayStyle.opacity) === 0.12;
-  });
-  const blankMetadata = rows.some((row) =>
-    !row.querySelector('[data-column="artists.country"]').textContent.trim()
-    && !row.querySelector('[data-column="artists.status"]').textContent.trim()
-    && !row.querySelector('[data-column="artists.provider"]').textContent.trim()
-  );
-  const providerControlsFit = [...document.querySelectorAll('.artists-provider-list')]
-    .every((list) => list.scrollWidth <= list.clientWidth);
-  const ellipsisStateMatches = [...document.querySelectorAll('.ellipsized-text')]
-    .every((text) => (text.dataset.ellipsized === 'true') === (text.scrollWidth > text.clientWidth));
-  const adaptiveSetsAreUnified = [...document.querySelectorAll('.adaptive-row-actions')]
-    .every((actions) => new Set([...actions.querySelectorAll('[data-adaptive-control]')].map((control) => control.dataset.showLabel)).size <= 1);
-  return JSON.stringify({
-    rows: rows.length,
-    countChips: countChips.length,
-    countValid,
-    knownYearsUseSharedChips,
-    uncheckedColorValid,
-    blankMetadata,
-    providerControlsFit,
-    ellipsisStateMatches,
-    adaptiveSetsAreUnified
-  });
-})()
-'@
-    $artistColumns = $artistColumnState | ConvertFrom-Json
-    if ($artistColumns.countChips -eq 0 -or -not $artistColumns.countValid -or -not $artistColumns.knownYearsUseSharedChips -or -not $artistColumns.uncheckedColorValid -or -not $artistColumns.blankMetadata -or -not $artistColumns.providerControlsFit -or -not $artistColumns.ellipsisStateMatches -or -not $artistColumns.adaptiveSetsAreUnified) {
-        throw "Artists table column contracts are inconsistent: $artistColumnState"
+  const store = document.querySelector('#app')?.__vue_app__?.config.globalProperties.$pinia?._s.get('library');
+  const home = store?.collections.find((collection) => collection.type === 'ARTIST');
+  if (!store?.artists.length || !home) return JSON.stringify({ error: 'Provider overview fixture needs an artist collection.' });
+  const backup = JSON.parse(JSON.stringify({ artists: store.artists, albums: store.albums,
+    artistCountryConflicts: store.artistCountryConflicts, artistStatusConflicts: store.artistStatusConflicts,
+    providerTitleConflicts: store.providerTitleConflicts, providerReleaseYearConflicts: store.providerReleaseYearConflicts,
+    statusHistory: store.statusHistory, manualStatus: store.manualStatus }));
+  const originalOpen = window.open;
+  const originalConflictOpen = store.openArtistProviderConflicts;
+  const originalResolve = store.resolveProviderConflict;
+  const opened = [];
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 400));
+  const names = ['Rhapsody', 'Rhapsody of Fire'];
+  const urls = ['https://www.spirit-of-metal.com/en/band/Rhapsody', 'https://www.spirit-of-metal.com/en/band/Rhapsody_of_Fire'];
+  const link = (id, artistId, providerId, providerArtistName, providerUrl) => ({ id, artistId,
+    artistName: providerArtistName, providerId, providerArtistName, providerUrl, enabled: true,
+    createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' });
+  const links = [link(-910, -902, 'spirit_of_metal', names[0], urls[0]),
+    link(-911, -901, 'spirit_of_metal', names[1], urls[1]),
+    link(-912, -902, 'metal_archives', names[0], 'https://www.metal-archives.com/bands/Rhapsody/32'),
+    link(-913, -902, 'musicbrainz', names[0], 'https://musicbrainz.org/artist/bbbbbbbb-1111-4333-8444-555555555555')];
+  Object.assign(links[0], { providerCountry: 'IT', providerActive: false });
+  Object.assign(links[1], { providerCountry: 'DE', providerActive: true });
+  const metadataSources = links.slice(0, 2).map((provider) => ({ providerLinkId: provider.id,
+    providerId: provider.providerId, providerCountry: provider.providerCountry,
+    providerActive: provider.providerActive, providerUrl: provider.providerUrl }));
+  const artists = names.map((name, index) => ({ ...store.artists[0], id: index - 902, name, sortName: name,
+    canonicalArtistId: -902, canonicalName: names[0], creditedNames: names, groupArtistIds: [-902, -901],
+    collectionIds: [home.id], providerLinks: links, albumCount: 1, localAlbumCount: 1, countryOverride: null, activeOverride: null }));
+  artists.push({ ...artists[0], id: -900, name: 'Layout unlinked artist', sortName: 'Layout unlinked artist',
+    canonicalArtistId: -900, canonicalName: 'Layout unlinked artist', creditedNames: ['Layout unlinked artist'],
+    groupArtistIds: [-900], providerLinks: [], localAlbumCount: 0 });
+  const conflict = { albumId: -990, artistId: -901, artistName: names[1], albumTitle: 'Layout local title',
+    localReleaseYear: 2006, providerTitle: 'Layout provider title', providerReleaseYear: 2006,
+    providerId: 'spirit_of_metal', providerLinkId: -911, providerUrl: urls[1], localRelativePath: 'Layout/2006 - Local title',
+    sources: [{ providerLinkId: -911, providerId: 'spirit_of_metal', providerTitle: 'Layout provider title', providerUrl: urls[1] }] };
+  const yearConflict = { ...conflict, providerReleaseYear: 2007,
+    sources: conflict.sources.map((source) => ({ ...source, providerReleaseYear: 2007 })) };
+  const close = () => [...document.querySelectorAll('.provider-conflict-dialog .v-card-actions button')]
+    .find((button) => button.textContent.trim() === 'Close')?.click();
+  const overview = (scope) => {
+    if (!scope || scope.querySelectorAll('.provider-chip').length !== 3
+      || scope.querySelectorAll('.provider-chip--spirit-of-metal').length !== 1) {
+      throw new Error('Provider overview did not render exactly one chip per provider.');
     }
-    if (-not (Eval-Js $socket "(() => { const row = [...document.querySelectorAll('.artists-screen-grid .workspace-row')].find((node) => node.textContent.includes('Antti Martikainen')); const button = row?.querySelector('.mdi-alert-outline')?.closest('button'); if (!button) return false; button.click(); return true; })()")) {
-        throw "The release-year conflict fixture was not visible."
-    }
-    if (-not (Wait-ForJs $socket "document.querySelector('.provider-conflict-dialog') !== null" 5000)) {
-        throw "The provider conflict dialog did not render."
-    }
-    if (-not (Eval-Js $socket "(() => { const header = [...document.querySelectorAll('.provider-conflict-album-group__header')].find((node) => node.textContent.includes('Year variant')); if (!header) return false; header.click(); return true; })()")) {
-        throw "The provider conflict dialog did not contain a release-year section."
-    }
-    if (-not (Wait-ForJs $socket "document.querySelector('.provider-conflict-album-group--open .numeric-chip--year') !== null" 3000)) {
-        throw "Release-year conflict choices did not use the shared year chip."
-    }
-    Eval-Js $socket "(() => { const close = [...document.querySelectorAll('.provider-conflict-dialog button')].find((node) => node.textContent.trim() === 'Close'); if (!close) return false; close.click(); return true; })()" | Out-Null
-    Wait-ForJs $socket "document.querySelector('.provider-conflict-dialog') === null" 3000 | Out-Null
-    if (-not (Wait-ForJs $socket "document.querySelector('.artist-known-album__title-chip') !== null" 5000)) {
-        throw "The selected conflict fixture did not render a conflicted title chip."
-    }
-    $sharedChipState = Eval-Js $socket @'
-(() => {
-  const conflictTitles = [...document.querySelectorAll('.artist-known-album__title-chip')];
-  const metadataStateChips = [...document.querySelectorAll('.album-metadata-chip--warning, .album-metadata-chip--kept-local')];
-  const providerChips = [...document.querySelectorAll('.provider-chip')];
-  const textMetrics = (chip) => {
-    const style = getComputedStyle(chip);
-    return {
-      color: style.color,
-      fontSize: style.fontSize,
-      fontStyle: style.fontStyle,
-      fontWeight: style.fontWeight
-    };
+    return scope.querySelector('.provider-chip--spirit-of-metal');
   };
-  const stateChipValid = (chip) => {
-    const warning = chip.classList.contains('album-metadata-chip--warning');
-    const keptLocal = chip.classList.contains('album-metadata-chip--kept-local');
-    const style = getComputedStyle(chip);
-    const underlay = chip.querySelector('.v-chip__underlay');
-    const stateText = textMetrics(chip);
-    const stateFill = {
-      backgroundColor: style.backgroundColor,
-      underlayOpacity: getComputedStyle(underlay).opacity
-    };
-    const stateBoxShadow = style.boxShadow;
-    chip.classList.remove('album-metadata-chip--warning', 'album-metadata-chip--kept-local', 'album-metadata-chip--action');
-    const baseText = textMetrics(chip);
-    const baseFill = {
-      backgroundColor: getComputedStyle(chip).backgroundColor,
-      underlayOpacity: getComputedStyle(underlay).opacity
-    };
-    chip.classList.toggle('album-metadata-chip--warning', warning);
-    chip.classList.toggle('album-metadata-chip--kept-local', keptLocal);
-    chip.classList.toggle('album-metadata-chip--action', warning);
-    const titleChip = chip.classList.contains('artist-known-album__title-chip');
-    const fillValid = titleChip
-      ? stateFill.backgroundColor === 'rgba(0, 0, 0, 0)' && parseFloat(stateFill.underlayOpacity) === 0
-      : JSON.stringify(stateFill) === JSON.stringify(baseFill);
-    return Math.abs(chip.getBoundingClientRect().height - 26) <= 0.5
-      && Math.abs(underlay.getBoundingClientRect().height - 26) <= 0.5
-      && fillValid
-      && stateBoxShadow.includes('inset')
-      && !stateBoxShadow.includes('), ')
-      && JSON.stringify(stateText) === JSON.stringify(baseText);
+  window.__musiclibProviderLayoutRestore = async () => {
+    close();
+    await pause();
+    window.open = originalOpen;
+    store.openArtistProviderConflicts = originalConflictOpen;
+    store.resolveProviderConflict = originalResolve;
+    store.$patch(backup);
+    await pause();
+    delete window.__musiclibProviderLayoutRestore;
   };
-  const warningChip = metadataStateChips.find((chip) => chip.classList.contains('album-metadata-chip--warning'));
-  let simulatedKeptLocalValid = true;
-  if (!metadataStateChips.some((chip) => chip.classList.contains('album-metadata-chip--kept-local')) && warningChip) {
-    warningChip.classList.remove('album-metadata-chip--warning', 'album-metadata-chip--action');
-    warningChip.classList.add('album-metadata-chip--kept-local');
-    simulatedKeptLocalValid = stateChipValid(warningChip);
-    warningChip.classList.remove('album-metadata-chip--kept-local');
-    warningChip.classList.add('album-metadata-chip--warning', 'album-metadata-chip--action');
-  }
-  return JSON.stringify({
-    conflictTitles: conflictTitles.length,
-    conflictTitlesValid: conflictTitles.every((chip) => {
+  function assertSharedChipContracts() {
+    const years = [...document.querySelectorAll('.artist-known-album__year .numeric-chip--year')];
+    if (!years.length || !years.every((chip) => {
+      const style = getComputedStyle(chip);
+      return Math.abs(chip.getBoundingClientRect().height - 26) <= 0.5
+        && Math.abs(chip.querySelector('.v-chip__underlay').getBoundingClientRect().height - 26) <= 0.5
+        && parseFloat(style.fontSize) === 16 && Number(style.fontWeight) === 600;
+    })) throw new Error('Known Album years did not use the shared year-chip dimensions and typography.');
+    const state = (() => {
+    const conflictTitles = [...document.querySelectorAll('.artist-known-album__title-chip')];
+    const metadataStateChips = [...document.querySelectorAll('.album-metadata-chip--warning, .album-metadata-chip--kept-local')];
+    const providerChips = [...document.querySelectorAll('.provider-chip')];
+    const textMetrics = (chip) => {
+      const style = getComputedStyle(chip);
+      return {
+        color: style.color,
+        fontSize: style.fontSize,
+        fontStyle: style.fontStyle,
+        fontWeight: style.fontWeight
+      };
+    };
+    const stateChipValid = (chip) => {
+      const warning = chip.classList.contains('album-metadata-chip--warning');
+      const keptLocal = chip.classList.contains('album-metadata-chip--kept-local');
+      const style = getComputedStyle(chip);
       const underlay = chip.querySelector('.v-chip__underlay');
-      const badge = chip.closest('.artist-known-album__title-badge');
+      const stateText = textMetrics(chip);
+      const stateFill = {
+        backgroundColor: style.backgroundColor,
+        underlayOpacity: getComputedStyle(underlay).opacity
+      };
+      const stateBoxShadow = style.boxShadow;
+      chip.classList.remove('album-metadata-chip--warning', 'album-metadata-chip--kept-local', 'album-metadata-chip--action');
+      const baseText = textMetrics(chip);
+      const baseFill = {
+        backgroundColor: getComputedStyle(chip).backgroundColor,
+        underlayOpacity: getComputedStyle(underlay).opacity
+      };
+      chip.classList.toggle('album-metadata-chip--warning', warning);
+      chip.classList.toggle('album-metadata-chip--kept-local', keptLocal);
+      chip.classList.toggle('album-metadata-chip--action', warning);
+      const titleChip = chip.classList.contains('artist-known-album__title-chip');
+      const fillValid = titleChip
+        ? stateFill.backgroundColor === 'rgba(0, 0, 0, 0)' && parseFloat(stateFill.underlayOpacity) === 0
+        : JSON.stringify(stateFill) === JSON.stringify(baseFill);
       return Math.abs(chip.getBoundingClientRect().height - 26) <= 0.5
         && Math.abs(underlay.getBoundingClientRect().height - 26) <= 0.5
-        && getComputedStyle(badge).overflow === 'visible';
-    }),
-    metadataStateChips: metadataStateChips.length,
-    metadataStateChipsValid: metadataStateChips.every(stateChipValid) && simulatedKeptLocalValid,
-    providerChips: providerChips.length,
-    providerChipsValid: providerChips.every((chip) => {
-      const style = getComputedStyle(chip);
-      return Math.abs(chip.getBoundingClientRect().height - 22) <= 0.5
-        && parseFloat(style.fontSize) === 12
-        && Number(style.fontWeight) === 800
-        && style.borderTopWidth === '0px';
-    })
-  });
-})()
-'@
-    $sharedChips = $sharedChipState | ConvertFrom-Json
-    if ($sharedChips.conflictTitles -eq 0 -or -not $sharedChips.conflictTitlesValid -or $sharedChips.metadataStateChips -eq 0 -or -not $sharedChips.metadataStateChipsValid -or $sharedChips.providerChips -eq 0 -or -not $sharedChips.providerChipsValid) {
-        throw "Conflict-state or provider chips do not match their shared literal contracts: $sharedChipState"
-    }
-    $artistEllipsisState = Eval-Js $socket @'
-(async () => {
-  const cell = document.querySelector('.artists-screen-grid [data-column="artists.name"].workspace-grid__header-cell');
-  const handle = cell?.querySelector('.column-resize-handle');
-  if (!cell || !handle) return JSON.stringify({ found: false });
-  const originalWidth = cell.getBoundingClientRect().width;
-  const pause = () => new Promise((resolve) => setTimeout(resolve, 200));
-  const dragTo = async (width) => {
-    const startX = handle.getBoundingClientRect().left + handle.getBoundingClientRect().width / 2;
-    const targetX = startX + width - cell.getBoundingClientRect().width;
-    handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: startX, pointerId: 1, isPrimary: true }));
-    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, buttons: 1, clientX: targetX, pointerId: 1, isPrimary: true }));
-    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, clientX: targetX, pointerId: 1, isPrimary: true }));
-    await pause();
-  };
-  let state;
-  try {
-    await dragTo(10);
-    const texts = [...document.querySelectorAll('.artists-screen-grid .ellipsized-text')];
-    state = {
-      minimumWidth: cell.getBoundingClientRect().width,
-      truncated: texts.some((text) => text.dataset.ellipsized === 'true'),
-      matches: texts.every((text) => (text.dataset.ellipsized === 'true') === (text.scrollWidth > text.clientWidth))
+        && fillValid
+        && stateBoxShadow.includes('inset')
+        && !stateBoxShadow.includes('), ')
+        && JSON.stringify(stateText) === JSON.stringify(baseText);
     };
-  } finally {
-    await dragTo(originalWidth);
+    const warningChip = metadataStateChips.find((chip) => chip.classList.contains('album-metadata-chip--warning'));
+    let simulatedKeptLocalValid = true;
+    if (!metadataStateChips.some((chip) => chip.classList.contains('album-metadata-chip--kept-local')) && warningChip) {
+      warningChip.classList.remove('album-metadata-chip--warning', 'album-metadata-chip--action');
+      warningChip.classList.add('album-metadata-chip--kept-local');
+      simulatedKeptLocalValid = stateChipValid(warningChip);
+      warningChip.classList.remove('album-metadata-chip--kept-local');
+      warningChip.classList.add('album-metadata-chip--warning', 'album-metadata-chip--action');
+    }
+    return {
+      conflictTitles: conflictTitles.length,
+      conflictTitlesValid: conflictTitles.every((chip) => {
+        const underlay = chip.querySelector('.v-chip__underlay');
+        const badge = chip.closest('.artist-known-album__title-badge');
+        return Math.abs(chip.getBoundingClientRect().height - 26) <= 0.5
+          && Math.abs(underlay.getBoundingClientRect().height - 26) <= 0.5
+          && getComputedStyle(badge).overflow === 'visible';
+      }),
+      metadataStateChips: metadataStateChips.length,
+      metadataStateChipsValid: metadataStateChips.every(stateChipValid) && simulatedKeptLocalValid,
+      providerChips: providerChips.length,
+      providerChipsValid: providerChips.every((chip) => {
+        const style = getComputedStyle(chip);
+        return Math.abs(chip.getBoundingClientRect().height - 22) <= 0.5
+          && parseFloat(style.fontSize) === 12
+          && Number(style.fontWeight) === 800
+          && style.borderTopWidth === '0px';
+      })
+    };
+    })();
+    if (!state.conflictTitles || !state.conflictTitlesValid || !state.metadataStateChips || !state.metadataStateChipsValid || !state.providerChips || !state.providerChipsValid) {
+      throw new Error('Conflict-state or provider chip contracts failed: ' + JSON.stringify(state));
+    }
   }
-  return JSON.stringify({ found: true, ...state, originalWidth, restoredWidth: cell.getBoundingClientRect().width });
+  let error = null;
+  try {
+    window.open = (url) => { opened.push(url); return null; };
+    store.openArtistProviderConflicts = async () => {};
+    store.resolveProviderConflict = async () => { throw new Error('Layout tests must not resolve real conflicts.'); };
+    store.$patch({ artists, albums: [{ id: -990, artistIds: [-901], collection: { id: home.id, name: home.name },
+      title: conflict.albumTitle, releaseYear: 2006, sortNameSource: 'AUTO', checked: true, onDisk: true,
+      localRelativePath: conflict.localRelativePath, providerLinks: [{ id: -991, albumId: -990,
+        providerId: 'spirit_of_metal', providerReleaseGroupId: 'layout-release', providerTitle: conflict.providerTitle,
+        providerReleaseYear: 2007, providerUrl: urls[1], releaseYearConflict: true, titleConflict: true,
+        createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }],
+      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }],
+      artistCountryConflicts: [{ artistId: -902, artistName: names[0], sources: metadataSources }],
+      artistStatusConflicts: [{ artistId: -902, artistName: names[0], sources: metadataSources }],
+      providerTitleConflicts: [conflict], providerReleaseYearConflicts: [yearConflict] });
+    await pause();
+    for (let index = 0; index < names.length; index += 1) {
+      const row = [...document.querySelectorAll('.artists-screen-grid .workspace-row')]
+        .find((element) => element.querySelector('.cell-strong')?.textContent.trim() === names[index]);
+      const rowChip = overview(row?.querySelector('.artists-provider-list'));
+      rowChip.dispatchEvent(new MouseEvent('mouseenter'));
+      await pause();
+      const tooltip = document.querySelector('.v-tooltip.v-overlay--active .v-overlay__content')?.textContent.trim();
+      rowChip.dispatchEvent(new MouseEvent('mouseleave'));
+      if (tooltip !== 'Spirit of Metal: ' + names[index]) throw new Error('The row tooltip selected the wrong credited provider page.');
+      row.click();
+      await pause();
+      overview([...document.querySelectorAll('.artist-info-grid')].find((grid) => grid.querySelector('.provider-chip'))).click();
+      if (opened.pop() !== urls[index]) throw new Error('Artist Info selected the wrong credited provider page.');
+      const button = row.querySelector('.mdi-alert-outline')?.closest('button');
+      if (!button) throw new Error('Mocked artist conflict action was missing.');
+      button.click();
+      await pause();
+      overview(document.querySelector('.provider-conflict-linked-providers')).click();
+      if (opened.pop() !== urls[index]) throw new Error('The conflict header selected the wrong credited provider page.');
+      for (const [section, value] of [['Artist country', 'Germany'], ['Artist status', 'Active']]) {
+        const header = [...document.querySelectorAll('.provider-conflict-album-group__header')]
+          .find((element) => element.textContent.trim().startsWith(section));
+        if (!header) throw new Error('Mocked metadata conflict section was missing.');
+        header.click();
+        await pause();
+        const choice = [...document.querySelectorAll('.provider-conflict-choice--provider')]
+          .find((element) => element.querySelector('.provider-conflict-choice__value')?.textContent.trim() === value);
+        const metadataSource = choice?.querySelector('.provider-conflict-source-chip.provider-chip--spirit-of-metal');
+        if (!metadataSource) throw new Error('Mocked metadata source chip was missing.');
+        metadataSource.click();
+        if (opened.pop() !== urls[1]) throw new Error(section + ' source did not use the provider page supplying its value.');
+      }
+      const albumHeader = [...document.querySelectorAll('.provider-conflict-album-group__header')]
+        .find((element) => element.textContent.includes(conflict.localRelativePath));
+      if (!albumHeader) throw new Error('Mocked album conflict section was missing.');
+      albumHeader.click();
+      await pause();
+      const source = document.querySelector('.provider-conflict-choice--provider .provider-conflict-source-chip.provider-chip--spirit-of-metal');
+      if (!source) throw new Error('Mocked album conflict source was missing.');
+      source.click();
+      if (opened.pop() !== urls[1]) throw new Error('The conflict source did not use its album credit provider page.');
+      const yearHeader = [...document.querySelectorAll('.provider-conflict-album-group__header')]
+        .find((element) => element.textContent.includes('Year variant'));
+      if (!yearHeader) throw new Error('Mocked release-year conflict section was missing.');
+      yearHeader.click();
+      await pause();
+      if (!document.querySelector('.provider-conflict-album-group--open .numeric-chip--year')) {
+        throw new Error('Release-year conflict choices did not use the shared year chip.');
+      }
+      close();
+      await pause();
+      assertSharedChipContracts();
+    }
+    document.querySelector('.artists-screen-grid .workspace-row.is-selected .mdi-alert-outline').closest('button').click();
+    await pause();
+  } catch (failure) {
+    error = failure.message;
+  } finally {
+    if (error) await window.__musiclibProviderLayoutRestore();
+  }
+  return JSON.stringify({ error });
 })()
 '@
-    $artistEllipsis = $artistEllipsisState | ConvertFrom-Json
-    if (-not $artistEllipsis.found -or -not $artistEllipsis.truncated -or -not $artistEllipsis.matches -or $artistEllipsis.minimumWidth -lt 62 -or [Math]::Abs($artistEllipsis.restoredWidth - $artistEllipsis.originalWidth) -gt 0.5) {
-        throw "Artist text did not expose ellipsis tooltips only while truncated at the shared column minimum: $artistEllipsisState"
-    }
-    if ($CheckProviderDialog) {
-        if (-not (Eval-Js $socket "(() => { const button = [...document.querySelectorAll('.artists-screen-grid .workspace-row .mdi-link-plus')].map((icon) => icon.closest('button')).find((candidate) => candidate && !candidate.disabled); if (!button) return false; button.click(); return true; })()")) {
-            throw "Provider matching dialog could not be opened."
-        }
-        if (-not (Wait-ForJs $socket "document.querySelector('.provider-match-dialog') !== null" 3000)) {
-            throw "Provider matching dialog did not render."
+    try {
+        if (-not $providerOverviewState -or ($providerOverviewState | ConvertFrom-Json).error) {
+            throw "Credited provider overviews or conflict source URLs were inconsistent: $providerOverviewState"
         }
         Start-Sleep -Milliseconds 500
-        $providerDialogState = Eval-Js $socket "(() => { const card = document.querySelector('.provider-match-dialog'); const content = card.closest('.v-overlay__content'); const rect = card.getBoundingClientRect(); return JSON.stringify({ width: rect.width, height: rect.height, contentWidth: content.getBoundingClientRect().width, expectedWidth: Math.min(innerWidth * 0.55, 1500), expectedHeight: innerHeight * 0.75, centerOffsetX: Math.abs(rect.left + rect.width / 2 - innerWidth / 2), centerOffsetY: Math.abs(rect.top + rect.height / 2 - innerHeight / 2), overflowX: getComputedStyle(card).overflowX }); })()"
-        $providerDialog = $providerDialogState | ConvertFrom-Json
-        if ($providerDialog.centerOffsetX -gt 0.5 -or $providerDialog.centerOffsetY -gt 0.5 -or [Math]::Abs($providerDialog.width - $providerDialog.expectedWidth) -gt 0.5 -or [Math]::Abs($providerDialog.height - $providerDialog.expectedHeight) -gt 0.5 -or $providerDialog.overflowX -ne "hidden") {
-            throw "Provider matching dialog is not centered at the shared large-dialog size: $providerDialogState"
+        if (-not (Eval-Js $socket "(() => { const dialog = document.querySelector('.provider-conflict-dialog'); const rect = dialog.getBoundingClientRect(); return Math.abs(rect.left + rect.width / 2 - innerWidth / 2) <= 0.5 && Math.abs(rect.top + rect.height / 2 - innerHeight / 2) <= 0.5 && Math.abs(rect.width - Math.min(innerWidth - 32, Math.max(900, Math.min(innerWidth * 0.65, 1700)))) <= 0.5 && Math.abs(rect.height - innerHeight * 0.75) <= 0.5 && getComputedStyle(dialog.querySelector('.provider-conflict-dialog__body')).overflowX === 'hidden'; })()")) {
+            throw "Provider conflict dialog is not centered at the shared large-dialog size."
         }
-        Eval-Js $socket "(() => { const close = [...document.querySelectorAll('.provider-match-dialog button')].find((node) => node.textContent.trim() === 'Close'); if (!close) return false; close.click(); return true; })()" | Out-Null
-        Wait-ForJs $socket "document.querySelector('.provider-match-dialog') === null" 3000 | Out-Null
-    }
+        $choiceOpacity = Eval-Js $socket "(() => [...document.querySelectorAll('.provider-conflict-dialog .provider-conflict-choice')].every((node) => getComputedStyle(node).opacity === '1'))()"
+        if (-not $choiceOpacity) {
+            throw "Provider conflict choices must remain fully opaque while the conflict section is highlighted."
+        }
+        $beforeHover = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.provider-conflict-album-group--open .provider-conflict-choice')].map((node) => getComputedStyle(node).backgroundColor)))()"
+        Send-Cdp $socket "DOM.enable" | Out-Null
+        Send-Cdp $socket "CSS.enable" | Out-Null
+        $document = Send-Cdp $socket "DOM.getDocument" @{ depth = 0 }
+        $group = Send-Cdp $socket "DOM.querySelector" @{ nodeId = $document.result.root.nodeId; selector = ".provider-conflict-album-group--open" }
+        Send-Cdp $socket "CSS.forcePseudoState" @{ nodeId = $group.result.nodeId; forcedPseudoClasses = @("hover") } | Out-Null
+        $afterHover = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.provider-conflict-album-group--open .provider-conflict-choice')].map((node) => getComputedStyle(node).backgroundColor)))()"
+        if ($beforeHover -ne $afterHover) {
+            throw "Provider conflict section hover changed choice-tile background colors: $beforeHover -> $afterHover"
+        }
+        Eval-Js $socket "(() => { const close = [...document.querySelectorAll('.provider-conflict-dialog .v-card-actions button')].find((button) => button.textContent.trim() === 'Close'); close?.click(); })()" | Out-Null
+        Wait-ForJs $socket "document.querySelector('.provider-conflict-dialog') === null" 3000 | Out-Null
+        Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+            width = $wideWidth + 240
+            height = $Height
+            deviceScaleFactor = 1
+            mobile = $false
+        } | Out-Null
+        Start-Sleep -Milliseconds 500
     $actionResizeState = Eval-Js $socket @'
 (async () => {
   const pane = document.querySelector('.artists-table-pane');
@@ -1184,6 +1298,266 @@ $artistColumnState = Eval-Js $socket @'
     if ($actionResize.found -and (($actionResize.betweenDual.labels -match "Conflicts|Add providers") -or ($actionResize.narrowDual.labels -match "Conflicts|Add providers") -or ($actionResize.narrowSingle.labels -match "Add providers"))) {
         throw "Artist action labels remained visible after their content stopped fitting: $actionResizeState"
     }
+    } finally {
+        Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+            width = $Width
+            height = $Height
+            deviceScaleFactor = 1
+            mobile = $false
+        } | Out-Null
+        Eval-Js $socket "window.__musiclibProviderLayoutRestore?.()" | Out-Null
+    }
+    $bulkCollectionState = Eval-Js $socket @'
+(async () => {
+  const store = document.querySelector('#app')?.__vue_app__?.config.globalProperties.$pinia?._s.get('library');
+  const homes = store?.collections.filter((collection) => collection.type === 'ARTIST').slice(0, 2);
+  if (!store?.artists.length || homes.length !== 2) return JSON.stringify({ error: 'Bulk collection fixture needs an artist and two artist collections.' });
+  const backup = { artists: store.artists, ...JSON.parse(JSON.stringify({ bulkMatchJob: store.bulkMatchJob,
+    bulkMatchProgressVisible: store.bulkMatchProgressVisible, statusHistory: store.statusHistory, manualStatus: store.manualStatus })) };
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
+  const close = () => [...document.querySelectorAll('.bulk-match-dialog .v-card-actions button')]
+    .find((button) => button.textContent.trim() === 'Close')?.click();
+  const show = async (items) => {
+    const result = { requestedArtistCount: items.length, processedArtistCount: items.length,
+      matchedCount: items.filter((item) => item.status === 'MATCHED').length,
+      manualCount: 0, noMatchCount: items.filter((item) => item.status === 'NO_MATCH').length,
+      skippedCount: 0, errorCount: 0, items, messages: [] };
+    const job = { status: 'RUNNING', kind: 'PROVIDER_BULK_MATCH', providerId: 'musicbrainz', providerName: 'MusicBrainz',
+      itemTotal: items.length, itemProcessed: items.length, activeArtistId: null, activeArtistName: null,
+      matchedCount: result.matchedCount, manualCount: 0, noMatchCount: result.noMatchCount,
+      skippedCount: 0, errorCount: 0, cancelRequested: false, result: null };
+    store.$patch({ bulkMatchJob: job, bulkMatchProgressVisible: false });
+    await pause();
+    store.$patch({ bulkMatchJob: { ...job, status: 'DONE', result } });
+    await pause();
+    const dialog = document.querySelector('.bulk-match-dialog');
+    if (dialog?.querySelector('thead th')?.textContent.trim() !== 'Collection') {
+      throw new Error('Collection is not the first bulk-results header.');
+    }
+    return dialog;
+  };
+  window.__musiclibBulkLayoutRestore = async () => {
+    close();
+    await pause();
+    store.$patch(backup);
+    await pause();
+    delete window.__musiclibBulkLayoutRestore;
+  };
+  let error = null;
+  try {
+    const artist = { ...store.artists[0], id: -901, name: 'Layout bulk artist', canonicalArtistId: -901,
+      canonicalName: 'Layout bulk artist', groupArtistIds: [-901], creditedNames: ['Layout bulk artist'],
+      collectionIds: homes.map((collection) => collection.id), providerLinks: [] };
+    store.$patch({ artists: [artist] });
+    const remoteId = 'bbbbbbbb-1111-4333-8444-555555555555';
+    const candidate = { providerId: 'musicbrainz', providerArtistId: remoteId, providerArtistName: 'Athena',
+      providerUrl: 'https://musicbrainz.org/artist/' + remoteId, providerScore: 93, finalScore: 91, nameScore: 100,
+      albumEvidenceScore: 100, yearBonus: 0, evidenceSummary: 'Confidence 91 / Name 100 / Albums 2 local', albumEvidence: [] };
+    const items = [{ artistId: artist.id, artistName: artist.name, status: 'MATCHED', candidates: [],
+      acceptedCandidate: candidate, message: 'Auto-linked MusicBrainz provider: Athena' }];
+    const dialog = await show(items);
+    const actual = [...dialog.querySelectorAll('tbody tr:first-child td:first-child .collection-chip')]
+      .map((chip) => chip.textContent.trim()).sort();
+    if (JSON.stringify(actual) !== JSON.stringify(homes.map((collection) => collection.name).sort())) {
+      throw new Error('The first bulk-result cell did not show every home collection.');
+    }
+    const cells = dialog.querySelector('tbody tr').children;
+    const evidence = cells[4].innerText.trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (JSON.stringify(evidence) !== JSON.stringify(['Confidence: 91', 'Name: 100', 'Albums: 2 local'])) {
+      throw new Error('Bulk evidence did not render the three separate confidence, name and album lines.');
+    }
+    if (/93\s*MusicBrainz/.test(dialog.innerText) || /Confidence/i.test(cells[5].innerText)) {
+      throw new Error('Bulk results repeated provider score or confidence evidence outside the Evidence cell.');
+    }
+    if (!cells[3].innerText.includes('Athena') || cells[3].innerText.includes(remoteId)) {
+      throw new Error('Bulk candidate lost its name or displayed its internal provider identifier.');
+    }
+    close();
+    await pause();
+    const empty = await show([]);
+    if (empty.querySelectorAll('tbody tr').length !== 0) throw new Error('Empty bulk results retained prior rows.');
+    close();
+    await pause();
+    await show(items);
+  } catch (failure) {
+    error = failure.message;
+  } finally {
+    if (error) await window.__musiclibBulkLayoutRestore();
+  }
+  return JSON.stringify({ error });
+})()
+'@
+    try {
+        if (-not $bulkCollectionState -or ($bulkCollectionState | ConvertFrom-Json).error) {
+            throw "Bulk results did not preserve their collection, evidence and candidate layout: $bulkCollectionState"
+        }
+        try {
+            foreach ($testWidth in @(800, 1280, 1920, 3200)) {
+                Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+                    width = $testWidth
+                    height = $Height
+                    deviceScaleFactor = 1
+                    mobile = $false
+                } | Out-Null
+                Start-Sleep -Milliseconds 200
+                $bulkSizeState = Eval-Js $socket "(() => { const rect = document.querySelector('.bulk-match-dialog').getBoundingClientRect(); return JSON.stringify({ viewport: innerWidth, width: rect.width, height: rect.height, expectedWidth: Math.min(innerWidth - 32, Math.max(900, Math.min(innerWidth * 0.65, 1700))), expectedHeight: innerHeight * 0.75, centerOffsetX: Math.abs(rect.left + rect.width / 2 - innerWidth / 2), centerOffsetY: Math.abs(rect.top + rect.height / 2 - innerHeight / 2) }); })()"
+                $bulkSize = $bulkSizeState | ConvertFrom-Json
+                if ([Math]::Abs($bulkSize.width - $bulkSize.expectedWidth) -gt 0.5 -or [Math]::Abs($bulkSize.height - $bulkSize.expectedHeight) -gt 0.5 -or $bulkSize.centerOffsetX -gt 0.5 -or $bulkSize.centerOffsetY -gt 0.5) {
+                    throw "Bulk results dialog ignored the shared large-dialog dimensions: $bulkSizeState"
+                }
+            }
+        } finally {
+            Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+                width = $Width
+                height = $Height
+                deviceScaleFactor = 1
+                mobile = $false
+            } | Out-Null
+            Start-Sleep -Milliseconds 200
+        }
+        $bulkResultsPath = Join-Path $OutputDir 'musiclib-bulk-results.png'
+        Save-Screenshot $socket $bulkResultsPath
+    } finally {
+        Eval-Js $socket "window.__musiclibBulkLayoutRestore?.()" | Out-Null
+    }
+    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+        width = $wideWidth
+        height = $Height
+        deviceScaleFactor = 1
+        mobile = $false
+    } | Out-Null
+    Start-Sleep -Milliseconds 500
+    $wideArtistsPaneState = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.artists-two-pane > .pane')].map((pane) => pane.getBoundingClientRect().width)))()"
+    $wideArtistsPanes = $wideArtistsPaneState | ConvertFrom-Json
+    Assert-PaneDragTracksPointer $socket '.artists-table-pane'
+    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+        width = $wideWidth + 240
+        height = $Height
+        deviceScaleFactor = 1
+        mobile = $false
+    } | Out-Null
+    Start-Sleep -Milliseconds 500
+    $expandedArtistsPaneState = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.artists-two-pane > .pane')].map((pane) => pane.getBoundingClientRect().width)))()"
+    $expandedArtistsPanes = $expandedArtistsPaneState | ConvertFrom-Json
+    if ([Math]::Abs($expandedArtistsPanes[0] - $wideArtistsPanes[0]) -gt 0.5 -or [Math]::Abs(($expandedArtistsPanes[1] - $wideArtistsPanes[1]) - 240) -gt 0.5) {
+        throw "Browser resize did not preserve the Artists table pane and resize only Artist Info: before=$wideArtistsPaneState after=$expandedArtistsPaneState"
+    }
+    Send-Cdp $socket "Emulation.setDeviceMetricsOverride" @{
+        width = $Width
+        height = $Height
+        deviceScaleFactor = 1
+        mobile = $false
+    } | Out-Null
+    Start-Sleep -Milliseconds 500
+$artistColumnState = Eval-Js $socket @'
+(async () => {
+  const rows = [...document.querySelectorAll('.artists-screen-grid .workspace-row')];
+  const countChips = [...document.querySelectorAll('.artists-screen-grid .numeric-chip--count')];
+  const countValid = countChips.every((chip) => {
+    const style = getComputedStyle(chip);
+    const cell = getComputedStyle(chip.closest('.artists-count-cell'));
+    const underlay = chip.querySelector('.v-chip__underlay');
+    return Math.abs(chip.getBoundingClientRect().height - 24) <= 0.5
+      && Math.abs(underlay.getBoundingClientRect().height - 24) <= 0.5
+      && parseFloat(style.fontSize) === 14
+      && Number(style.fontWeight) === 400
+      && style.fontVariantNumeric.includes('tabular-nums')
+      && chip.scrollWidth <= chip.clientWidth
+      && cell.justifyContent === 'flex-end';
+  });
+  const colorProbe = document.createElement('span');
+  colorProbe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--app-text-attention-muted').trim();
+  document.body.append(colorProbe);
+  const attentionColor = getComputedStyle(colorProbe).color;
+  colorProbe.remove();
+  const positiveUncheckedChips = [...document.querySelectorAll('.artists-screen-grid [data-column="artists.unchecked"] .unchecked-count-chip')];
+  const uncheckedColorValid = positiveUncheckedChips.length > 0 && positiveUncheckedChips.every((chip) => {
+    const style = getComputedStyle(chip);
+    const underlayStyle = getComputedStyle(chip.querySelector('.v-chip__underlay'));
+    return style.color === attentionColor
+      && underlayStyle.backgroundColor === attentionColor
+      && parseFloat(underlayStyle.opacity) === 0.12;
+  });
+  const blankMetadata = rows.some((row) =>
+    !row.querySelector('[data-column="artists.country"]').textContent.trim()
+    && !row.querySelector('[data-column="artists.status"]').textContent.trim()
+    && !row.querySelector('[data-column="artists.provider"]').textContent.trim()
+  );
+  const providerControlsFit = [...document.querySelectorAll('.artists-provider-list')]
+    .every((list) => {
+      const icons = [...list.querySelectorAll('.provider-chip__icon')].map((icon) => icon.src);
+      return list.scrollWidth <= list.clientWidth && new Set(icons).size === icons.length;
+    });
+  const ellipsisStateMatches = [...document.querySelectorAll('.ellipsized-text')]
+    .every((text) => (text.dataset.ellipsized === 'true') === (text.scrollWidth > text.clientWidth));
+  const adaptiveSetsAreUnified = [...document.querySelectorAll('.adaptive-row-actions')]
+    .every((actions) => new Set([...actions.querySelectorAll('[data-adaptive-control]')].map((control) => control.dataset.showLabel)).size <= 1);
+  return JSON.stringify({
+    rows: rows.length,
+    countChips: countChips.length,
+    countValid,
+    uncheckedColorValid,
+    blankMetadata,
+    providerControlsFit,
+    ellipsisStateMatches,
+    adaptiveSetsAreUnified
+  });
+})()
+'@
+    $artistColumns = $artistColumnState | ConvertFrom-Json
+    if ($artistColumns.countChips -eq 0 -or -not $artistColumns.countValid -or -not $artistColumns.uncheckedColorValid -or -not $artistColumns.blankMetadata -or -not $artistColumns.providerControlsFit -or -not $artistColumns.ellipsisStateMatches -or -not $artistColumns.adaptiveSetsAreUnified) {
+        throw "Artists table column contracts are inconsistent: $artistColumnState"
+    }
+    $artistEllipsisState = Eval-Js $socket @'
+(async () => {
+  const cell = document.querySelector('.artists-screen-grid [data-column="artists.name"].workspace-grid__header-cell');
+  const handle = cell?.querySelector('.column-resize-handle');
+  if (!cell || !handle) return JSON.stringify({ found: false });
+  const originalWidth = cell.getBoundingClientRect().width;
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 200));
+  const dragTo = async (width) => {
+    const startX = handle.getBoundingClientRect().left + handle.getBoundingClientRect().width / 2;
+    const targetX = startX + width - cell.getBoundingClientRect().width;
+    handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: startX, pointerId: 1, isPrimary: true }));
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, buttons: 1, clientX: targetX, pointerId: 1, isPrimary: true }));
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, clientX: targetX, pointerId: 1, isPrimary: true }));
+    await pause();
+  };
+  let state;
+  try {
+    await dragTo(10);
+    const texts = [...document.querySelectorAll('.artists-screen-grid .ellipsized-text')];
+    state = {
+      minimumWidth: cell.getBoundingClientRect().width,
+      truncated: texts.some((text) => text.dataset.ellipsized === 'true'),
+      matches: texts.every((text) => (text.dataset.ellipsized === 'true') === (text.scrollWidth > text.clientWidth))
+    };
+  } finally {
+    await dragTo(originalWidth);
+  }
+  return JSON.stringify({ found: true, ...state, originalWidth, restoredWidth: cell.getBoundingClientRect().width });
+})()
+'@
+    $artistEllipsis = $artistEllipsisState | ConvertFrom-Json
+    if (-not $artistEllipsis.found -or -not $artistEllipsis.truncated -or -not $artistEllipsis.matches -or $artistEllipsis.minimumWidth -lt 62 -or [Math]::Abs($artistEllipsis.restoredWidth - $artistEllipsis.originalWidth) -gt 0.5) {
+        throw "Artist text did not expose ellipsis tooltips only while truncated at the shared column minimum: $artistEllipsisState"
+    }
+    if ($CheckProviderDialog) {
+        if (-not (Eval-Js $socket "(() => { const button = [...document.querySelectorAll('.artists-screen-grid .workspace-row .mdi-link-plus')].map((icon) => icon.closest('button')).find((candidate) => candidate && !candidate.disabled); if (!button) return false; button.click(); return true; })()")) {
+            throw "Provider matching dialog could not be opened."
+        }
+        if (-not (Wait-ForJs $socket "document.querySelector('.provider-match-dialog') !== null" 3000)) {
+            throw "Provider matching dialog did not render."
+        }
+        Start-Sleep -Milliseconds 500
+        $providerDialogState = Eval-Js $socket "(() => { const card = document.querySelector('.provider-match-dialog'); const content = card.closest('.v-overlay__content'); const rect = card.getBoundingClientRect(); return JSON.stringify({ width: rect.width, height: rect.height, contentWidth: content.getBoundingClientRect().width, expectedWidth: Math.min(innerWidth - 32, Math.max(900, Math.min(innerWidth * 0.65, 1700))), expectedHeight: innerHeight * 0.75, centerOffsetX: Math.abs(rect.left + rect.width / 2 - innerWidth / 2), centerOffsetY: Math.abs(rect.top + rect.height / 2 - innerHeight / 2), overflowX: getComputedStyle(card).overflowX }); })()"
+        $providerDialog = $providerDialogState | ConvertFrom-Json
+        if ($providerDialog.centerOffsetX -gt 0.5 -or $providerDialog.centerOffsetY -gt 0.5 -or [Math]::Abs($providerDialog.width - $providerDialog.expectedWidth) -gt 0.5 -or [Math]::Abs($providerDialog.height - $providerDialog.expectedHeight) -gt 0.5 -or $providerDialog.overflowX -ne "hidden") {
+            throw "Provider matching dialog is not centered at the shared large-dialog size: $providerDialogState"
+        }
+        Eval-Js $socket "(() => { const close = [...document.querySelectorAll('.provider-match-dialog button')].find((node) => node.textContent.trim() === 'Close'); if (!close) return false; close.click(); return true; })()" | Out-Null
+        Wait-ForJs $socket "document.querySelector('.provider-match-dialog') === null" 3000 | Out-Null
+    }
     $artistsPath = Join-Path $OutputDir "musiclib-artists-page.png"
     Save-Screenshot $socket $artistsPath
 
@@ -1196,32 +1570,13 @@ $artistColumnState = Eval-Js $socket @'
         throw "Artists page did not render from its session cache after returning from Settings."
     }
 
-    $conflictOpened = Eval-Js $socket "(() => { const button = document.querySelector('.artists-screen-grid .workspace-row .mdi-alert-outline')?.closest('button'); if (!button) return false; button.click(); return true; })()"
-    if ($conflictOpened -and (Wait-ForJs $socket "!!document.querySelector('.provider-conflict-dialog .provider-conflict-choice')" 10000)) {
-        Start-Sleep -Milliseconds 500
-        if (-not (Eval-Js $socket "(() => { const dialog = document.querySelector('.provider-conflict-dialog'); const rect = dialog.getBoundingClientRect(); return Math.abs(rect.left + rect.width / 2 - innerWidth / 2) <= 0.5 && Math.abs(rect.top + rect.height / 2 - innerHeight / 2) <= 0.5 && Math.abs(rect.width - Math.min(innerWidth * 0.55, 1500)) <= 0.5 && Math.abs(rect.height - innerHeight * 0.75) <= 0.5 && getComputedStyle(dialog.querySelector('.provider-conflict-dialog__body')).overflowX === 'hidden'; })()")) {
-            throw "Provider conflict dialog is not centered at the shared large-dialog size."
-        }
-        $choiceOpacity = Eval-Js $socket "(() => [...document.querySelectorAll('.provider-conflict-dialog .provider-conflict-choice')].every((node) => getComputedStyle(node).opacity === '1'))()"
-        if (-not $choiceOpacity) {
-            throw "Provider conflict choices must remain fully opaque while the conflict section is highlighted."
-        }
-        $beforeHover = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.provider-conflict-album-group--open .provider-conflict-choice')].map((node) => getComputedStyle(node).backgroundColor)))()"
-        Send-Cdp $socket "DOM.enable" | Out-Null
-        Send-Cdp $socket "CSS.enable" | Out-Null
-        $document = Send-Cdp $socket "DOM.getDocument" @{ depth = 0 }
-        $group = Send-Cdp $socket "DOM.querySelector" @{ nodeId = $document.result.root.nodeId; selector = ".provider-conflict-album-group--open" }
-        Send-Cdp $socket "CSS.forcePseudoState" @{ nodeId = $group.result.nodeId; forcedPseudoClasses = @("hover") } | Out-Null
-        $afterHover = Eval-Js $socket "(() => JSON.stringify([...document.querySelectorAll('.provider-conflict-album-group--open .provider-conflict-choice')].map((node) => getComputedStyle(node).backgroundColor)))()"
-        if ($beforeHover -ne $afterHover) {
-            throw "Provider conflict section hover changed choice-tile background colors: $beforeHover -> $afterHover"
-        }
-    }
 
     @{
         appUrl = $AppUrl
         screenshots = @{
             initial = $initialPath
+            narrowFilters = $narrowFiltersPath
+            bulkResults = $bulkResultsPath
             collectionEdit = $collectionEditPath
             artist = $artistPath
             album = $albumPath

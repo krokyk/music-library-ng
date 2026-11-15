@@ -5,6 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.jboss.logging.Logger;
 import org.kroky.musiclib.model.Artist;
 import org.kroky.musiclib.model.ArtistProviderBulkMatchItem;
 import org.kroky.musiclib.model.ArtistProviderBulkMatchResult;
@@ -19,6 +20,8 @@ import jakarta.inject.Inject;
 
 @ApplicationScoped
 public class ArtistProviderBulkMatchService {
+
+    private static final Logger LOG = Logger.getLogger(ArtistProviderBulkMatchService.class);
 
     public static final String STATUS_MATCHED = "MATCHED";
     public static final String STATUS_NEEDS_MANUAL = "NEEDS_MANUAL";
@@ -44,8 +47,10 @@ public class ArtistProviderBulkMatchService {
 
     public ArtistProviderBulkMatchResult matchProviderArtists(String providerId, List<Long> requestedArtistIds,
             ProgressListener progress) {
+        Set<Long> matchedIdentities = new LinkedHashSet<>();
         List<Long> artistIds = artistIds(requestedArtistIds).stream()
                 .filter(artistId -> albums.majorArtistCollection(artistId) != null)
+                .filter(artistId -> matchedIdentities.add(artists.canonicalArtistId(artistId)))
                 .toList();
         List<ArtistProviderBulkMatchItem> items = new ArrayList<>();
         progress.started(artistIds.size());
@@ -109,6 +114,21 @@ public class ArtistProviderBulkMatchService {
                     .filter(ArtistProviderBulkMatchService::isHighConfidenceProviderMatch)
                     .findFirst()
                     .orElse(null);
+            ArtistProviderCandidate proposed = accepted == null ? top : accepted;
+            var identityOwner = providerLinks.findByProviderIdentity(proposed.providerId(), proposed.providerArtistId());
+            if (identityOwner.isPresent()) {
+                ArtistProviderLink link = identityOwner.get();
+                if (artists.canonicalArtistId(link.artistId()) == artists.canonicalArtistId(artist.id())) {
+                    return item(artist, STATUS_SKIPPED_EXISTING,
+                            "Existing " + label + " provider configured.", link, null, List.of());
+                }
+                String message = label + " identity is already linked to " + link.artistName()
+                        + ". Review whether these credited names represent the same artist.";
+                LOG.infof("Bulk provider match needs identity review provider=%s artistId=%d artist=%s linkedArtistId=%d linkedArtist=%s",
+                        providerId, artist.id(), artist.name(), link.artistId(), link.artistName());
+                return item(artist, STATUS_NEEDS_MANUAL, message, link, null,
+                        List.of(summaryCandidate(proposed)));
+            }
             if (accepted != null) {
                 ArtistProviderCandidate selected = enrichSelectedCandidate(accepted);
                 String providerUrl = canonicalProviderUrl(selected);
@@ -123,8 +143,7 @@ public class ArtistProviderBulkMatchService {
                         selected.active(),
                         true);
                 return item(artist, STATUS_MATCHED,
-                        "Auto-linked " + label + " provider: " + selected.providerArtistName()
-                                + " (" + selected.evidenceSummary() + ")",
+                        "Auto-linked " + label + " provider.",
                         link,
                         summaryCandidate(selected),
                         List.of());
@@ -135,7 +154,10 @@ public class ArtistProviderBulkMatchService {
                     null,
                     List.of(summaryCandidate(top)));
         } catch (Exception e) {
-            return errorItem(artist.id(), e.getMessage());
+            String detail = ProviderException.describe(e);
+            LOG.errorf(e, "Bulk provider match failed provider=%s artistId=%d artist=%s: %s",
+                    providerId, artist.id(), artist.name(), detail);
+            return item(artist, STATUS_ERROR, detail, null, null, List.of());
         }
     }
 

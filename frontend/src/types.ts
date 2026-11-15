@@ -1,6 +1,10 @@
 export interface Artist {
   id: number
   name: string
+  canonicalArtistId: number
+  canonicalName: string
+  creditedNames: string[]
+  groupArtistIds: number[]
   sortName?: string | null
   countryOverride?: string | null
   activeOverride?: boolean | null

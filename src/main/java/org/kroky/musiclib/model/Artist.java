@@ -14,5 +14,9 @@ public record Artist(
         int localAlbumCount,
         String providerCountry,
         Boolean providerActive,
-        List<ArtistProviderLink> providerLinks) {
+        List<ArtistProviderLink> providerLinks,
+        long canonicalArtistId,
+        String canonicalName,
+        List<Long> groupArtistIds,
+        List<String> creditedNames) {
 }

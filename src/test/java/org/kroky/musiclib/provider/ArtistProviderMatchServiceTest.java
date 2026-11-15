@@ -5,17 +5,74 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.kroky.musiclib.model.Album;
 import org.kroky.musiclib.model.AlbumCollection;
 import org.kroky.musiclib.model.AlbumProviderLink;
+import org.kroky.musiclib.model.Artist;
 import org.kroky.musiclib.model.ArtistProviderCandidateAlbum;
 import org.kroky.musiclib.model.MetadataSource;
 import org.kroky.musiclib.model.RemoteReleaseGroup;
+import org.kroky.musiclib.provider.html.SpiritOfMetalProvider;
+import org.kroky.musiclib.repository.AlbumRepository;
+import org.kroky.musiclib.repository.ArtistRepository;
 
 class ArtistProviderMatchServiceTest {
+
+    @Test
+    void searchesAllCreditedNamesAndScoresEachRemoteIdentityOnce() throws Exception {
+        Artist oldName = new Artist(1, "Rhapsody", null, null, null, List.of(1L), 1, 0, 1,
+                null, null, List.of(), 2L, "Rhapsody of Fire", List.of(1L, 2L), List.of("Rhapsody", "Rhapsody of Fire"));
+        Artist currentName = new Artist(2, "Rhapsody of Fire", null, null, null, List.of(1L), 1, 0, 1,
+                null, null, List.of(), 2L, "Rhapsody of Fire", List.of(1L, 2L), List.of("Rhapsody", "Rhapsody of Fire"));
+        List<String> searchedNames = new ArrayList<>();
+        AtomicInteger fetchedPages = new AtomicInteger();
+        var service = new ArtistProviderMatchService();
+        service.artists = new ArtistRepository() {
+            @Override public Optional<Artist> find(long id) { return Optional.of(id == 1 ? oldName : currentName); }
+            @Override public List<Long> identityArtistIds(long id) { return List.of(1L, 2L); }
+        };
+        service.albums = new AlbumRepository() {
+            @Override public Long majorArtistCollection(long id) { return 1L; }
+            @Override public List<Album> list(Long id, Long collectionId, Boolean checked, Boolean hasLocalPath, String search) {
+                return List.of(album(1, "Legendary Tales", "1997", true, true),
+                        album(2, "Triumph or Agony", "2006", true, true));
+            }
+        };
+        service.spiritOfMetal = new SpiritOfMetalProvider() {
+            @Override public List<ProviderArtistSearchResult> searchArtists(String name, int limit) {
+                searchedNames.add(name);
+                return List.of(
+                        new ProviderArtistSearchResult("spirit_of_metal", "old", "Rhapsody",
+                                "https://example.test/old", "IT", null, false, 100),
+                        new ProviderArtistSearchResult("spirit_of_metal", "current", "Rhapsody of Fire",
+                                "https://example.test/current", "IT", null, true, 100));
+            }
+            @Override public ProviderArtistDetails fetchArtistDetails(String url) {
+                fetchedPages.incrementAndGet();
+                return new ProviderArtistDetails("IT", true, url.endsWith("old")
+                        ? List.of(new RemoteAlbum("Legendary Tales", 1997, "https://example.test/legendary"))
+                        : List.of(new RemoteAlbum("Triumph or Agony", 2006, "https://example.test/triumph")));
+            }
+        };
+
+        try {
+            var candidates = service.searchCandidates(1, "spirit_of_metal");
+
+            assertEquals(List.of("Rhapsody", "Rhapsody of Fire"), searchedNames);
+            assertEquals(2, fetchedPages.get());
+            assertEquals(2, candidates.size());
+            assertTrue(candidates.stream().allMatch(candidate -> candidate.nameScore() == 100));
+            assertTrue(candidates.stream().allMatch(ArtistProviderBulkMatchService::isHighConfidenceProviderMatch));
+        } finally {
+            service.shutdown();
+        }
+    }
 
     @Test
     void titleMatchScoresExactNormalizedAndFuzzyTitles() {

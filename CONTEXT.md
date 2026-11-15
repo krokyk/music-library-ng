@@ -15,8 +15,20 @@ An app-owned selection of tracks from any collections, independent of where the 
 _Avoid_: Collection, duplicate collection
 
 **Artist**:
-A library artist linked to at least one album.
+A musical identity represented in the library through one or more credited artist names and linked to at least one album.
 _Avoid_: Albumless artist
+
+**Credited artist name**:
+A name used to credit an artist on albums, retained as its own browsing entry even when several names refer to the same artist.
+_Avoid_: Separate band for every spelling or historical name
+
+**Canonical artist name**:
+The chosen main name for one artist identity, used when a newly discovered provider album has no established local credit.
+_Avoid_: Forced folder name
+
+**Provider artist identity**:
+A provider's artist entry supplying discography and metadata evidence; multiple entries from one provider can describe different credited names of the same artist.
+_Avoid_: Library artist name
 
 **Title album**:
 A title-centric album that may have zero or more contributor artists because the folder format can legitimately omit contributor metadata.
@@ -39,5 +51,5 @@ An album represented by exactly one physical folder in the music root; additiona
 _Avoid_: Album copies
 
 **Provider discography reconciliation**:
-The process of applying one provider's eligible discography evidence to one artist's library state, including album identity matches and metadata conflicts.
+The process of applying one provider's eligible discography evidence across an artist's credited names, including album identity matches and metadata conflicts.
 _Avoid_: Provider album intake

@@ -10,6 +10,7 @@ import org.kroky.musiclib.model.RemoteReleaseGroup;
 import org.kroky.musiclib.repository.AlbumProviderLinkRepository;
 import org.kroky.musiclib.repository.AlbumRepository;
 import org.kroky.musiclib.repository.ArtistProviderLinkRepository;
+import org.kroky.musiclib.repository.ArtistRepository;
 import org.kroky.musiclib.repository.MusicCollectionRepository;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -21,6 +22,9 @@ public class ProviderDiscographyReconciliationService {
 
     @Inject
     ArtistProviderLinkRepository providerLinks;
+
+    @Inject
+    ArtistRepository artists;
 
     @Inject
     AlbumRepository albums;
@@ -36,9 +40,10 @@ public class ProviderDiscographyReconciliationService {
             List<RemoteReleaseGroup> releases, Long collectionId) {
         List<RemoteReleaseGroup> eligibleReleases = releases == null ? List.of() : List.copyOf(releases);
         providerLinks.updateProviderMetadata(link.id(), country, active);
+        long canonicalArtistId = artists.canonicalArtistId(link.artistId());
 
         Long albumCollectionId = collectionId == null
-                ? albums.majorArtistCollection(link.artistId())
+                ? albums.majorArtistCollection(canonicalArtistId)
                 : collectionId;
         if (albumCollectionId == null) {
             throw new IllegalArgumentException("Artist has no artist-centric album collection.");
@@ -49,20 +54,20 @@ public class ProviderDiscographyReconciliationService {
             throw new IllegalArgumentException("Provider albums require an artist-centric collection.");
         }
         List<AlbumOutcome> outcomes = new ArrayList<>();
-        List<Album> artistAlbums = albums.list(link.artistId(), null, null, null, null);
+        List<Album> artistAlbums = albums.list(canonicalArtistId, null, null, null, null);
         for (RemoteReleaseGroup release : eligibleReleases) {
             requireEligibleRelease(link, release);
-            outcomes.add(reconcileRelease(link, release, albumCollectionId, artistAlbums));
+            outcomes.add(reconcileRelease(canonicalArtistId, release, albumCollectionId, artistAlbums));
             // ponytail: reload after merges so later releases cannot match an album deleted in this transaction;
             // replace with targeted cache updates only if provider discographies become large enough to measure.
-            artistAlbums = albums.list(link.artistId(), null, null, null, null);
+            artistAlbums = albums.list(canonicalArtistId, null, null, null, null);
         }
 
         providerLinks.markSuccess(link.id());
         return new Result(List.copyOf(outcomes));
     }
 
-    private AlbumOutcome reconcileRelease(ArtistProviderLink link, RemoteReleaseGroup release, long collectionId,
+    private AlbumOutcome reconcileRelease(long canonicalArtistId, RemoteReleaseGroup release, long collectionId,
             List<Album> artistAlbums) {
         ArtistProviderCandidateAlbum evidence = ProviderCandidateEvidenceEvaluator.albumEvidence(artistAlbums, release);
         Album evidenceAlbum = evidence.localAlbumId() == null
@@ -75,7 +80,7 @@ public class ProviderDiscographyReconciliationService {
 
         if (linkedAlbumId.isEmpty()
                 && !ProviderCandidateEvidenceEvaluator.canAutoLinkProviderImportAlbum(evidence, evidenceAlbum)) {
-            Album created = albums.create(link.artistId(), release.title(), release.releaseYear(), false, null,
+            Album created = albums.create(canonicalArtistId, release.title(), release.releaseYear(), false, null,
                     collectionId);
             linkAlbum(created.id(), release);
             return new AlbumOutcome(release, albums.find(created.id()).orElseThrow(), true, false, false, false);
@@ -91,7 +96,7 @@ public class ProviderDiscographyReconciliationService {
             throw new IllegalStateException("Matched local album is no longer available: " + release.title());
         }
 
-        albums.mergeProviderOnlyDuplicates(target.id(), link.artistId(), release.title(), release.releaseYear());
+        albums.mergeProviderOnlyDuplicates(target.id(), canonicalArtistId, release.title(), release.releaseYear());
         linkAlbum(target.id(), release);
         boolean releaseYearFilled = target.releaseYear() == null && release.releaseYear() != null;
         albums.updateReleaseYearIfMissing(target.id(), release.releaseYear());

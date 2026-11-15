@@ -1,11 +1,14 @@
 package org.kroky.musiclib.provider;
 
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import org.jboss.logging.Logger;
 import org.kroky.musiclib.config.MusicLibraryConfig;
 import org.kroky.musiclib.model.Album;
 import org.kroky.musiclib.model.Artist;
@@ -25,6 +28,7 @@ import jakarta.inject.Inject;
 @ApplicationScoped
 public class ArtistProviderMatchService {
 
+    private static final Logger LOG = Logger.getLogger(ArtistProviderMatchService.class);
     private static final int HTML_SEARCH_CANDIDATE_LIMIT = 10;
     private final ExecutorService htmlCandidateExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -67,12 +71,17 @@ public class ArtistProviderMatchService {
             throw new IllegalArgumentException("Provider matching is not available for title-centric artists.");
         }
         List<Album> artistAlbums = albums.list(artist.id(), null, null, null, null);
-        List<ProviderArtistSearchResult> results = searchProviderResults(artist.name(), providerId);
+        List<String> artistNames = artists.identityArtistIds(artistId).stream()
+                .map(id -> artists.find(id).orElseThrow(() -> new IllegalArgumentException("Unknown artist: " + id)))
+                .map(Artist::name)
+                .distinct()
+                .toList();
+        List<ProviderArtistSearchResult> results = searchProviderResults(artistNames, providerId);
         List<ArtistProviderCandidate> candidates = MusicBrainzClient.PROVIDER_ID.equals(providerId)
-                ? results.stream().map(result -> candidate(artist, artistAlbums, result, bulk)).toList()
+                ? results.stream().map(result -> candidate(artistNames, artistAlbums, result, bulk)).toList()
                 : results.stream()
                         .map(result -> CompletableFuture.supplyAsync(
-                                () -> candidate(artist, artistAlbums, result, bulk), htmlCandidateExecutor))
+                                () -> candidate(artistNames, artistAlbums, result, bulk), htmlCandidateExecutor))
                         .map(CompletableFuture::join)
                         .toList();
         return candidates.stream()
@@ -82,6 +91,20 @@ public class ArtistProviderMatchService {
                         .thenComparing(ArtistProviderCandidate::providerArtistName,
                                 Comparator.nullsLast(String::compareToIgnoreCase)))
                 .toList();
+    }
+
+    private List<ProviderArtistSearchResult> searchProviderResults(List<String> artistNames, String providerId)
+            throws ProviderException {
+        Map<String, ProviderArtistSearchResult> results = new LinkedHashMap<>();
+        for (String artistName : artistNames) {
+            for (ProviderArtistSearchResult result : searchProviderResults(artistName, providerId)) {
+                String identity = result.providerArtistId() == null || result.providerArtistId().isBlank()
+                        ? result.providerUrl() : result.providerArtistId();
+                results.merge(result.providerId() + ":" + identity, result,
+                        (left, right) -> right.providerScore() > left.providerScore() ? right : left);
+            }
+        }
+        return List.copyOf(results.values());
     }
 
     private List<ProviderArtistSearchResult> searchProviderResults(String artistName, String providerId)
@@ -114,21 +137,28 @@ public class ArtistProviderMatchService {
                 .toList();
     }
 
-    private ArtistProviderCandidate candidate(Artist artist, List<Album> artistAlbums,
+    private ArtistProviderCandidate candidate(List<String> artistNames, List<Album> artistAlbums,
             ProviderArtistSearchResult result, boolean bulk) {
         CandidateDetails details;
         try {
             details = fetchCandidateDetails(result, bulk);
         } catch (ProviderException e) {
+            LOG.warnf(e, "Unable to load candidate discography provider=%s artist=%s url=%s: %s",
+                    result.providerId(), result.providerArtistName(), result.providerUrl(), ProviderException.describe(e));
             details = new CandidateDetails(result.country(), result.active(), List.of());
         }
         List<RemoteReleaseGroup> releaseGroups = details.releaseGroups();
+        List<String> aliases = providerAliases(result);
+        String matchingName = artistNames.stream()
+                .max(Comparator.comparingInt(name -> ProviderCandidateEvidenceEvaluator.artistNameScore(
+                        name, result.providerArtistName(), aliases)))
+                .orElseThrow();
         var evidence = ProviderCandidateEvidenceEvaluator.evaluate(
-                artist.name(),
+                matchingName,
                 artistAlbums,
                 result.providerArtistName(),
                 result.providerScore(),
-                providerAliases(result),
+                aliases,
                 releaseGroups);
         return new ArtistProviderCandidate(
                 result.providerId(),
@@ -216,7 +246,9 @@ public class ArtistProviderMatchService {
             return new SelectedMetadata(
                     profile.country() == null ? country : profile.country(),
                     profile.active() == null ? active : profile.active());
-        } catch (ProviderException ignored) {
+        } catch (ProviderException e) {
+            LOG.warnf(e, "Unable to enrich selected provider profile provider=%s url=%s: %s",
+                    providerId, providerUrl, ProviderException.describe(e));
             return new SelectedMetadata(country, active);
         }
     }

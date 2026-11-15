@@ -1,8 +1,11 @@
 package org.kroky.musiclib.provider;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
 
 import org.kroky.musiclib.model.ArtistProviderLink;
 
@@ -31,15 +34,16 @@ public final class ArtistProviderMetadata {
     }
 
     private static CountryVote countryVote(List<ArtistProviderLink> links) {
-        int total = 0;
-        Map<String, Integer> counts = new HashMap<>();
-        for (ArtistProviderLink link : links) {
-            if (!link.enabled()) {
-                continue;
-            }
-            total++;
+        Map<String, Set<String>> evidence = providerEvidence(links, link -> {
             String country = link.providerCountry();
-            String value = country == null || country.isBlank() ? UNKNOWN : country;
+            return country == null || country.isBlank() ? UNKNOWN : country;
+        });
+        int total = evidence.size();
+        Map<String, Integer> counts = new HashMap<>();
+        boolean providerConflict = false;
+        for (Set<String> values : evidence.values()) {
+            providerConflict |= values.size() > 1;
+            String value = values.size() == 1 ? values.iterator().next() : UNKNOWN;
             counts.merge(value, 1, Integer::sum);
         }
         if (total == 0) {
@@ -54,21 +58,21 @@ public final class ArtistProviderMetadata {
         if (counts.getOrDefault(INTERNATIONAL, 0) == total) {
             return new CountryVote(INTERNATIONAL, false);
         }
-        return new CountryVote(null, total > 1);
+        return new CountryVote(null, providerConflict || total > 1);
     }
 
     private static ActiveVote activeVote(List<ArtistProviderLink> links) {
-        int total = 0;
+        Map<String, Set<Boolean>> evidence = providerEvidence(links, ArtistProviderLink::providerActive);
+        int total = evidence.size();
         int active = 0;
         int inactive = 0;
-        for (ArtistProviderLink link : links) {
-            if (!link.enabled()) {
-                continue;
-            }
-            total++;
-            if (Boolean.TRUE.equals(link.providerActive())) {
+        boolean providerConflict = false;
+        for (Set<Boolean> values : evidence.values()) {
+            providerConflict |= values.size() > 1;
+            Boolean value = values.size() == 1 ? values.iterator().next() : null;
+            if (Boolean.TRUE.equals(value)) {
                 active++;
-            } else if (Boolean.FALSE.equals(link.providerActive())) {
+            } else if (Boolean.FALSE.equals(value)) {
                 inactive++;
             }
         }
@@ -81,7 +85,18 @@ public final class ArtistProviderMetadata {
         if (hasStrictMajority(inactive, total)) {
             return new ActiveVote(Boolean.FALSE, false);
         }
-        return new ActiveVote(null, total > 1);
+        return new ActiveVote(null, providerConflict || total > 1);
+    }
+
+    private static <T> Map<String, Set<T>> providerEvidence(List<ArtistProviderLink> links,
+            Function<ArtistProviderLink, T> value) {
+        Map<String, Set<T>> evidence = new HashMap<>();
+        for (ArtistProviderLink link : links) {
+            if (link.enabled()) {
+                evidence.computeIfAbsent(link.providerId(), ignored -> new HashSet<>()).add(value.apply(link));
+            }
+        }
+        return evidence;
     }
 
     private static boolean hasStrictMajority(int count, int total) {

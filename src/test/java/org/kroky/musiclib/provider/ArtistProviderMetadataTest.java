@@ -90,6 +90,42 @@ class ArtistProviderMetadataTest {
         assertFalse(ArtistProviderMetadata.countryConflict(links));
     }
 
+    @Test
+    void multiplePagesFromOneProviderCannotManufactureAMajority() {
+        List<ArtistProviderLink> countries = List.of(
+                countryLink("spirit_of_metal", "IT", true),
+                countryLink("spirit_of_metal", "IT", true),
+                countryLink("metal_archives", "DE", true));
+        List<ArtistProviderLink> statuses = List.of(
+                activeLink("spirit_of_metal", true, true),
+                activeLink("spirit_of_metal", true, true),
+                activeLink("metal_archives", false, true));
+
+        assertNull(ArtistProviderMetadata.countryConsensus(countries));
+        assertTrue(ArtistProviderMetadata.countryConflict(countries));
+        assertNull(ArtistProviderMetadata.activeConsensus(statuses));
+        assertTrue(ArtistProviderMetadata.activeConflict(statuses));
+    }
+
+    @Test
+    void conflictingPagesRemainUnresolvedUntilIndependentProvidersAgree() {
+        List<ArtistProviderLink> conflicting = List.of(
+                activeLink("spirit_of_metal", false, true),
+                activeLink("spirit_of_metal", true, true));
+        List<ArtistProviderLink> oneOtherProvider = List.of(
+                conflicting.get(0), conflicting.get(1), activeLink("metal_archives", true, true));
+        List<ArtistProviderLink> twoOtherProviders = List.of(
+                conflicting.get(0), conflicting.get(1), activeLink("metal_archives", true, true),
+                activeLink("musicbrainz", true, true));
+
+        assertNull(ArtistProviderMetadata.activeConsensus(conflicting));
+        assertTrue(ArtistProviderMetadata.activeConflict(conflicting));
+        assertNull(ArtistProviderMetadata.activeConsensus(oneOtherProvider));
+        assertTrue(ArtistProviderMetadata.activeConflict(oneOtherProvider));
+        assertEquals(Boolean.TRUE, ArtistProviderMetadata.activeConsensus(twoOtherProviders));
+        assertFalse(ArtistProviderMetadata.activeConflict(twoOtherProviders));
+    }
+
     private static ArtistProviderLink countryLink(String providerId, String country, boolean enabled) {
         return new ArtistProviderLink(
                 0,

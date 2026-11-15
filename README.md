@@ -87,7 +87,7 @@ music-library.providers.musicbrainz.user-agent=music-library-ng (<email>)
 
 The app can auto-detect known `_vyber` roots when the configured marker playlists exist.
 When auto-detection does not fit the machine, pass the physical root with `-Dmusic-library.music-root="<music-root>"`.
-Windows-style roots such as `E:/Google Drive/Music/_vyber` are resolved to WSL mounts when running under WSL.
+Windows-style music roots are resolved to WSL mount paths when running under WSL.
 
 If WSL Git should use 1Password-managed Windows SSH keys, configure Git to use the Windows SSH client:
 
@@ -231,6 +231,8 @@ Music Library NG organizes your music into artist-centric collections, which bro
 It scans your folders to discover albums, matches them against online providers such as MusicBrainz, Spirit of Metal, and Metal Archives to fill in and verify metadata, and lets you resolve title and release-year conflicts.
 Bulk provider matching runs in the background with per-artist progress and can be hidden, reopened from the running provider chip, or cancelled after the current artist finishes.
 Scans never delete your files, and never rename a folder or write audio tags except when you explicitly choose a provider title or year.
+Historical credited names can share one artist identity while remaining visible in Collections and Artists and retaining their original album credits and folder paths.
+When provider matching finds an identity already assigned to another artist, use `Link names` only when both names represent the same musical identity; the confirmation preserves both names and combines their provider catalogue.
 
 Name album folders using one of these shapes so scans can parse them.
 

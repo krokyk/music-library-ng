@@ -4,13 +4,14 @@ import { storeToRefs } from 'pinia'
 import { useLibraryStore } from '@/stores/library'
 import AppSpinner from '@/components/AppSpinner.vue'
 import ActionColumn from '@/components/ActionColumn.vue'
+import EllipsizedText from '@/components/EllipsizedText.vue'
 import InlineRowActions from '@/components/InlineRowActions.vue'
 import ProviderChip from '@/components/ProviderChip.vue'
 import ProviderMatchDialog from '@/components/ProviderMatchDialog.vue'
 import RowActionButton from '@/components/RowActionButton.vue'
 import { fitFixedPaneWidths } from '@/paneWidths'
 import { useWorkspaceGridColumns } from '@/workspaceGridColumns'
-import { providerDefinition, validateProviderUrl, type ProviderId } from '@/providers'
+import { displayedArtistProviders, providerDefinition, validateProviderUrl, type ProviderId } from '@/providers'
 import type { Album, Artist, ArtistProviderCandidate, CollectionDeletePreview, CollectionFolderCandidate, MusicCollection } from '@/types'
 import type { CSSProperties } from 'vue'
 
@@ -398,7 +399,8 @@ const artistVirtualBottomSpacerHeight = computed(() =>
 
 const filteredCollectionAlbums = computed(() =>
   collectionAlbums.value.filter((album) =>
-    albumShowAllEnabled.value || album.collection.id === selectedCollectionId.value,
+    albumShowAllEnabled.value
+      || (album.collection.id === selectedCollectionId.value && album.artistIds.includes(selectedArtistId.value ?? -1)),
   ),
 )
 
@@ -529,7 +531,8 @@ function artistFailureTooltip(artist: Artist) {
 }
 
 function providerForArtist(artist: Artist) {
-  return artist.providerLinks[0] ?? null
+  const providers = displayedArtistProviders(artist)
+  return providers.find((link) => link.artistId === artist.id) ?? providers[0] ?? null
 }
 
 function providerChipText(artist: Artist) {
@@ -874,9 +877,15 @@ function scrollVirtualGridToIndex(element: HTMLElement | null, index: number, ro
 
 async function navigateToAlbumHome(album: Album) {
   if (album.collection.id === selectedCollectionId.value) return
-  const artistId = selectedArtistId.value
+  let artistId = selectedArtistId.value
   if (!artistId) return
+  const artistIds = store.artistGroupIds(artistId)
   await store.selectCollection(album.collection.id)
+  if (!sortedCollectionArtists.value.some((artist) => artist.id === artistId)) {
+    artistId = sortedCollectionArtists.value.find((artist) => artistIds.includes(artist.id) && album.artistIds.includes(artist.id))?.id
+      ?? sortedCollectionArtists.value.find((artist) => artistIds.includes(artist.id))?.id
+      ?? artistId
+  }
   const artistIndex = sortedCollectionArtists.value.findIndex((artist) => artist.id === artistId)
   artistGridScrollTop.value = Math.max(0, artistIndex * artistGridRowHeight)
   scrollVirtualGridToIndex(artistGridElement.value, artistIndex, artistGridRowHeight)
@@ -890,6 +899,11 @@ async function navigateToAlbumHome(album: Album) {
 }
 
 function albumShowAllTooltip() {
+  if ((selectedArtist.value?.groupArtistIds?.length ?? 0) > 1) {
+    return albumShowAllEnabled.value
+      ? 'Showing the shared discography across credited names and collections. Turn off to show this credited name in the selected collection.'
+      : 'Show the shared discography across credited names and collections.'
+  }
   return albumShowAllEnabled.value
     ? 'Showing all albums. Turn off to show only albums in this collection.'
     : 'Show all albums for this artist, including provider-only albums and albums local to other collections.'
@@ -1582,6 +1596,7 @@ function startPaneResize(index: number, event: PointerEvent) {
 
   const startX = event.clientX
   const fixedWidths = [...renderedFixedPaneWidths.value]
+  const preferredWidths = [collectionPanePreferredWidth.value, collectionArtistPanePreferredWidth.value]
   const startWidth = fixedWidths[index]
   const availableWidth = Math.max(1, threePaneElement.value.clientWidth - paneResizerTotalWidth())
   const flexibleMinimum = selectedCollectionIsTitle.value ? titlePaneMinimumWidth() : albumPaneMinimumWidth()
@@ -1598,8 +1613,11 @@ function startPaneResize(index: number, event: PointerEvent) {
       return
     }
     currentWidth = pendingWidth
-    target!.style.flex = `0 0 ${currentWidth}px`
-    updatePaneWidthsDuringResize(selectedCollectionIsTitle.value)
+    collectionPanePreferredWidth.value = index === 0 ? currentWidth : fixedWidths[0]
+    if (fixedWidths.length > 1) {
+      collectionArtistPanePreferredWidth.value = index === 1 ? currentWidth : fixedWidths[1]
+    }
+    void nextTick(() => updatePaneWidthsDuringResize(selectedCollectionIsTitle.value))
     pendingWidth = null
   }
 
@@ -1630,6 +1648,12 @@ function startPaneResize(index: number, event: PointerEvent) {
     } else {
       collectionArtistPanePreferredWidth.value = roundedWidth
       savePaneWidth(collectionArtistPaneWidthPreferenceKey, roundedWidth)
+    }
+    if (index !== 0 && collectionPanePreferredWidth.value !== preferredWidths[0]) {
+      savePaneWidth(collectionPaneWidthPreferenceKey, Math.round(collectionPanePreferredWidth.value))
+    }
+    if (index !== 1 && fixedWidths.length > 1 && collectionArtistPanePreferredWidth.value !== preferredWidths[1]) {
+      savePaneWidth(collectionArtistPaneWidthPreferenceKey, Math.round(collectionArtistPanePreferredWidth.value))
     }
     paneResizeActive = false
     document.body.classList.remove('is-pane-resizing')
@@ -2040,7 +2064,7 @@ async function clearArtistProvider(artist: Artist) {
     return
   }
   try {
-    await store.clearArtistProvider(artist.id, provider.providerId)
+    await store.clearArtistProvider(provider.artistId, provider.providerId)
   } catch (error) {
     store.showErrorStatus(error, 'Unable to remove provider')
   }
@@ -2070,10 +2094,11 @@ async function scanArtistProvider(artist: Artist) {
 
 function providerScanIsRunningForArtist(artist: Artist) {
   if (providerJobIsRunning.value) {
+    const ids = artist.groupArtistIds ?? [artist.id]
     if (providerJob.value?.requestedArtistId != null) {
-      return providerJob.value.requestedArtistId === artist.id
+      return ids.includes(providerJob.value.requestedArtistId)
     }
-    return providerJob.value?.activeArtistId === artist.id
+    return providerJob.value?.activeArtistId != null && ids.includes(providerJob.value.activeArtistId)
   }
   return false
 }
@@ -2849,7 +2874,9 @@ watch(sortedCollectionTitleItems, (items) => {
         <div class="pane-header">
           <div class="pane-header__primary">
             <span class="pane-header__title">Albums</span>
-            <span v-if="selectedArtist" class="pane-header__meta">{{ selectedArtist.name }}</span>
+            <span v-if="selectedArtist" class="pane-header__meta">
+              {{ albumShowAllEnabled ? selectedArtist.canonicalName || selectedArtist.name : selectedArtist.name }}
+            </span>
           </div>
         </div>
         <div class="pane-filter-bar">
@@ -2987,6 +3014,11 @@ watch(sortedCollectionTitleItems, (items) => {
               <div data-column="album.name" class="workspace-grid__cell truncate-cell">
                 <div class="album-cell">
                   <span :class="albumTitleClasses(album)">{{ album.title }}</span>
+                  <EllipsizedText
+                    v-if="(selectedArtist?.groupArtistIds?.length ?? 0) > 1 && album.artistName"
+                    :text="album.artistName"
+                    class="cell-muted text-truncate"
+                  />
                 </div>
               </div>
               <div data-column="album.releaseYear" class="workspace-grid__cell release-year-cell">

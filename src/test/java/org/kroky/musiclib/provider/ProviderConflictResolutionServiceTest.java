@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.util.Comparator;
+import java.util.List;
 
 import javax.sql.DataSource;
 
@@ -194,6 +195,58 @@ class ProviderConflictResolutionServiceTest {
         assertTrue(AlbumProviderConflictService.yearTagNeedsUpdate("2019", 2020));
         assertTrue(AlbumProviderConflictService.yearTagNeedsUpdate("", 2020));
         assertTrue(AlbumProviderConflictService.yearTagNeedsUpdate(null, 2020));
+    }
+
+    @Test
+    void creditedNamesShareConflictResolutionWithoutChangingAlbumCreditsOrFolders() throws Exception {
+        execute("INSERT INTO artists(id,name,normalized_name) VALUES(2,'Athena XIX','athena xix')");
+        execute("UPDATE artists SET canonical_artist_id=2 WHERE id=1");
+        execute("INSERT INTO artists(id,name,normalized_name) VALUES(3,'Separate Band','separate band')");
+        execute("INSERT INTO albums(id,collection_id,title,normalized_title,release_year,checked) VALUES(2,1,'Current Title','current title',2010,1),(3,1,'Separate Title','separate title',2015,1)");
+        execute("INSERT INTO album_artists(album_id,artist_id,position) VALUES(2,2,0),(3,3,0)");
+        execute("INSERT INTO album_provider_links(id,album_id,provider_id,provider_release_group_id,provider_title,provider_release_year) VALUES(2,2,'musicbrainz','rg-current','Current Provider Title',2011),(3,3,'musicbrainz','rg-separate','Separate Provider Title',2016)");
+        execute("INSERT INTO artist_provider_links(artist_id,provider_id,provider_artist_id,country,active) VALUES(1,'spirit_of_metal','old-name','IT',0),(2,'metal_archives','current-name','DE',1),(3,'musicbrainz','separate-mb','FR',0),(3,'spirit_of_metal','separate-som','GB',1)");
+        Path folder = COLLECTION_ROOT.resolve("Athena - 2000 - Local Title");
+        Files.createDirectories(folder);
+        Path audio = folder.resolve("track.mp3");
+        Files.writeString(audio, "untouched audio fixture");
+        execute("UPDATE albums SET local_relative_path='Athena - 2000 - Local Title' WHERE id=1");
+
+        for (long artistId : List.of(1L, 2L)) {
+            var snapshot = service.open(artistId);
+            assertEquals(1, snapshot.countries().size());
+            assertEquals(2, snapshot.countries().get(0).artistId());
+            assertEquals(1, snapshot.statuses().size());
+            assertEquals(2, snapshot.statuses().get(0).artistId());
+            assertEquals(List.of(1L, 2L), snapshot.titles().stream().map(conflict -> conflict.albumId()).sorted().toList());
+            assertEquals(List.of(1L, 2L), snapshot.years().stream().map(conflict -> conflict.albumId()).sorted().toList());
+        }
+
+        var rejected = service.resolve(new AlbumProviderConflictService.ResolutionRequest(
+                "YEAR", "KEEP_LOCAL", 3, 1L, null, null, null));
+        assertEquals("ERROR", rejected.messages().get(0).severity());
+        assertNull(scalarText("SELECT release_year_resolution FROM album_provider_links WHERE id=1"));
+
+        var country = service.resolve(new AlbumProviderConflictService.ResolutionRequest(
+                "COUNTRY", null, 2, null, null, "IT", null));
+        var status = service.resolve(new AlbumProviderConflictService.ResolutionRequest(
+                "STATUS", null, 1, null, null, null, true));
+        var year = service.resolve(new AlbumProviderConflictService.ResolutionRequest(
+                "YEAR", "KEEP_LOCAL", 2, 1L, null, null, null));
+
+        assertTrue(country.messages().isEmpty());
+        assertTrue(status.messages().isEmpty());
+        assertTrue(year.messages().isEmpty());
+        assertEquals(2, scalarLong("SELECT count(*) FROM artists WHERE id IN (1,2) AND country_override='IT' AND active_override=1"));
+        assertNull(scalarText("SELECT country_override FROM artists WHERE id=3"));
+        assertNull(scalarText("SELECT active_override FROM artists WHERE id=3"));
+        assertEquals("KEEP_LOCAL", scalarText("SELECT release_year_resolution FROM album_provider_links WHERE id=1"));
+        assertEquals(1, scalarLong("SELECT artist_id FROM album_artists WHERE album_id=1"));
+        assertEquals(2, scalarLong("SELECT artist_id FROM album_artists WHERE album_id=2"));
+        assertEquals("Athena - 2000 - Local Title", scalarText("SELECT local_relative_path FROM albums WHERE id=1"));
+        assertEquals(2000, scalarLong("SELECT release_year FROM albums WHERE id=1"));
+        assertEquals("untouched audio fixture", Files.readString(audio));
+        assertTrue(Files.isDirectory(folder));
     }
 
     private AlbumProviderConflictService.ResolutionResult resolve(String kind, String action, Long providerLinkId) {
