@@ -131,6 +131,11 @@ Commit straight to `main` with no feature branches or pull requests unless the u
 `README.md` (Setup, Running, Build And Package) owns build/run commands and ports.
 `docs/ui-workflow-guide.md` owns verification rules and the UI smoke-test workflow, including the `scripts/check-ui-layout.ps1` CDP check.
 
+By default, build and run the app in a separate visible Windows PowerShell window with the project root as its working directory.
+Dot-source `.\dev-shell.ps1`, then run `brun` in that same window so build output and foreground app logs remain visible.
+After startup succeeds, open or refresh the app in the Codex in-app browser (IAB).
+Keep the PowerShell window open for live logs and `Ctrl+C` shutdown.
+
 Useful dev-shell commands after sourcing `dev-shell.sh`:
 
 ```bash
